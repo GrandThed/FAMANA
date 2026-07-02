@@ -7,12 +7,19 @@ local Workspace = game:GetService("Workspace")
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local GridConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GridConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GridConfig = require(Shared:WaitForChild("GridConfig"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
 
 local BorderService = {}
 
+local TELEPORT_ATTEMPTS = 3
+local FADE_LEAD = 0.35 -- seconds to let the screen fade to black before teleporting
+
 local borderFolder
+local teleportingRemote -- RemoteEvent: tell client to fade to black
+local cancelledRemote -- RemoteEvent: tell client to fade back in (teleport failed)
 local teleporting = {} -- [userId] = true while a handoff is in flight
 
 local function playerFromHit(hit)
@@ -39,15 +46,32 @@ local function handoff(player, destCell, entryEdge)
 	-- (Inventory already writes through on every change.)
 	PlayerService.save(player)
 
+	-- Fade the player's screen to black to hide the load, then teleport.
+	teleportingRemote:FireClient(player)
+	task.wait(FADE_LEAD)
+
 	local options = Instance.new("TeleportOptions")
 	options:SetTeleportData({ entryEdge = entryEdge })
 
-	local ok, err = pcall(function()
-		TeleportService:TeleportAsync(destPlaceId, { player }, options)
-	end)
-	if not ok then
+	local success = false
+	for attempt = 1, TELEPORT_ATTEMPTS do
+		local ok, err = pcall(function()
+			TeleportService:TeleportAsync(destPlaceId, { player }, options)
+		end)
+		if ok then
+			success = true
+			break
+		end
 		-- TeleportService doesn't work in Studio, and can fail transiently live.
-		warn("[BorderService] Teleport to '" .. destCell .. "' failed: " .. tostring(err))
+		warn(
+			"[BorderService] Teleport to '" .. destCell .. "' attempt " .. attempt .. " failed: " .. tostring(err)
+		)
+		task.wait(1)
+	end
+
+	if not success then
+		-- Recover: fade the screen back in and let them keep playing here.
+		cancelledRemote:FireClient(player)
 		teleporting[player.UserId] = nil
 	end
 end
@@ -75,6 +99,9 @@ local function createBorder(edge, destCell)
 end
 
 function BorderService.start()
+	teleportingRemote = Remotes.get("Teleporting")
+	cancelledRemote = Remotes.get("TeleportCancelled")
+
 	borderFolder = Instance.new("Folder")
 	borderFolder.Name = "Borders"
 	borderFolder.Parent = Workspace
