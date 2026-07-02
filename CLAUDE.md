@@ -42,16 +42,28 @@ Fastify + `pg` (raw SQL, ESM). Live at
 - Entry: [`src/server.js`](backend/src/server.js). Auth hook in `src/auth.js`.
 - Persistence: `src/playerService.js`, `src/inventory.js` (transactional
   add/remove with stack-filling). Schema in `src/schema.sql`; item defs in
-  `src/items.js` (mirrored in Luau — keep in sync).
+  `src/items.js` (mirrored in Luau — keep in sync). `loadPlayer` reconciles the
+  starter kit (tools/weapons) on every load, so existing players pick up
+  newly-added starter gear.
+- **Admin dashboard** (`/admin`): `src/adminService.js` (reads + audited
+  mutations), `src/adminAuth.js` (signed-cookie sessions via Node `crypto`,
+  separate from the game's `X-Api-Key`), `src/routes/admin.js`, static SPA in
+  `admin-web/`. Enabled only if `ADMIN_PASSWORD` is set. See
+  [`docs/ADMIN_DASHBOARD.md`](docs/ADMIN_DASHBOARD.md).
+- **Live admin→game push** (polling): `src/events.js` — admin item mutations
+  enqueue a `player_events` row (same transaction); the game drains them via
+  `POST /player/events`. See the Roblox `AdminSyncService` below.
 - Tables auto-migrate on Railway deploy via `preDeployCommand: npm run migrate`
   (see `railway.json`). Railway env vars: `DATABASE_URL` (reference to the
-  Postgres plugin) + `API_KEY`.
+  Postgres plugin) + `API_KEY`; optional `ADMIN_PASSWORD` / `ADMIN_SESSION_SECRET`.
 
 Local dev: `cd backend && npm install && npm run dev` (needs `DATABASE_URL` +
 `API_KEY`; see `.env.example`).
 
-Routes (all but `/health` require `X-Api-Key`): `GET /health`, `GET /player/:id`,
-`POST /player`, `POST /player/:id/save`, `GET|POST /player/:id/inventory[...]`.
+Routes: `GET /health` (public); admin under `/admin` (own session auth);
+everything else requires `X-Api-Key`: `GET /player/:id`, `POST /player`,
+`POST /player/:id/save`, `GET|POST /player/:id/inventory[...]`,
+`POST /player/events` (drain queued events for online players).
 
 ## Roblox (`roblox/`) — Rojo + Rokit
 
@@ -63,24 +75,37 @@ Run: `cd roblox && rojo serve`, connect via the Rojo Studio plugin.
 
 **Server services** (`src/server/`, started by `init.server.lua`):
 `WorldService` (per-cell theming) · `PlayerService` (load/save/cache +
-`onInventoryChanged` hook) · `HealthService` (HP restore, regen, respawn) ·
-`ToolService` (equippable Tools + `registerActivated` hook) · `GatheringService`
-(trees → wood) · `EnemyService` (slimes + `onKilled` hook) · `DropService`
-(ground loot) · `BorderService` (grid teleport handoff).
+`onInventoryChanged` hook + `refreshInventory`) · `HealthService` (HP restore,
+regen, respawn) · `ToolService` (equippable Tools + `registerActivated` hook) ·
+`GatheringService` (data-driven resource nodes: trees→wood, rocks→stone) ·
+`EnemyService` (data-driven enemies: slimes, goblins + `onKilled` hook) ·
+`DropService` (loot tables → ground drops) · `BorderService` (grid teleport
+handoff) · `AdminSyncService` (polls `/player/events` every 4s → refreshes
+inventory + fires `Notify` for live admin edits).
 
 **Client** (`src/client/`): `HealthUI`, `InventoryUI` (toggle button + `I` key),
-`BorderFadeUI`.
+`BorderFadeUI`, `NotificationUI` (toasts from the `Notify` remote),
+`ShiftLockController` (cursor lock + character faces camera; frees cursor when
+inventory open), `TargetingController` (RMB focuses by equipped tool within
+reach — sword→enemies, axe→trees, pickaxe→rocks), `ClientState` (shared
+`aiming` / `inventoryOpen` flags).
 
-**Shared** (`src/shared/`): `Config` (HP/inventory constants), `Items` (mirror
-of backend defs), `Remotes` (RemoteEvent/Function factory), `GridConfig` (cells
-keyed by PlaceId, neighbors, border geometry, per-cell themes).
+**Shared** (`src/shared/`): `Config` (HP/inventory constants + `reach` table for
+tool/weapon ranges) · `Items` (mirror of backend defs) · `Remotes`
+(RemoteEvent/Function factory) · `GridConfig` (cells keyed by PlaceId, neighbors,
+border geometry, per-cell themes).
 
 ### Conventions
 - Systems decouple via hooks, not cross-requires:
   `ToolService.registerActivated(itemType, fn)`, `EnemyService.onKilled(fn)`,
   `PlayerService.onInventoryChanged(fn)`.
+- Content is **data-driven**: add a resource node via a `NODE_DEFS` entry (+
+  builder) in `GatheringService`; add an enemy via an `ENEMY_DEFS` entry in
+  `EnemyService`; add an item to `items.js` **and** `Items.lua`.
 - New gameplay that grants items must go through `PlayerService.addItem/
   removeItem` so it persists and the UI/tools stay in sync.
+- Tool/weapon ranges live once in `Config.reach` (server combat/gather + client
+  targeting read the same values).
 - Item ids/defs must match between `backend/src/items.js` and
   `roblox/src/shared/Items.lua`.
 
