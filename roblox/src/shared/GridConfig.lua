@@ -12,10 +12,20 @@ GridConfig.cells = {
 	A = {
 		placeId = 0, -- TODO: Cell A's Place id
 		neighbors = { east = "B" },
+		theme = {
+			name = "CELL A",
+			ground = Color3.fromRGB(86, 140, 78), -- grassy green
+			signColor = Color3.fromRGB(120, 220, 120),
+		},
 	},
 	B = {
 		placeId = 0, -- TODO: Cell B's Place id
 		neighbors = { west = "A" },
+		theme = {
+			name = "CELL B",
+			ground = Color3.fromRGB(168, 130, 92), -- sandy brown
+			signColor = Color3.fromRGB(240, 200, 120),
+		},
 	},
 }
 
@@ -55,6 +65,11 @@ end
 function GridConfig.neighbors(cellId)
 	local cell = GridConfig.cells[cellId]
 	return cell and cell.neighbors or {}
+end
+
+function GridConfig.theme(cellId)
+	local cell = GridConfig.cells[cellId]
+	return cell and cell.theme or { name = cellId, ground = Color3.fromRGB(120, 120, 120), signColor = Color3.new(1, 1, 1) }
 end
 
 -- X offset of a border wall for the given edge.
