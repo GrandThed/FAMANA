@@ -1,34 +1,61 @@
--- Slime enemies: spawn at fixed points, chase + melee the nearest player,
--- take damage from weapon swings, die, and respawn. On death, fires kill
--- handlers (the drop system in step 6 hooks in here). In-memory per server.
+-- Enemies: spawn at fixed points, chase + melee the nearest player, take damage
+-- from weapon swings, die, and respawn. On death, fires kill handlers (the drop
+-- system hooks in here). Enemy types are data-driven (ENEMY_DEFS), so adding a
+-- new enemy is just a new entry. In-memory per server.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local HealthService = require(script.Parent.HealthService)
 local ToolService = require(script.Parent.ToolService)
 
 local EnemyService = {}
 
--- Fixed slime spawn spots for this cell (X/Z; Y found by raycast).
-local SLIME_SPOTS = {
-	Vector3.new(-20, 0, 12),
-	Vector3.new(-28, 0, 20),
-	Vector3.new(-15, 0, 26),
+local MELEE_RANGE = 9 -- how close a player must be for their weapon to connect
+
+-- Data-driven enemy types.
+local ENEMY_DEFS = {
+	slime = {
+		name = "Slime",
+		hp = 30,
+		damage = 5,
+		attackCooldown = 1.5,
+		walkSpeed = 8,
+		aggroRange = 30,
+		attackRange = 6,
+		respawn = 15,
+		lootSource = "slime",
+		size = Vector3.new(3, 3, 3),
+		color = Color3.fromRGB(80, 200, 120),
+		material = Enum.Material.SmoothPlastic,
+		spots = {
+			Vector3.new(-20, 0, 12),
+			Vector3.new(-28, 0, 20),
+			Vector3.new(-15, 0, 26),
+		},
+	},
+	goblin = {
+		name = "Goblin",
+		hp = 60,
+		damage = 10,
+		attackCooldown = 1.2,
+		walkSpeed = 12,
+		aggroRange = 35,
+		attackRange = 6,
+		respawn = 20,
+		lootSource = "goblin",
+		size = Vector3.new(2.5, 4, 2.5),
+		color = Color3.fromRGB(90, 150, 70),
+		material = Enum.Material.SmoothPlastic,
+		spots = {
+			Vector3.new(-34, 0, -8),
+			Vector3.new(-40, 0, -18),
+		},
+	},
 }
 
-local SLIME_HP = 30
-local AGGRO_RANGE = 30
-local ATTACK_RANGE = 6
-local ATTACK_DAMAGE = 5
-local ATTACK_COOLDOWN = 1.5
-local WALK_SPEED = 8
-local MELEE_RANGE = 9 -- how close a player must be for their sword to connect
-local RESPAWN_TIME = 15
-
-local spawns = {} -- { pos, slime = { part, fill, hp, lastAttack, dead } | nil }
+local spawns = {} -- { def, pos, enemy = { part, fill, hp, lastAttack, dead, def } | nil }
 local enemyFolder
 
 -- [n] = function(lootSource, position, killer)  registered by the drop system.
@@ -45,25 +72,25 @@ local function groundY(x, z)
 	return result and result.Position.Y or 0
 end
 
-local function updateHealthBar(slime)
-	slime.fill.Size = UDim2.new(math.clamp(slime.hp / SLIME_HP, 0, 1), 0, 1, 0)
+local function updateHealthBar(enemy)
+	enemy.fill.Size = UDim2.new(math.clamp(enemy.hp / enemy.def.hp, 0, 1), 0, 1, 0)
 end
 
-local function buildSlime(pos)
+local function buildEnemy(pos, def)
 	local y = groundY(pos.X, pos.Z)
 
 	local part = Instance.new("Part")
-	part.Name = "Slime"
+	part.Name = def.name
 	part.Anchored = true
-	part.Size = Vector3.new(3, 3, 3)
-	part.Color = Color3.fromRGB(80, 200, 120)
-	part.Material = Enum.Material.SmoothPlastic
-	part.Position = Vector3.new(pos.X, y + 1.5, pos.Z)
+	part.Size = def.size
+	part.Color = def.color
+	part.Material = def.material
+	part.Position = Vector3.new(pos.X, y + def.size.Y / 2, pos.Z)
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "HealthBar"
 	billboard.Size = UDim2.new(0, 60, 0, 8)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 2.6, 0)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, def.size.Y / 2 + 1, 0)
 	billboard.AlwaysOnTop = true
 	billboard.Parent = part
 
@@ -82,14 +109,14 @@ local function buildSlime(pos)
 
 	part.Parent = enemyFolder
 
-	return { part = part, fill = fill, hp = SLIME_HP, lastAttack = 0, dead = false }
+	return { part = part, fill = fill, hp = def.hp, lastAttack = 0, dead = false, def = def }
 end
 
 local function spawnAt(entry)
-	entry.slime = buildSlime(entry.pos)
+	entry.enemy = buildEnemy(entry.pos, entry.def)
 end
 
-local function nearestPlayer(position)
+local function nearestPlayer(position, range)
 	local closest, closestDist
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
@@ -97,19 +124,20 @@ local function nearestPlayer(position)
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		if root and humanoid and humanoid.Health > 0 then
 			local dist = (root.Position - position).Magnitude
-			if dist <= AGGRO_RANGE and (not closestDist or dist < closestDist) then
+			if dist <= range and (not closestDist or dist < closestDist) then
 				closest, closestDist = player, dist
 			end
 		end
 	end
-	return closest, closestDist
+	return closest
 end
 
-local function updateSlime(slime, dt)
-	if slime.dead then
+local function updateEnemy(enemy, dt)
+	if enemy.dead then
 		return
 	end
-	local target = nearestPlayer(slime.part.Position)
+	local def = enemy.def
+	local target = nearestPlayer(enemy.part.Position, def.aggroRange)
 	if not target then
 		return
 	end
@@ -119,43 +147,45 @@ local function updateSlime(slime, dt)
 	end
 
 	-- Move toward the player along the ground plane (keep our own height).
-	local from = slime.part.Position
+	local from = enemy.part.Position
 	local flatTarget = Vector3.new(root.Position.X, from.Y, root.Position.Z)
 	local toTarget = flatTarget - from
 	local planarDist = toTarget.Magnitude
-	if planarDist > ATTACK_RANGE then
-		local step = toTarget.Unit * math.min(WALK_SPEED * dt, planarDist)
-		slime.part.Position = from + step
+	if planarDist > def.attackRange then
+		local step = toTarget.Unit * math.min(def.walkSpeed * dt, planarDist)
+		enemy.part.Position = from + step
 	end
 
 	-- Attack if in range and off cooldown.
-	if (root.Position - slime.part.Position).Magnitude <= ATTACK_RANGE then
+	if (root.Position - enemy.part.Position).Magnitude <= def.attackRange then
 		local now = os.clock()
-		if now - slime.lastAttack >= ATTACK_COOLDOWN then
-			slime.lastAttack = now
+		if now - enemy.lastAttack >= def.attackCooldown then
+			enemy.lastAttack = now
 			local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
-				humanoid:TakeDamage(ATTACK_DAMAGE)
+				humanoid:TakeDamage(def.damage)
 				HealthService.registerDamage(target) -- pause the player's regen
 			end
 		end
 	end
 end
 
-local function killSlime(entry, slime, killer)
-	if slime.dead then
+local function killEnemy(entry, enemy, killer)
+	if enemy.dead then
 		return
 	end
-	slime.dead = true
-	local position = slime.part.Position
-	slime.part:Destroy()
-	entry.slime = nil
+	enemy.dead = true
+	local position = enemy.part.Position
+	local lootSource = enemy.def.lootSource
+	local respawn = enemy.def.respawn
+	enemy.part:Destroy()
+	entry.enemy = nil
 
 	for _, fn in ipairs(EnemyService.killedHandlers) do
-		task.spawn(fn, "slime", position, killer)
+		task.spawn(fn, lootSource, position, killer)
 	end
 
-	task.delay(RESPAWN_TIME, function()
+	task.delay(respawn, function()
 		spawnAt(entry)
 	end)
 end
@@ -168,22 +198,22 @@ local function onWeaponSwing(player, tool, def)
 		return
 	end
 
-	local hitEntry, hitSlime, hitDist
+	local hitEntry, hitEnemy, hitDist
 	for _, entry in ipairs(spawns) do
-		local slime = entry.slime
-		if slime and not slime.dead then
-			local dist = (slime.part.Position - root.Position).Magnitude
+		local enemy = entry.enemy
+		if enemy and not enemy.dead then
+			local dist = (enemy.part.Position - root.Position).Magnitude
 			if dist <= MELEE_RANGE and (not hitDist or dist < hitDist) then
-				hitEntry, hitSlime, hitDist = entry, slime, dist
+				hitEntry, hitEnemy, hitDist = entry, enemy, dist
 			end
 		end
 	end
 
-	if hitSlime then
-		hitSlime.hp -= (def.damage or 10)
-		updateHealthBar(hitSlime)
-		if hitSlime.hp <= 0 then
-			killSlime(hitEntry, hitSlime, player)
+	if hitEnemy then
+		hitEnemy.hp -= (def.damage or 10)
+		updateHealthBar(hitEnemy)
+		if hitEnemy.hp <= 0 then
+			killEnemy(hitEntry, hitEnemy, player)
 		end
 	end
 end
@@ -193,18 +223,20 @@ function EnemyService.start()
 	enemyFolder.Name = "Enemies"
 	enemyFolder.Parent = Workspace
 
-	for _, pos in ipairs(SLIME_SPOTS) do
-		local entry = { pos = pos, slime = nil }
-		table.insert(spawns, entry)
-		spawnAt(entry)
+	for _, def in pairs(ENEMY_DEFS) do
+		for _, pos in ipairs(def.spots) do
+			local entry = { def = def, pos = pos, enemy = nil }
+			table.insert(spawns, entry)
+			spawnAt(entry)
+		end
 	end
 
 	ToolService.registerActivated("weapon", onWeaponSwing)
 
 	RunService.Heartbeat:Connect(function(dt)
 		for _, entry in ipairs(spawns) do
-			if entry.slime then
-				updateSlime(entry.slime, dt)
+			if entry.enemy then
+				updateEnemy(entry.enemy, dt)
 			end
 		end
 	end)

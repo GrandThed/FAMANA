@@ -22,11 +22,19 @@ local LOOT = {
 		{ itemId = "slime_goo", chance = 1.0, min = 1, max = 1 },
 		{ itemId = "wood", chance = 0.25, min = 1, max = 1 },
 	},
+	goblin = {
+		{ itemId = "goblin_ear", chance = 1.0, min = 1, max = 1 },
+		{ itemId = "stone", chance = 0.4, min = 1, max = 2 },
+		{ itemId = "sword_iron", chance = 0.05, min = 1, max = 1 }, -- rare
+	},
 }
 
 local ITEM_COLORS = {
 	slime_goo = Color3.fromRGB(120, 220, 140),
 	wood = Color3.fromRGB(150, 100, 55),
+	stone = Color3.fromRGB(130, 130, 135),
+	goblin_ear = Color3.fromRGB(120, 160, 90),
+	sword_iron = Color3.fromRGB(200, 200, 215),
 }
 
 local dropFolder
