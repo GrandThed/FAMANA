@@ -127,8 +127,14 @@ function PlayerService.start()
 	inventoryUpdated = Remotes.get("InventoryUpdated")
 	requestInventory = Remotes.getFunction("RequestInventory")
 
-	-- Client pulls its inventory once its UI is ready.
+	-- Client pulls its inventory once its UI is ready. The profile loads
+	-- asynchronously (backend HTTP), and the client may ask before it's ready,
+	-- so wait for it (up to a timeout) instead of returning an empty list.
 	requestInventory.OnServerInvoke = function(player)
+		local deadline = os.clock() + 10
+		while not cache[player.UserId] and os.clock() < deadline do
+			task.wait(0.1)
+		end
 		local profile = cache[player.UserId]
 		return profile and profile.inventory or {}
 	end
@@ -138,6 +144,8 @@ function PlayerService.start()
 
 	Players.PlayerAdded:Connect(function(player)
 		loadProfile(player)
+		-- Push the freshly-loaded inventory in case the client already asked.
+		PlayerService.pushInventory(player)
 		player:LoadCharacter()
 	end)
 
