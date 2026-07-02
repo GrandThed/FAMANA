@@ -22,10 +22,22 @@ function PlayerService.get(player)
 	return cache[player.UserId]
 end
 
+-- Server-side listeners notified whenever a player's inventory changes
+-- (e.g. ToolService rebuilding hotbar tools). Decouples PlayerService from
+-- the systems that react to inventory changes.
+local inventoryListeners = {}
+
+function PlayerService.onInventoryChanged(fn)
+	table.insert(inventoryListeners, fn)
+end
+
 function PlayerService.pushInventory(player)
 	local profile = cache[player.UserId]
 	if profile and inventoryUpdated then
 		inventoryUpdated:FireClient(player, profile.inventory)
+	end
+	for _, fn in ipairs(inventoryListeners) do
+		task.spawn(fn, player)
 	end
 end
 
