@@ -2,7 +2,21 @@
 
 import { withTransaction, query } from "./db.js";
 import { getInventory, addItem } from "./inventory.js";
-import { STARTER_ITEMS } from "./items.js";
+import { STARTER_ITEMS, STARTER_EQUIPPABLES } from "./items.js";
+
+// Grants any missing starter tools/weapons (idempotent). Lets existing players
+// pick up newly-added starter gear without wiping their profile.
+async function ensureStarterEquippables(client, playerId, inventory) {
+  const owned = new Set(inventory.map((entry) => entry.itemId));
+  let granted = false;
+  for (const item of STARTER_EQUIPPABLES) {
+    if (!owned.has(item.itemId)) {
+      await addItem(client, playerId, item.itemId, item.quantity);
+      granted = true;
+    }
+  }
+  return granted;
+}
 
 function rowToPlayer(row, inventory) {
   return {
@@ -21,7 +35,10 @@ export async function loadPlayer(playerId) {
   return withTransaction(async (client) => {
     const { rows } = await client.query(`SELECT * FROM players WHERE id = $1`, [playerId]);
     if (rows.length === 0) return null;
-    const inventory = await getInventory(client, playerId);
+    let inventory = await getInventory(client, playerId);
+    if (await ensureStarterEquippables(client, playerId, inventory)) {
+      inventory = await getInventory(client, playerId);
+    }
     return rowToPlayer(rows[0], inventory);
   });
 }

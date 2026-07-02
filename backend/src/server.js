@@ -4,6 +4,7 @@ import { requireApiKey } from "./auth.js";
 import healthRoutes from "./routes/health.js";
 import playerRoutes from "./routes/player.js";
 import inventoryRoutes from "./routes/inventory.js";
+import adminRoutes from "./routes/admin.js";
 import { pool } from "./db.js";
 
 const fastify = Fastify({
@@ -12,6 +13,10 @@ const fastify = Fastify({
 
 // Health check is public (Railway probes it, no key available there).
 await fastify.register(healthRoutes);
+
+// Admin dashboard: served + guarded by its own session auth (NOT the game's
+// X-Api-Key), so it registers outside the API-key scope below.
+await fastify.register(adminRoutes);
 
 // Everything else is gated behind the shared secret.
 await fastify.register(async (instance) => {

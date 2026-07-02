@@ -2,7 +2,11 @@
 
 A web panel to administer the game from the backend: list players, view a
 dashboard, inspect a player's inventory, and add/remove items or edit stats.
-This is a **spec to build against** — not yet implemented.
+
+> **Status: implemented.** Live at `/admin` on the backend service. Set
+> `ADMIN_PASSWORD` (and ideally `ADMIN_SESSION_SECRET`) as Railway variables to
+> enable it. See [§ Implementation](#implementation-as-built) at the bottom for
+> what shipped and how it maps to this spec.
 
 ## Goals
 
@@ -139,6 +143,48 @@ until they rejoin/reload. Options (increasing effort):
 4. Mutations: item add/remove, HP/cell edit (+ audit log).
 5. Danger zone (delete/reset) with confirmation.
 6. (Later) live push to online players via MessagingService.
+
+## Implementation (as built)
+
+Shipped as **approach 1** (ships with the API, no build step) but as a single
+self-contained SPA served statically rather than server-rendered templates —
+so it needs **zero new npm dependencies** (important: it deploys on Railway
+without a build/install change).
+
+**Files added**
+- `backend/src/adminAuth.js` — signed-cookie sessions via Node's built-in
+  `crypto` (HMAC-SHA256), constant-time password check, per-IP login
+  rate-limit, `requireAdmin` guard. No `@fastify/jwt`/`secure-session`/`bcrypt`.
+- `backend/src/adminService.js` — stats aggregates, paginated/sortable player
+  list, player detail, and mutations. Every mutation writes an `admin_audit`
+  row **in the same transaction**; item edits reuse `inventory.js`
+  `addItem`/`removeItem`.
+- `backend/src/routes/admin.js` — all endpoints from the table above. `/admin`
+  (shell), `/admin/login`, `/admin/logout` are public (login is rate-limited);
+  everything else is session-guarded. Adds `GET /admin/me` for the SPA to
+  confirm its session.
+- `backend/admin-web/index.html` — the panel (login, dashboard, players list,
+  player detail with inventory +/− and add-item picker, danger zone with typed
+  delete confirmation). Hash-routed, so browser navigation stays under `/admin`
+  and never collides with the JSON endpoints.
+
+**Wiring & config**
+- Registered in `server.js` **outside** the `X-Api-Key` scope (it has its own
+  auth). Config in `config.js`: `ADMIN_PASSWORD` (unset ⇒ panel disabled),
+  `ADMIN_SESSION_SECRET` (falls back to `API_KEY`), `NODE_ENV` (`production`
+  ⇒ `Secure` cookies). See `.env.example`.
+- Schema (`schema.sql`, auto-migrated on deploy): new `admin_audit` table +
+  indexes on `players.updated_at` and `admin_audit.created_at`.
+
+**Run locally:** `cd backend && ADMIN_PASSWORD=... npm run dev`, then open
+`http://localhost:3000/admin`.
+
+**Deviations from the spec, on purpose**
+- Single shared `ADMIN_PASSWORD` (no `admin_users` table) for the MVP; audit
+  `actor` is the admin's request IP. Graduate to hashed per-user logins later.
+- No IP allowlist yet (§ optional). Live push to online players
+  (MessagingService) remains post-MVP — edits apply on the player's next load,
+  and the UI says so.
 
 ## Related
 

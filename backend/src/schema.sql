@@ -23,3 +23,20 @@ CREATE TABLE IF NOT EXISTS inventory_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_inventory_player ON inventory_items (player_id);
+
+-- Speeds up the admin dashboard's "recently active" aggregates.
+CREATE INDEX IF NOT EXISTS idx_players_updated_at ON players (updated_at);
+
+-- Append-only audit log for every admin-panel mutation. `actor` is the admin's
+-- request IP (single shared password for the MVP); `detail` holds the request
+-- payload / before-after context as JSON.
+CREATE TABLE IF NOT EXISTS admin_audit (
+    id             BIGSERIAL PRIMARY KEY,
+    actor          TEXT        NOT NULL,
+    action         TEXT        NOT NULL,
+    target_player  BIGINT,
+    detail         JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit (created_at DESC);
