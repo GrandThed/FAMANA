@@ -49,3 +49,33 @@ backend; the sword + axe show up in the inventory panel (press **I**). HP, cell,
 and position autosave every 60s and on leave.
 
 > The backend URL is set in `src/server/BackendConfig.lua`.
+
+## Step 7: two-cell grid (publishing required)
+
+`TeleportService` only works in a **published** game, not Studio playtest. Both
+cells run this same code and self-identify by their **PlaceId**.
+
+1. **Publish Cell A** (the start place): Studio → File → Publish to Roblox.
+   Create a new Experience if you don't have one.
+2. **Create Cell B** in the *same* Experience: Creator Dashboard → your
+   Experience → Places → Create Place. (Or Studio: File → Publish to Roblox As →
+   Create new Place under the same Experience.)
+3. Get both **Place IDs** (Creator Dashboard → each Place → Copy ID, or
+   `print(game.PlaceId)` in Studio while that place is open).
+4. Put them in [`src/shared/GridConfig.lua`](src/shared/GridConfig.lua):
+   ```lua
+   A = { placeId = <cell A id>, neighbors = { east = "B" } },
+   B = { placeId = <cell B id>, neighbors = { west = "A" } },
+   ```
+5. **Publish the identical content to BOTH places** (with GridConfig filled in):
+   Sync via Rojo, then File → Publish to Roblox As → Cell A, and again → Cell B.
+   The code behaves per-cell automatically via PlaceId.
+6. **Enable teleports between them:** Creator Dashboard → Experience → each
+   Place must belong to the same Experience (they do if created as above).
+
+Then launch the **published** game (not Studio), walk east into the blue border
+wall in Cell A → you teleport to Cell B, arriving at its west edge with your HP
+and inventory intact.
+
+> In Studio, the border wall still appears; touching it just logs a warning
+> (teleport is a no-op locally).

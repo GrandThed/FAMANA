@@ -1,0 +1,82 @@
+-- Grid layout for the server-grid MMO. Both cells run the SAME code; each
+-- running Place figures out which cell it is from its PlaceId. To add cells,
+-- publish a Place, then add its placeId + neighbors here.
+
+local GridConfig = {}
+
+-- ==========================================================================
+-- FILL THESE IN after publishing each Place (see roblox/README.md, step 7).
+-- Find a Place's id in the Creator Dashboard, or in Studio via game.PlaceId.
+-- ==========================================================================
+GridConfig.cells = {
+	A = {
+		placeId = 0, -- TODO: Cell A's Place id
+		neighbors = { east = "B" },
+	},
+	B = {
+		placeId = 0, -- TODO: Cell B's Place id
+		neighbors = { west = "A" },
+	},
+}
+
+-- Used when the running PlaceId matches no configured cell (e.g. Studio before
+-- you've filled in the ids). Lets you keep testing Cell A locally.
+GridConfig.defaultCell = "A"
+
+-- Geometry (studs). Border walls sit at +/- HALF on the crossing axis; you
+-- arrive INSET studs inside the opposite border.
+GridConfig.HALF = 40
+GridConfig.ENTRY_INSET = 6
+GridConfig.ENTRY_Y = 5
+
+local OPPOSITE = { east = "west", west = "east", north = "south", south = "north" }
+
+function GridConfig.oppositeEdge(edge)
+	return OPPOSITE[edge]
+end
+
+function GridConfig.currentCell()
+	local placeId = game.PlaceId
+	if placeId ~= 0 then
+		for cellId, cell in pairs(GridConfig.cells) do
+			if cell.placeId == placeId then
+				return cellId
+			end
+		end
+	end
+	return GridConfig.defaultCell
+end
+
+function GridConfig.placeIdOf(cellId)
+	local cell = GridConfig.cells[cellId]
+	return cell and cell.placeId or 0
+end
+
+function GridConfig.neighbors(cellId)
+	local cell = GridConfig.cells[cellId]
+	return cell and cell.neighbors or {}
+end
+
+-- X offset of a border wall for the given edge.
+function GridConfig.borderX(edge)
+	if edge == "east" then
+		return GridConfig.HALF
+	elseif edge == "west" then
+		return -GridConfig.HALF
+	end
+	return 0
+end
+
+-- Where a player should appear when they enter a cell from `entryEdge`.
+function GridConfig.entryPoint(entryEdge)
+	local inset = GridConfig.HALF - GridConfig.ENTRY_INSET
+	local x = 0
+	if entryEdge == "west" then
+		x = -inset
+	elseif entryEdge == "east" then
+		x = inset
+	end
+	return Vector3.new(x, GridConfig.ENTRY_Y, 0)
+end
+
+return GridConfig

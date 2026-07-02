@@ -1,10 +1,10 @@
 -- Shared, non-secret constants. Visible to client and server.
 -- (The API key is NOT here — it lives server-only in Secret.lua.)
 
-return {
-	-- Which grid cell this Place represents. Cell B's Place will set this to "B".
-	cell = "A",
+-- Note: which grid cell a Place represents now lives in GridConfig (derived
+-- from PlaceId), not here.
 
+return {
 	inventoryCapacity = 20,
 
 	HP = {

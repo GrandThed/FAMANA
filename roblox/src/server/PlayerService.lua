@@ -9,6 +9,7 @@ local BackendService = require(script.Parent.BackendService)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local GridConfig = require(Shared:WaitForChild("GridConfig"))
 
 local PlayerService = {}
 
@@ -56,7 +57,7 @@ local function loadProfile(player)
 		data = {
 			health = Config.HP.max,
 			maxHealth = Config.HP.max,
-			cell = Config.cell,
+			cell = GridConfig.currentCell(),
 			position = { x = 0, y = 0, z = 0 },
 			inventory = {},
 			_temporary = true,
@@ -64,7 +65,17 @@ local function loadProfile(player)
 	end
 
 	-- This Place represents a specific cell; record it so saves reflect reality.
-	data.cell = Config.cell
+	data.cell = GridConfig.currentCell()
+
+	-- If the player arrived via a border crossing, spawn them at the entry edge
+	-- instead of their saved position from the previous cell.
+	local joinData = player:GetJoinData()
+	local teleportData = joinData and joinData.TeleportData
+	if teleportData and teleportData.entryEdge then
+		local entry = GridConfig.entryPoint(teleportData.entryEdge)
+		data.position = { x = entry.X, y = entry.Y, z = entry.Z }
+	end
+
 	cache[userId] = data
 	return data
 end
