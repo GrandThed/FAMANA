@@ -55,7 +55,7 @@ local function candidates(category)
 			for _, m in ipairs(folder:GetChildren()) do
 				if m:IsA("Model") and m.Name == "Tree" then
 					local trunk = m.PrimaryPart or m:FindFirstChild("Trunk")
-					if trunk then
+					if trunk and not trunk:GetAttribute("Depleted") then
 						table.insert(out, { adornee = m, anchor = trunk, name = "Tree", hasHp = false })
 					end
 				end
@@ -65,7 +65,7 @@ local function candidates(category)
 		local folder = Workspace:FindFirstChild("Resources")
 		if folder then
 			for _, r in ipairs(folder:GetChildren()) do
-				if r:IsA("BasePart") and r.Name == "Rock" then
+				if r:IsA("BasePart") and r.Name == "Rock" and not r:GetAttribute("Depleted") then
 					table.insert(out, { adornee = r, anchor = r, name = "Rock", hasHp = false })
 				end
 			end

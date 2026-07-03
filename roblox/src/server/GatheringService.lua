@@ -58,6 +58,7 @@ local function buildTree(spot, def)
 	leaves.Parent = model
 
 	model.PrimaryPart = trunk
+	trunk:SetAttribute("Depleted", false)
 	model.Parent = resourceFolder
 
 	return {
@@ -69,12 +70,14 @@ local function buildTree(spot, def)
 			trunk.Size = Vector3.new(2, 2, 2)
 			trunk.Position = base + Vector3.new(0, 1, 0)
 			trunk.Color = Color3.fromRGB(80, 55, 32)
+			trunk:SetAttribute("Depleted", true)
 		end,
 		restore = function()
 			leaves.Transparency = 0
 			trunk.Size = Vector3.new(2, 8, 2)
 			trunk.Position = base + Vector3.new(0, 4, 0)
 			trunk.Color = Color3.fromRGB(105, 70, 40)
+			trunk:SetAttribute("Depleted", false)
 		end,
 	}
 end
@@ -90,6 +93,7 @@ local function buildRock(spot, def)
 	rock.Position = base + Vector3.new(0, 1.5, 0)
 	rock.Color = Color3.fromRGB(120, 120, 125)
 	rock.Material = Enum.Material.Slate
+	rock:SetAttribute("Depleted", false)
 	rock.Parent = resourceFolder
 
 	return {
@@ -100,11 +104,13 @@ local function buildRock(spot, def)
 			rock.Size = Vector3.new(2, 1, 2)
 			rock.Position = base + Vector3.new(0, 0.5, 0)
 			rock.Color = Color3.fromRGB(90, 90, 95)
+			rock:SetAttribute("Depleted", true)
 		end,
 		restore = function()
 			rock.Size = Vector3.new(4, 3, 4)
 			rock.Position = base + Vector3.new(0, 1.5, 0)
 			rock.Color = Color3.fromRGB(120, 120, 125)
+			rock:SetAttribute("Depleted", false)
 		end,
 	}
 end
