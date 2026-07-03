@@ -248,6 +248,33 @@ export async function adminRemoveItem(playerId, itemId, quantity, actor) {
   });
 }
 
+// Wipes every inventory slot for a player. Returns null if the player doesn't
+// exist, otherwise { cleared, inventory: [] }.
+export async function clearInventory(playerId, actor) {
+  return withTransaction(async (client) => {
+    const exists = await client.query(`SELECT 1 FROM players WHERE id = $1`, [playerId]);
+    if (exists.rowCount === 0) return null;
+    const { rowCount } = await client.query(
+      `DELETE FROM inventory_items WHERE player_id = $1`,
+      [playerId]
+    );
+    await auditInsert(client, {
+      actor,
+      action: "clear_inventory",
+      targetPlayer: playerId,
+      detail: { slotsCleared: rowCount },
+    });
+    await enqueueEvent(
+      client,
+      playerId,
+      "inventory",
+      "An admin cleared your inventory.",
+      { action: "clear" }
+    );
+    return { cleared: rowCount, inventory: [] };
+  });
+}
+
 export async function deletePlayer(playerId, actor) {
   return withTransaction(async (client) => {
     const { rows } = await client.query(

@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -16,7 +17,9 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 
 local EnemyService = {}
 
-local MELEE_RANGE = Config.reach.weapon -- how close a player must be for their weapon to connect
+local MELEE_RANGE = Config.reach.weapon -- how close a player must be for a melee weapon to connect
+local STAFF_RANGE = Config.reach.staff -- how far a ranged staff's magic missile can reach
+local MISSILE_SPEED = 90 -- studs/second the magic missile travels
 
 -- Data-driven enemy types.
 local ENEMY_DEFS = {
@@ -204,7 +207,74 @@ local function entryForPart(part)
 	return nil
 end
 
--- Called by ToolService when a "weapon" item is activated (sword swing).
+-- Picks the enemy a weapon should hit: the player's focused target if it's a
+-- valid enemy within reach, otherwise the nearest enemy in range.
+local function targetFor(player, root, reach)
+	local focused = entryForPart(TargetService.get(player))
+	if focused and (focused.enemy.part.Position - root.Position).Magnitude <= reach then
+		return focused, focused.enemy
+	end
+
+	local hitEntry, hitEnemy, hitDist
+	for _, entry in ipairs(spawns) do
+		local enemy = entry.enemy
+		if enemy and not enemy.dead then
+			local dist = (enemy.part.Position - root.Position).Magnitude
+			if dist <= reach and (not hitDist or dist < hitDist) then
+				hitEntry, hitEnemy, hitDist = entry, enemy, dist
+			end
+		end
+	end
+	return hitEntry, hitEnemy
+end
+
+local function dealDamage(entry, enemy, damage, killer)
+	if not enemy or enemy.dead then
+		return
+	end
+	enemy.hp -= damage
+	updateHealthBar(enemy)
+	if enemy.hp <= 0 then
+		killEnemy(entry, enemy, killer)
+	end
+end
+
+-- Spawns a glowing magic missile that flies from `fromPos` to the target part,
+-- then runs `onArrive`. Anchored + non-colliding so it just replicates as a
+-- cosmetic projectile to every client.
+local function fireMissile(fromPos, targetPart, onArrive)
+	local missile = Instance.new("Part")
+	missile.Name = "MagicMissile"
+	missile.Shape = Enum.PartType.Ball
+	missile.Size = Vector3.new(1.2, 1.2, 1.2)
+	missile.Color = Color3.fromRGB(150, 90, 255)
+	missile.Material = Enum.Material.Neon
+	missile.Anchored = true
+	missile.CanCollide = false
+	missile.CanQuery = false
+	missile.Position = fromPos
+
+	local light = Instance.new("PointLight")
+	light.Color = missile.Color
+	light.Range = 8
+	light.Brightness = 3
+	light.Parent = missile
+
+	missile.Parent = enemyFolder
+
+	local destination = targetPart.Position
+	local travel = math.clamp((destination - fromPos).Magnitude / MISSILE_SPEED, 0.05, 1)
+	local tween = TweenService:Create(missile, TweenInfo.new(travel, Enum.EasingStyle.Linear), { Position = destination })
+	tween.Completed:Connect(function()
+		missile:Destroy()
+		onArrive()
+	end)
+	tween:Play()
+end
+
+-- Called by ToolService when a "weapon" item is activated. Melee weapons hit
+-- instantly; ranged weapons (staff) launch a magic missile that damages on
+-- impact.
 local function onWeaponSwing(player, tool, def)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -212,34 +282,20 @@ local function onWeaponSwing(player, tool, def)
 		return
 	end
 
-	local hitEntry, hitEnemy
-
-	-- Prefer the player's focused target if it's a valid enemy within reach.
-	local focused = entryForPart(TargetService.get(player))
-	if focused and (focused.enemy.part.Position - root.Position).Magnitude <= MELEE_RANGE then
-		hitEntry, hitEnemy = focused, focused.enemy
-	end
-
-	-- Otherwise fall back to the nearest enemy in range.
+	local ranged = def.weaponType == "ranged"
+	local reach = ranged and STAFF_RANGE or MELEE_RANGE
+	local hitEntry, hitEnemy = targetFor(player, root, reach)
 	if not hitEnemy then
-		local hitDist
-		for _, entry in ipairs(spawns) do
-			local enemy = entry.enemy
-			if enemy and not enemy.dead then
-				local dist = (enemy.part.Position - root.Position).Magnitude
-				if dist <= MELEE_RANGE and (not hitDist or dist < hitDist) then
-					hitEntry, hitEnemy, hitDist = entry, enemy, dist
-				end
-			end
-		end
+		return
 	end
 
-	if hitEnemy then
-		hitEnemy.hp -= (def.damage or 10)
-		updateHealthBar(hitEnemy)
-		if hitEnemy.hp <= 0 then
-			killEnemy(hitEntry, hitEnemy, player)
-		end
+	local damage = def.damage or 10
+	if ranged then
+		fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
+			dealDamage(hitEntry, hitEnemy, damage, player)
+		end)
+	else
+		dealDamage(hitEntry, hitEnemy, damage, player)
 	end
 end
 

@@ -6,6 +6,7 @@ export const ITEMS = {
     id: "sword_basic",
     name: "Basic Sword",
     type: "weapon",
+    weaponType: "melee",
     stackable: false,
     maxStack: 1,
     damage: 10,
@@ -32,9 +33,19 @@ export const ITEMS = {
     id: "sword_iron",
     name: "Iron Sword",
     type: "weapon",
+    weaponType: "melee",
     stackable: false,
     maxStack: 1,
     damage: 20,
+  },
+  staff_basic: {
+    id: "staff_basic",
+    name: "Magic Staff",
+    type: "weapon",
+    weaponType: "ranged",
+    stackable: false,
+    maxStack: 1,
+    damage: 15,
   },
   wood: {
     id: "wood",
@@ -69,6 +80,7 @@ export const ITEMS = {
 // Items a brand-new player starts with.
 export const STARTER_ITEMS = [
   { itemId: "sword_basic", quantity: 1 },
+  { itemId: "staff_basic", quantity: 1 },
   { itemId: "axe_basic", quantity: 1 },
   { itemId: "pickaxe_basic", quantity: 1 },
 ];

@@ -29,6 +29,7 @@ import {
   updatePlayer,
   adminAddItem,
   adminRemoveItem,
+  clearInventory,
   deletePlayer,
 } from "../adminService.js";
 
@@ -182,6 +183,17 @@ export default async function adminRoutes(fastify) {
         }
         throw err;
       }
+    });
+
+    instance.delete("/admin/players/:id/inventory", async (request, reply) => {
+      const id = parsePlayerId(request, reply);
+      if (id === null) return;
+      const result = await clearInventory(id, request.ip);
+      if (!result) {
+        reply.code(404);
+        return { error: "not_found" };
+      }
+      return result;
     });
 
     instance.delete("/admin/players/:id", async (request, reply) => {

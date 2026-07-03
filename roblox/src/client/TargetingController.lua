@@ -30,7 +30,8 @@ local function equippedFocus(character)
 		return nil
 	end
 	if def.type == "weapon" then
-		return { category = "enemy", reach = Config.reach.weapon }
+		local reach = def.weaponType == "ranged" and Config.reach.staff or Config.reach.weapon
+		return { category = "enemy", reach = reach }
 	elseif def.type == "tool" and def.toolType then
 		return { category = def.toolType, reach = Config.reach[def.toolType] }
 	end

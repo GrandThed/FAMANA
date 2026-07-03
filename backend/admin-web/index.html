@@ -356,6 +356,8 @@ async function viewPlayer(id) {
       el("div", { class: "row", style: "margin-top:16px" },
         picker, addQty,
         el("button", { class: "primary", onclick: () => changeItem(id, picker.value, Number(addQty.value), "add", reloadInventory) }, "Add item"),
+        el("span", { class: "grow" }),
+        inv.length ? el("button", { class: "danger", onclick: () => clearInventory(id, reloadInventory) }, "Clear inventory") : null,
       ),
     );
   }
@@ -406,6 +408,15 @@ async function changeItem(id, itemId, quantity, dir, refresh) {
     const map = { no_room: "No inventory room.", insufficient: "Player doesn't have that many.", unknown_item: "Unknown item." };
     toast(map[e.data && e.data.error] || ("Failed: " + e.message), "err");
   }
+}
+
+async function clearInventory(id, refresh) {
+  if (!confirm("Delete this player's entire inventory? This cannot be undone.")) return;
+  try {
+    const res = await api("DELETE", `/admin/players/${id}/inventory`);
+    toast(`Inventory cleared (${res.cleared} slot${res.cleared === 1 ? "" : "s"}).`, "ok");
+    refresh();
+  } catch (e) { toast("Clear failed: " + e.message, "err"); }
 }
 
 function confirmDelete(id, username) {

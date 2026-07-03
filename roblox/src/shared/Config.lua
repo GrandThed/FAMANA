@@ -10,7 +10,8 @@ return {
 	-- Effective reach (studs) of tools/weapons. Used by the server to validate
 	-- combat/gather and by the client to decide what can be focused.
 	reach = {
-		weapon = 9, -- sword melee
+		weapon = 9, -- melee weapons (sword)
+		staff = 60, -- ranged weapons (magic staff)
 		axe = 12, -- tree gather
 		pickaxe = 12, -- rock gather
 	},

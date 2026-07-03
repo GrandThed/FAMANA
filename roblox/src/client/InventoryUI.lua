@@ -3,7 +3,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
@@ -147,15 +147,16 @@ function InventoryUI.start()
 	openBtn.Activated:Connect(toggle)
 	closeBtn.Activated:Connect(toggle)
 
-	-- Keep the I key too (works once the game viewport has focus).
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then
-			return
-		end
-		if input.KeyCode == Enum.KeyCode.I then
+	-- Bind the I key via ContextActionService. Unlike a raw
+	-- UserInputService.InputBegan listener (which only fires once the 3D
+	-- viewport has keyboard focus), a bound action reliably picks up the key.
+	-- It still won't fire while a TextBox is captured, so typing is unaffected.
+	ContextActionService:BindAction("ToggleInventory", function(_, inputState)
+		if inputState == Enum.UserInputState.Begin then
 			toggle()
 		end
-	end)
+		return Enum.ContextActionResult.Pass
+	end, false, Enum.KeyCode.I)
 
 	-- Wire up the remotes in the background so a slow/missing server can never
 	-- block the keybind above.

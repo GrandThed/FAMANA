@@ -56,7 +56,11 @@ local function buildHandle(def)
 	handle.Name = "Handle"
 	handle.TopSurface = Enum.SurfaceType.Smooth
 	handle.BottomSurface = Enum.SurfaceType.Smooth
-	if def.type == "weapon" then
+	if def.type == "weapon" and def.weaponType == "ranged" then -- magic staff
+		handle.Size = Vector3.new(0.3, 5, 0.3)
+		handle.Color = Color3.fromRGB(90, 60, 40)
+		handle.Material = Enum.Material.Wood
+	elseif def.type == "weapon" then
 		handle.Size = Vector3.new(0.3, 0.3, 4)
 		handle.Color = Color3.fromRGB(200, 200, 210)
 		handle.Material = Enum.Material.Metal
@@ -75,7 +79,33 @@ local function buildTool(player, itemId)
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
 	tool:SetAttribute("itemId", itemId)
-	buildHandle(def).Parent = tool
+	local handle = buildHandle(def)
+	handle.Parent = tool
+
+	-- A magic staff gets a glowing orb welded to its top.
+	if def.type == "weapon" and def.weaponType == "ranged" then
+		local orb = Instance.new("Part")
+		orb.Name = "Orb"
+		orb.Shape = Enum.PartType.Ball
+		orb.Size = Vector3.new(0.9, 0.9, 0.9)
+		orb.Color = Color3.fromRGB(150, 90, 255)
+		orb.Material = Enum.Material.Neon
+		orb.CanCollide = false
+		orb.Massless = true
+		orb.CFrame = handle.CFrame * CFrame.new(0, handle.Size.Y / 2, 0)
+
+		local light = Instance.new("PointLight")
+		light.Color = orb.Color
+		light.Range = 8
+		light.Brightness = 2
+		light.Parent = orb
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = handle
+		weld.Part1 = orb
+		weld.Parent = orb
+		orb.Parent = tool
+	end
 
 	tool.Activated:Connect(function()
 		playSwing(player)
