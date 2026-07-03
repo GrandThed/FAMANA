@@ -98,7 +98,11 @@ reach — sword→enemies, axe→trees, pickaxe→rocks), `ClientState` (shared
 equippable carries its own `reach` stat; the staff carries a `manaCost`) ·
 `Remotes`
 (RemoteEvent/Function factory) · `GridConfig` (cells keyed by PlaceId, neighbors,
-border geometry, per-cell themes).
+border geometry, per-cell themes) · `ArtKit` (low-poly design frame: shared
+flat-color palette + declarative `ArtKit.build(name, originCFrame, partSpecs)`
+model builder + `ArtKit.weld(handle, specs, scale?)` for Tool/drop assemblies) ·
+`ItemModels` (per-item low-poly model specs; `build(itemId)` → display Model,
+`preview(viewportFrame, itemId)` → auto-framed UI thumbnail).
 
 ### Conventions
 - Systems decouple via hooks, not cross-requires:
@@ -114,6 +118,16 @@ border geometry, per-cell themes).
   fallback). Ranged weapons (`weaponType = "ranged"`) require a focused target.
 - Item ids/defs must match between `backend/src/items.js` and
   `roblox/src/shared/Items.lua`.
+- **World assets are low-poly, built via `ArtKit`** (`src/shared/ArtKit.lua`):
+  a few chunky rotated blocks, flat colors from `ArtKit.Palette` (no inline RGB
+  in builders), SmoothPlastic everywhere. Build with `ArtKit.build` relative to
+  an origin CFrame. The gameplay anchor is the model's `PrimaryPart` and carries
+  the `Depleted` attribute — client targeting relies on both.
+- **Every item gets a model in `ItemModels.lua`** (spec list; first spec = the
+  grip/primary part at the origin, equippables stand along +Y). One catalog
+  drives held Tools (ToolService), inventory + hotbar thumbnails (ViewportFrame
+  via `ItemModels.preview`), and miniature ground drops (DropService). A part
+  named `Orb` gets a PointLight when built as a Tool.
 
 ## Critical gotchas
 

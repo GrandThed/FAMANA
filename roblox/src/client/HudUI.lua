@@ -15,6 +15,7 @@ local StarterGui = game:GetService("StarterGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
+local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
 
@@ -138,6 +139,16 @@ local function makeSlot(parent, order, onActivated)
 	key.Text = tostring(order + 1)
 	key.Parent = slot
 
+	-- 3D thumbnail of the item's low-poly model (fills the socket).
+	local thumb = Instance.new("ViewportFrame")
+	thumb.Size = UDim2.new(1, -4, 1, -4)
+	thumb.Position = UDim2.new(0, 2, 0, 2)
+	thumb.BackgroundTransparency = 1
+	thumb.Ambient = Color3.fromRGB(180, 180, 190)
+	thumb.LightColor = Color3.new(1, 1, 1)
+	thumb.Parent = slot
+
+	-- Fallback label for items that have no model.
 	local name = Instance.new("TextLabel")
 	name.Size = UDim2.new(1, -8, 1, -26)
 	name.Position = UDim2.new(0, 4, 0, 14)
@@ -163,15 +174,26 @@ local function makeSlot(parent, order, onActivated)
 	slot.Activated:Connect(onActivated)
 
 	local hasItem = false
+	local shownId = nil -- itemId whose thumbnail is currently rendered
 	local function set(itemId, quantity)
 		if itemId then
 			hasItem = true
-			local def = Items.get(itemId)
-			name.Text = def and def.name or itemId
+			-- Only rebuild the viewport when the item actually changes.
+			if itemId ~= shownId then
+				shownId = itemId
+				local def = Items.get(itemId)
+				if ItemModels.preview(thumb, itemId) then
+					name.Text = ""
+				else
+					name.Text = def and def.name or itemId
+				end
+			end
 			qty.Text = (quantity and quantity > 1) and tostring(quantity) or ""
 			slot.BackgroundTransparency = 0.1
 		else
 			hasItem = false
+			shownId = nil
+			thumb:ClearAllChildren()
 			name.Text = ""
 			qty.Text = ""
 			slot.BackgroundTransparency = 0.4

@@ -4,8 +4,11 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Items"))
+local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
+local ItemModels = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemModels"))
 local PlayerService = require(script.Parent.PlayerService)
 
 local ToolService = {}
@@ -31,7 +34,32 @@ swingAnim.AnimationId = SLASH_ANIM
 -- Per-player swing debounce so the animation can't be spammed.
 local lastSwing = {}
 
-local function playSwing(player)
+-- Procedural swing per item kind: the tool itself is rotated in the hand by
+-- tweening the engine-made RightGrip weld out and back (same server-side
+-- cosmetic-tween approach as the magic missile). Layered on top of the arm
+-- animation so the swing reads even when the stock anim doesn't fit the rig.
+local SWING_STYLES = {
+	slash = { rot = CFrame.Angles(math.rad(-60), 0, math.rad(-70)), time = 0.15 }, -- diagonal cut
+	chop = { rot = CFrame.Angles(math.rad(-100), 0, 0), time = 0.18 }, -- overhead chop
+	cast = { rot = CFrame.Angles(math.rad(-35), 0, 0), time = 0.22 }, -- staff raise
+}
+
+local function swingStyleFor(def)
+	if def.type == "tool" then
+		return SWING_STYLES.chop
+	elseif def.weaponType == "ranged" then
+		return SWING_STYLES.cast
+	end
+	return SWING_STYLES.slash
+end
+
+local function gripWeld(character)
+	local hand = character:FindFirstChild("RightHand") -- R15
+		or character:FindFirstChild("Right Arm") -- R6
+	return hand and hand:FindFirstChild("RightGrip")
+end
+
+local function playSwing(player, def)
 	local now = os.clock()
 	if now - (lastSwing[player.UserId] or 0) < SWING_COOLDOWN then
 		return
@@ -39,36 +67,49 @@ local function playSwing(player)
 	lastSwing[player.UserId] = now
 
 	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-	if not animator then
+	if not character then
 		return
 	end
-	local track = animator:LoadAnimation(swingAnim)
-	track:Play()
-	track.Stopped:Once(function()
-		track:Destroy()
-	end)
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		local track = animator:LoadAnimation(swingAnim)
+		track:Play()
+		track.Stopped:Once(function()
+			track:Destroy()
+		end)
+	end
+
+	local weld = gripWeld(character)
+	if weld then
+		local style = swingStyleFor(def)
+		local tween = TweenService:Create(
+			weld,
+			TweenInfo.new(style.time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true), -- reverses back
+			{ C0 = weld.C0 * style.rot }
+		)
+		tween:Play()
+	end
 end
 
+-- Fallback looks for equippables without an ItemModels entry yet.
+local DEFAULT_SPECS = {
+	weapon = { { name = "Handle", size = Vector3.new(0.35, 3, 0.35), color = "steel" } },
+	tool = { { name = "Handle", size = Vector3.new(0.4, 3, 0.4), color = "trunk" } },
+}
+
+-- Builds the Tool's part assembly from the shared ItemModels catalog: the
+-- first spec becomes the Handle (the hand holds its center); the rest are
+-- welded on around it.
 local function buildHandle(def)
-	local handle = Instance.new("Part")
+	local specs = ItemModels.get(def.id) or DEFAULT_SPECS[def.type]
+	local handle = ArtKit.part(specs[1])
 	handle.Name = "Handle"
-	handle.TopSurface = Enum.SurfaceType.Smooth
-	handle.BottomSurface = Enum.SurfaceType.Smooth
-	if def.type == "weapon" and def.weaponType == "ranged" then -- magic staff
-		handle.Size = Vector3.new(0.3, 5, 0.3)
-		handle.Color = Color3.fromRGB(90, 60, 40)
-		handle.Material = Enum.Material.Wood
-	elseif def.type == "weapon" then
-		handle.Size = Vector3.new(0.3, 0.3, 4)
-		handle.Color = Color3.fromRGB(200, 200, 210)
-		handle.Material = Enum.Material.Metal
-	else -- tool (e.g. axe)
-		handle.Size = Vector3.new(0.4, 3, 0.4)
-		handle.Color = Color3.fromRGB(120, 80, 45)
-		handle.Material = Enum.Material.Wood
-	end
+	handle.Anchored = false
+	local details = table.clone(specs)
+	table.remove(details, 1)
+	ArtKit.weld(handle, details)
 	return handle
 end
 
@@ -82,33 +123,18 @@ local function buildTool(player, itemId)
 	local handle = buildHandle(def)
 	handle.Parent = tool
 
-	-- A magic staff gets a glowing orb welded to its top.
-	if def.type == "weapon" and def.weaponType == "ranged" then
-		local orb = Instance.new("Part")
-		orb.Name = "Orb"
-		orb.Shape = Enum.PartType.Ball
-		orb.Size = Vector3.new(0.9, 0.9, 0.9)
-		orb.Color = Color3.fromRGB(150, 90, 255)
-		orb.Material = Enum.Material.Neon
-		orb.CanCollide = false
-		orb.Massless = true
-		orb.CFrame = handle.CFrame * CFrame.new(0, handle.Size.Y / 2, 0)
-
+	-- Any "Orb" part in the model glows (e.g. the magic staff's head).
+	local orb = handle:FindFirstChild("Orb")
+	if orb then
 		local light = Instance.new("PointLight")
 		light.Color = orb.Color
 		light.Range = 8
 		light.Brightness = 2
 		light.Parent = orb
-
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = handle
-		weld.Part1 = orb
-		weld.Parent = orb
-		orb.Parent = tool
 	end
 
 	tool.Activated:Connect(function()
-		playSwing(player)
+		playSwing(player, def)
 		local handler = ToolService.activatedHandlers[def.type]
 		if handler then
 			handler(player, tool, def)

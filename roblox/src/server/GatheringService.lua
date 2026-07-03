@@ -11,6 +11,7 @@ local PlayerService = require(script.Parent.PlayerService)
 local ToolService = require(script.Parent.ToolService)
 local TargetService = require(script.Parent.TargetService)
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
 
 local GatheringService = {}
 
@@ -32,32 +33,20 @@ end
 
 local function buildTree(spot, def)
 	local y = groundY(spot.X, spot.Z)
-	local base = Vector3.new(spot.X, y, spot.Z)
+	local origin = CFrame.new(spot.X, y, spot.Z)
 
-	local model = Instance.new("Model")
-	model.Name = "Tree"
+	-- Low-poly: square trunk + three stacked, offset-rotated canopy slabs.
+	local model = ArtKit.build("Tree", origin, {
+		{ name = "Trunk", size = Vector3.new(1.8, 8, 1.8), offset = Vector3.new(0, 4, 0), rot = Vector3.new(0, 15, 0), color = "trunk", primary = true },
+		{ name = "Canopy1", size = Vector3.new(9, 3.2, 9), offset = Vector3.new(0, 8.6, 0), rot = Vector3.new(0, 10, 0), color = "leafDark", canCollide = false },
+		{ name = "Canopy2", size = Vector3.new(6.8, 2.8, 6.8), offset = Vector3.new(0, 11.2, 0), rot = Vector3.new(0, 40, 0), color = "leaf", canCollide = false },
+		{ name = "Canopy3", size = Vector3.new(4.2, 2.4, 4.2), offset = Vector3.new(0, 13.4, 0), rot = Vector3.new(0, 70, 0), color = "leafLight", canCollide = false },
+	})
 
-	local trunk = Instance.new("Part")
-	trunk.Name = "Trunk"
-	trunk.Anchored = true
-	trunk.Size = Vector3.new(2, 8, 2)
-	trunk.Position = base + Vector3.new(0, 4, 0)
-	trunk.Color = Color3.fromRGB(105, 70, 40)
-	trunk.Material = Enum.Material.Wood
-	trunk.Parent = model
+	local trunk = model.PrimaryPart
+	local canopy = { model.Canopy1, model.Canopy2, model.Canopy3 }
+	local trunkCFrame, trunkSize = trunk.CFrame, trunk.Size
 
-	local leaves = Instance.new("Part")
-	leaves.Name = "Leaves"
-	leaves.Shape = Enum.PartType.Ball
-	leaves.Anchored = true
-	leaves.CanCollide = false
-	leaves.Size = Vector3.new(8, 8, 8)
-	leaves.Position = base + Vector3.new(0, 10, 0)
-	leaves.Color = Color3.fromRGB(60, 140, 60)
-	leaves.Material = Enum.Material.Grass
-	leaves.Parent = model
-
-	model.PrimaryPart = trunk
 	trunk:SetAttribute("Depleted", false)
 	model.Parent = resourceFolder
 
@@ -66,17 +55,21 @@ local function buildTree(spot, def)
 		amount = def.capacity,
 		anchor = trunk,
 		deplete = function()
-			leaves.Transparency = 1
-			trunk.Size = Vector3.new(2, 2, 2)
-			trunk.Position = base + Vector3.new(0, 1, 0)
-			trunk.Color = Color3.fromRGB(80, 55, 32)
+			for _, slab in ipairs(canopy) do
+				slab.Transparency = 1
+			end
+			trunk.Size = Vector3.new(1.8, 1.6, 1.8)
+			trunk.CFrame = origin * CFrame.new(0, 0.8, 0) * CFrame.Angles(0, math.rad(15), 0)
+			trunk.Color = ArtKit.Palette.trunkDark
 			trunk:SetAttribute("Depleted", true)
 		end,
 		restore = function()
-			leaves.Transparency = 0
-			trunk.Size = Vector3.new(2, 8, 2)
-			trunk.Position = base + Vector3.new(0, 4, 0)
-			trunk.Color = Color3.fromRGB(105, 70, 40)
+			for _, slab in ipairs(canopy) do
+				slab.Transparency = 0
+			end
+			trunk.Size = trunkSize
+			trunk.CFrame = trunkCFrame
+			trunk.Color = ArtKit.Palette.trunk
 			trunk:SetAttribute("Depleted", false)
 		end,
 	}
@@ -84,33 +77,45 @@ end
 
 local function buildRock(spot, def)
 	local y = groundY(spot.X, spot.Z)
-	local base = Vector3.new(spot.X, y, spot.Z)
+	local origin = CFrame.new(spot.X, y, spot.Z)
 
-	local rock = Instance.new("Part")
-	rock.Name = "Rock"
-	rock.Anchored = true
-	rock.Size = Vector3.new(4, 3, 4)
-	rock.Position = base + Vector3.new(0, 1.5, 0)
-	rock.Color = Color3.fromRGB(120, 120, 125)
-	rock.Material = Enum.Material.Slate
-	rock:SetAttribute("Depleted", false)
-	rock.Parent = resourceFolder
+	-- Low-poly: a main boulder with two smaller chunks jutting out at angles.
+	local model = ArtKit.build("Rock", origin, {
+		{ name = "Boulder", size = Vector3.new(4.2, 2.8, 3.6), offset = Vector3.new(0, 1.3, 0), rot = Vector3.new(6, 25, -4), color = "stone", primary = true },
+		{ name = "Chunk1", size = Vector3.new(2.6, 2, 2.4), offset = Vector3.new(1.7, 0.9, -1), rot = Vector3.new(-10, -35, 8), color = "stoneDark" },
+		{ name = "Chunk2", size = Vector3.new(1.7, 1.3, 1.7), offset = Vector3.new(-1.8, 0.6, 1.2), rot = Vector3.new(0, 50, 12), color = "stoneLight" },
+	})
+
+	local boulder = model.PrimaryPart
+	local chunks = { model.Chunk1, model.Chunk2 }
+	local boulderCFrame, boulderSize = boulder.CFrame, boulder.Size
+
+	boulder:SetAttribute("Depleted", false)
+	model.Parent = resourceFolder
 
 	return {
 		def = def,
 		amount = def.capacity,
-		anchor = rock,
+		anchor = boulder,
 		deplete = function()
-			rock.Size = Vector3.new(2, 1, 2)
-			rock.Position = base + Vector3.new(0, 0.5, 0)
-			rock.Color = Color3.fromRGB(90, 90, 95)
-			rock:SetAttribute("Depleted", true)
+			for _, chunk in ipairs(chunks) do
+				chunk.Transparency = 1
+				chunk.CanCollide = false
+			end
+			boulder.Size = Vector3.new(2.2, 1, 2)
+			boulder.CFrame = origin * CFrame.new(0, 0.5, 0) * CFrame.Angles(0, math.rad(25), 0)
+			boulder.Color = ArtKit.Palette.stoneDark
+			boulder:SetAttribute("Depleted", true)
 		end,
 		restore = function()
-			rock.Size = Vector3.new(4, 3, 4)
-			rock.Position = base + Vector3.new(0, 1.5, 0)
-			rock.Color = Color3.fromRGB(120, 120, 125)
-			rock:SetAttribute("Depleted", false)
+			for _, chunk in ipairs(chunks) do
+				chunk.Transparency = 0
+				chunk.CanCollide = true
+			end
+			boulder.Size = boulderSize
+			boulder.CFrame = boulderCFrame
+			boulder.Color = ArtKit.Palette.stone
+			boulder:SetAttribute("Depleted", false)
 		end,
 	}
 end

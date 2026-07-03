@@ -7,6 +7,7 @@ local ContextActionService = game:GetService("ContextActionService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
+local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
 local ClientState = require(script.Parent.ClientState)
@@ -79,6 +80,16 @@ function InventoryUI.start()
 		slot.BorderSizePixel = 0
 		slot.Parent = grid
 
+		-- 3D thumbnail of the item's low-poly model (fills the slot).
+		local thumb = Instance.new("ViewportFrame")
+		thumb.Size = UDim2.new(1, -4, 1, -4)
+		thumb.Position = UDim2.new(0, 2, 0, 2)
+		thumb.BackgroundTransparency = 1
+		thumb.Ambient = Color3.fromRGB(180, 180, 190)
+		thumb.LightColor = Color3.new(1, 1, 1)
+		thumb.Parent = slot
+
+		-- Fallback label for items that have no model.
 		local name = Instance.new("TextLabel")
 		name.Size = UDim2.new(1, -6, 1, -16)
 		name.Position = UDim2.new(0, 3, 0, 2)
@@ -102,13 +113,14 @@ function InventoryUI.start()
 		qty.Text = ""
 		qty.Parent = slot
 
-		slots[i] = { name = name, qty = qty }
+		slots[i] = { name = name, qty = qty, thumb = thumb }
 	end
 
 	local function render(inventory)
 		for i = 0, Config.inventoryCapacity - 1 do
 			slots[i].name.Text = ""
 			slots[i].qty.Text = ""
+			slots[i].thumb:ClearAllChildren()
 		end
 		if typeof(inventory) ~= "table" then
 			return
@@ -117,7 +129,10 @@ function InventoryUI.start()
 			local slot = slots[entry.slotIndex]
 			if slot then
 				local def = Items.get(entry.itemId)
-				slot.name.Text = def and def.name or entry.itemId
+				-- Prefer the 3D thumbnail; fall back to the item name.
+				if not ItemModels.preview(slot.thumb, entry.itemId) then
+					slot.name.Text = def and def.name or entry.itemId
+				end
 				slot.qty.Text = entry.quantity > 1 and tostring(entry.quantity) or ""
 			end
 		end

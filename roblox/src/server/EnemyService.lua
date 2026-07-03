@@ -17,6 +17,9 @@ local TargetService = require(script.Parent.TargetService)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local ArtKit = require(Shared:WaitForChild("ArtKit"))
+
+local V = Vector3.new
 
 local EnemyService = {}
 
@@ -36,14 +39,24 @@ local ENEMY_DEFS = {
 		hp = 30,
 		damage = 5,
 		attackCooldown = 1.5,
-		walkSpeed = 8,
 		aggroRange = 30,
 		attackRange = 6,
 		respawn = 15,
 		lootSource = "slime",
 		size = Vector3.new(3, 3, 3),
-		color = Color3.fromRGB(80, 200, 120),
+		color = ArtKit.Palette.slime,
 		material = Enum.Material.SmoothPlastic,
+		transparency = 0.2,
+		-- Slimes only move by hopping (parabolic jumps with squash & stretch).
+		movement = "hop",
+		hop = { distance = 6, height = 2.5, time = 0.5, pause = 0.35 },
+		-- Welded onto the body part; offsets from its center, front is -Z.
+		details = {
+			{ name = "Core", shape = "Ball", size = V(1.5, 1.5, 1.5), offset = V(0, -0.3, 0), color = "slime" },
+			{ name = "EyeL", size = V(0.35, 0.5, 0.3), offset = V(-0.55, 0.5, -1.5), color = "ink" },
+			{ name = "EyeR", size = V(0.35, 0.5, 0.3), offset = V(0.55, 0.5, -1.5), color = "ink" },
+			{ name = "Mouth", size = V(0.7, 0.18, 0.3), offset = V(0, -0.1, -1.5), color = "ink" },
+		},
 		spots = {
 			Vector3.new(-20, 0, 12),
 			Vector3.new(-28, 0, 20),
@@ -61,8 +74,18 @@ local ENEMY_DEFS = {
 		respawn = 20,
 		lootSource = "goblin",
 		size = Vector3.new(2.5, 4, 2.5),
-		color = Color3.fromRGB(90, 150, 70),
+		color = ArtKit.Palette.goblin,
 		material = Enum.Material.SmoothPlastic,
+		details = {
+			{ name = "EyeL", size = V(0.32, 0.32, 0.25), offset = V(-0.5, 1.3, -1.3), color = "ink" },
+			{ name = "EyeR", size = V(0.32, 0.32, 0.25), offset = V(0.5, 1.3, -1.3), color = "ink" },
+			{ name = "Nose", size = V(0.3, 0.5, 0.45), offset = V(0, 0.95, -1.35), color = "goblinDark" },
+			{ name = "Mouth", size = V(0.9, 0.16, 0.25), offset = V(0, 0.55, -1.3), color = "ink" },
+			{ name = "EarL", size = V(0.25, 0.8, 0.55), offset = V(-1.4, 1.45, 0), rot = V(0, 0, 25), color = "goblin" },
+			{ name = "EarR", size = V(0.25, 0.8, 0.55), offset = V(1.4, 1.45, 0), rot = V(0, 0, -25), color = "goblin" },
+			{ name = "Belt", size = V(2.7, 0.5, 2.7), offset = V(0, -0.6, 0), color = "trunkDark" },
+			{ name = "Cloth", size = V(1.0, 1.2, 0.22), offset = V(0, -1.35, -1.3), color = "dirt" },
+		},
 		spots = {
 			Vector3.new(-34, 0, -8),
 			Vector3.new(-40, 0, -18),
@@ -100,7 +123,13 @@ local function buildEnemy(pos, def)
 	part.Size = def.size
 	part.Color = def.color
 	part.Material = def.material
+	part.Transparency = def.transparency or 0
 	part.Position = Vector3.new(pos.X, y + def.size.Y / 2, pos.Z)
+
+	-- Face/body details ride along with the body via welds.
+	if def.details then
+		ArtKit.weld(part, def.details)
+	end
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "HealthBar"
@@ -147,32 +176,99 @@ local function nearestPlayer(position, range)
 	return closest
 end
 
+-- Squash/stretch the body around its bottom (feet stay planted). stretch > 1
+-- elongates for the air phase, < 1 flattens for the landing. Volume is
+-- roughly preserved by widening as it flattens.
+local function setSquash(enemy, stretch)
+	local part = enemy.part
+	local base = enemy.def.size
+	local widen = 1 / math.sqrt(stretch)
+	local bottom = part.Position.Y - part.Size.Y / 2
+	local size = Vector3.new(base.X * widen, base.Y * stretch, base.Z * widen)
+	local pos = Vector3.new(part.Position.X, bottom + size.Y / 2, part.Position.Z)
+	part.Size = size
+	part.CFrame = (part.CFrame - part.CFrame.Position) + pos
+end
+
+local HOP_SQUASH_TIME = 0.12 -- how long the landing squash holds
+
+-- Hop locomotion: parabolic jumps toward the player with squash & stretch.
+-- A hop in flight always finishes, even if the target left aggro range.
+local function updateHop(enemy, dt, root, def)
+	local hop = def.hop
+	local part = enemy.part
+	enemy.hopT = (enemy.hopT or 0) + dt
+	local state = enemy.hopState or "wait"
+
+	if state == "air" then
+		local a = math.min(enemy.hopT / hop.time, 1)
+		local pos = enemy.hopFrom:Lerp(enemy.hopTo, a)
+			+ Vector3.new(0, math.sin(a * math.pi) * hop.height, 0)
+		local look = Vector3.new(enemy.hopTo.X - enemy.hopFrom.X, 0, enemy.hopTo.Z - enemy.hopFrom.Z)
+		if look.Magnitude > 0.05 then
+			part.CFrame = CFrame.lookAt(pos, pos + look)
+		else
+			part.CFrame = (part.CFrame - part.CFrame.Position) + pos
+		end
+		setSquash(enemy, 1 + 0.25 * math.sin(a * math.pi))
+		if a >= 1 then
+			enemy.hopState = "squash"
+			enemy.hopT = 0
+			setSquash(enemy, 0.7)
+		end
+	elseif state == "squash" then
+		if enemy.hopT >= HOP_SQUASH_TIME then
+			setSquash(enemy, 1)
+			enemy.hopState = "wait"
+			enemy.hopT = 0
+		end
+	elseif root then -- "wait": grounded; face the player and wind up the next hop
+		local from = part.Position
+		local flatTarget = Vector3.new(root.Position.X, from.Y, root.Position.Z)
+		local toTarget = flatTarget - from
+		local planarDist = toTarget.Magnitude
+		if planarDist > 0.05 then
+			part.CFrame = CFrame.lookAt(from, flatTarget)
+		end
+		if planarDist > def.attackRange and enemy.hopT >= hop.pause then
+			local to = from + toTarget.Unit * math.min(hop.distance, planarDist)
+			enemy.hopFrom = from
+			enemy.hopTo = Vector3.new(to.X, groundY(to.X, to.Z) + def.size.Y / 2, to.Z)
+			enemy.hopState = "air"
+			enemy.hopT = 0
+		end
+	end
+end
+
 local function updateEnemy(enemy, dt)
 	if enemy.dead then
 		return
 	end
 	local def = enemy.def
 	local target = nearestPlayer(enemy.part.Position, def.aggroRange)
-	if not target then
-		return
-	end
-	local root = target.Character:FindFirstChild("HumanoidRootPart")
-	if not root then
-		return
+	local root
+	if target then
+		root = target.Character:FindFirstChild("HumanoidRootPart")
 	end
 
-	-- Move toward the player along the ground plane (keep our own height).
-	local from = enemy.part.Position
-	local flatTarget = Vector3.new(root.Position.X, from.Y, root.Position.Z)
-	local toTarget = flatTarget - from
-	local planarDist = toTarget.Magnitude
-	if planarDist > def.attackRange then
-		local step = toTarget.Unit * math.min(def.walkSpeed * dt, planarDist)
-		enemy.part.Position = from + step
+	if def.movement == "hop" then
+		updateHop(enemy, dt, root, def)
+	elseif root then
+		-- Walk toward the player along the ground plane, facing the way we move.
+		local from = enemy.part.Position
+		local flatTarget = Vector3.new(root.Position.X, from.Y, root.Position.Z)
+		local toTarget = flatTarget - from
+		local planarDist = toTarget.Magnitude
+		if planarDist > def.attackRange then
+			local pos = from + toTarget.Unit * math.min(def.walkSpeed * dt, planarDist)
+			enemy.part.CFrame = CFrame.lookAt(pos, Vector3.new(flatTarget.X, pos.Y, flatTarget.Z))
+		elseif planarDist > 0.05 then
+			enemy.part.CFrame = CFrame.lookAt(from, flatTarget)
+		end
 	end
 
 	-- Attack if in range and off cooldown.
-	if (root.Position - enemy.part.Position).Magnitude <= def.attackRange then
+	if root and (root.Position - enemy.part.Position).Magnitude <= def.attackRange then
 		local now = os.clock()
 		if now - enemy.lastAttack >= def.attackCooldown then
 			enemy.lastAttack = now

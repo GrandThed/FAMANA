@@ -71,8 +71,11 @@ local function candidates(category)
 		local folder = Workspace:FindFirstChild("Resources")
 		if folder then
 			for _, r in ipairs(folder:GetChildren()) do
-				if r:IsA("BasePart") and r.Name == "Rock" and not r:GetAttribute("Depleted") then
-					table.insert(out, { adornee = r, anchor = r, name = "Rock", hasHp = false })
+				if r:IsA("Model") and r.Name == "Rock" then
+					local boulder = r.PrimaryPart or r:FindFirstChild("Boulder")
+					if boulder and not boulder:GetAttribute("Depleted") then
+						table.insert(out, { adornee = r, anchor = boulder, name = "Rock", hasHp = false })
+					end
 				end
 			end
 		end

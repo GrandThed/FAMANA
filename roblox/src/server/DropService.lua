@@ -8,6 +8,8 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Items"))
+local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
+local ItemModels = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemModels"))
 local PlayerService = require(script.Parent.PlayerService)
 local EnemyService = require(script.Parent.EnemyService)
 
@@ -29,13 +31,26 @@ local LOOT = {
 	},
 }
 
-local ITEM_COLORS = {
-	slime_goo = Color3.fromRGB(120, 220, 140),
-	wood = Color3.fromRGB(150, 100, 55),
-	stone = Color3.fromRGB(130, 130, 135),
-	goblin_ear = Color3.fromRGB(120, 160, 90),
-	sword_iron = Color3.fromRGB(200, 200, 215),
-}
+local DROP_VISUAL_SIZE = 1.6 -- max extent of a drop's miniature model, studs
+local dropScale = {} -- [itemId] = cached uniform scale for the drop visual
+
+-- Scale that fits the item's model inside DROP_VISUAL_SIZE, or nil if the
+-- item has no model (falls back to the generic glowing cube).
+local function visualScale(itemId)
+	local cached = dropScale[itemId]
+	if cached then
+		return cached
+	end
+	local model = ItemModels.build(itemId)
+	if not model then
+		return nil
+	end
+	local size = model:GetExtentsSize()
+	model:Destroy()
+	local scale = DROP_VISUAL_SIZE / math.max(size.X, size.Y, size.Z)
+	dropScale[itemId] = scale
+	return scale
+end
 
 local dropFolder
 
@@ -94,17 +109,26 @@ local function spawnDrop(itemId, quantity, position)
 	local def = Items.get(itemId)
 	local spot = position + Vector3.new(math.random(-30, 30) / 10, 2, math.random(-30, 30) / 10)
 
+	-- The root part is the touch/pickup zone; the item's miniature model is
+	-- welded onto it (it follows the root's bob/spin CFrame updates).
 	local part = Instance.new("Part")
 	part.Name = "Drop"
 	part.Size = Vector3.new(1.2, 1.2, 1.2)
-	part.Color = ITEM_COLORS[itemId] or Color3.fromRGB(230, 200, 90)
-	part.Material = Enum.Material.Neon
 	part.Anchored = true
 	part.CanCollide = false
 	part.CFrame = CFrame.new(spot)
 	part:SetAttribute("itemId", itemId)
 	part:SetAttribute("quantity", quantity)
 	part:SetAttribute("baseY", spot.Y)
+
+	local scale = visualScale(itemId)
+	if scale then
+		part.Transparency = 1
+		ArtKit.weld(part, ItemModels.get(itemId), scale)
+	else
+		part.Color = Color3.fromRGB(230, 200, 90)
+		part.Material = Enum.Material.Neon
+	end
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Size = UDim2.new(0, 80, 0, 20)

@@ -10,7 +10,7 @@ export const ITEMS = {
     stackable: false,
     maxStack: 1,
     damage: 10,
-    reach: 11, // studs the swing (and its focus/targeting) can connect
+    reach: 10, // studs the swing (and its focus/targeting) can connect
   },
   axe_basic: {
     id: "axe_basic",
@@ -40,7 +40,7 @@ export const ITEMS = {
     stackable: false,
     maxStack: 1,
     damage: 20,
-    reach: 11,
+    reach: 10,
   },
   staff_basic: {
     id: "staff_basic",
