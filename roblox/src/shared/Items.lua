@@ -11,6 +11,7 @@ Items.defs = {
 		stackable = false,
 		maxStack = 1,
 		damage = 10,
+		reach = 11, -- studs the swing (and its focus/targeting) can connect
 	},
 	axe_basic = {
 		id = "axe_basic",
@@ -20,6 +21,7 @@ Items.defs = {
 		maxStack = 1,
 		toolType = "axe",
 		gatherPower = 1,
+		reach = 12,
 	},
 	pickaxe_basic = {
 		id = "pickaxe_basic",
@@ -29,6 +31,7 @@ Items.defs = {
 		maxStack = 1,
 		toolType = "pickaxe",
 		gatherPower = 1,
+		reach = 12,
 	},
 	sword_iron = {
 		id = "sword_iron",
@@ -38,6 +41,7 @@ Items.defs = {
 		stackable = false,
 		maxStack = 1,
 		damage = 20,
+		reach = 11,
 	},
 	staff_basic = {
 		id = "staff_basic",
@@ -47,6 +51,8 @@ Items.defs = {
 		stackable = false,
 		maxStack = 1,
 		damage = 15,
+		reach = 60,
+		manaCost = 25, -- mana spent per cast; blocked when mana is too low
 	},
 	wood = {
 		id = "wood",

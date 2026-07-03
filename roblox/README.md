@@ -20,8 +20,8 @@ src/
 │   └── Secret.lua            # YOUR API KEY (gitignored — see below)
 └── client/   -> StarterPlayer.StarterPlayerScripts.Client
     ├── init.client.lua  # entry point
-    ├── HealthUI.lua     # health bar
-    └── InventoryUI.lua  # 20-slot inventory panel (toggle with I)
+    ├── HudUI.lua        # health + mana orbs and hotbar
+    └── InventoryUI.lua  # 20-slot inventory panel (toggle with B)
 ```
 
 ## One-time setup

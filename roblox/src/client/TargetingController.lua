@@ -1,8 +1,11 @@
--- Tool-aware focus/targeting. While aiming (right mouse held), focuses the best
--- object for whatever is equipped — sword→enemies, axe→trees, pickaxe→rocks —
--- but only if it's within that tool's reach. The focus gets a highlight and a
--- top-screen target panel (with an HP bar for enemies). Enemy HP is read from
--- the replicated health-bar fill, so no extra networking.
+-- Tool-aware focus/targeting. While aiming (right mouse held), locks onto the
+-- best object for whatever is equipped — sword→enemies, axe→trees,
+-- pickaxe→rocks — within that tool's reach (a per-item stat). The lock is
+-- sticky: once acquired it persists through releasing RMB and attacking, and
+-- only clears when the target dies/depletes, leaves reach, or the equipped tool
+-- changes. The focus gets a highlight and a top-screen target panel (with an HP
+-- bar for enemies). Enemy HP is read from the replicated health-bar fill, so no
+-- extra networking.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -29,11 +32,13 @@ local function equippedFocus(character)
 	if not def then
 		return nil
 	end
+	-- Reach comes straight from the item's own `reach` stat (single source of
+	-- truth, shared with the server); Config.defaultReach is just a safety net.
+	local reach = def.reach or Config.defaultReach
 	if def.type == "weapon" then
-		local reach = def.weaponType == "ranged" and Config.reach.staff or Config.reach.weapon
 		return { category = "enemy", reach = reach }
 	elseif def.type == "tool" and def.toolType then
-		return { category = def.toolType, reach = Config.reach[def.toolType] }
+		return { category = def.toolType, reach = reach }
 	end
 	return nil
 end
@@ -134,11 +139,14 @@ function TargetingController.start()
 	highlight.OutlineTransparency = 0
 
 	local setTargetRemote = Remotes.get("SetTarget")
-	local currentAdornee
+	-- The current locked focus. It sticks until the target dies/depletes, leaves
+	-- reach, or the equipped tool no longer matches — NOT when the player stops
+	-- aiming or clicks to attack.
+	local lock = nil -- { adornee, anchor, hasHp, category } or nil
 
 	local function clear()
-		if currentAdornee then
-			currentAdornee = nil
+		if lock then
+			lock = nil
 			highlight.Adornee = nil
 			highlight.Parent = nil
 			gui.Enabled = false
@@ -146,17 +154,29 @@ function TargetingController.start()
 		end
 	end
 
-	local function setTarget(cand)
-		if cand.adornee ~= currentAdornee then
-			currentAdornee = cand.adornee
-			highlight.Adornee = cand.adornee
-			highlight.Parent = cand.adornee
-			nameLabel.Text = cand.name
-			barBg.Visible = cand.hasHp
-			gui.Enabled = true
-			-- Send the anchor part so the server can match + validate it.
-			setTargetRemote:FireServer(cand.anchor)
+	local function setTarget(cand, category)
+		if lock and cand.adornee == lock.adornee then
+			return
 		end
+		lock = { adornee = cand.adornee, anchor = cand.anchor, hasHp = cand.hasHp, category = category }
+		highlight.Adornee = cand.adornee
+		highlight.Parent = cand.adornee
+		nameLabel.Text = cand.name
+		barBg.Visible = cand.hasHp
+		gui.Enabled = true
+		-- Send the anchor part so the server can match + validate it.
+		setTargetRemote:FireServer(cand.anchor)
+	end
+
+	-- True once the lock's target is dead/depleted, out of reach, or no longer
+	-- matches what the equipped tool can focus.
+	local function lockStale(focus, root)
+		local anchor = lock.anchor
+		return focus.category ~= lock.category
+			or not anchor
+			or not anchor.Parent
+			or anchor:GetAttribute("Depleted")
+			or (anchor.Position - root.Position).Magnitude > focus.reach
 	end
 
 	RunService.RenderStepped:Connect(function()
@@ -164,44 +184,45 @@ function TargetingController.start()
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local camera = Workspace.CurrentCamera
 
-		if not (ClientState.aiming and root and camera) then
-			clear()
-			return
-		end
-
-		local focus = equippedFocus(character)
+		local focus = (root and camera) and equippedFocus(character) or nil
 		if not focus then
-			clear()
+			clear() -- dead, no camera, or nothing that can focus is equipped
 			return
 		end
 
-		local vp = camera.ViewportSize
-		local center = Vector2.new(vp.X / 2, vp.Y / 2)
+		-- Drop the existing lock only if it has become invalid.
+		if lock and lockStale(focus, root) then
+			clear()
+		end
 
-		local best, bestScore
-		for _, cand in ipairs(candidates(focus.category)) do
-			if (cand.anchor.Position - root.Position).Magnitude <= focus.reach then
-				local sp, onScreen = camera:WorldToViewportPoint(cand.anchor.Position)
-				if onScreen and sp.Z > 0 then
-					local frac = (Vector2.new(sp.X, sp.Y) - center).Magnitude / vp.Y
-					if not bestScore or frac < bestScore then
-						best, bestScore = cand, frac
+		-- While aiming, acquire / switch to the best on-screen target in reach.
+		-- This never clears an existing lock — if nothing qualifies, the current
+		-- lock is kept.
+		if ClientState.aiming and not ClientState.inventoryOpen then
+			local vp = camera.ViewportSize
+			local center = Vector2.new(vp.X / 2, vp.Y / 2)
+
+			local best, bestScore
+			for _, cand in ipairs(candidates(focus.category)) do
+				if (cand.anchor.Position - root.Position).Magnitude <= focus.reach then
+					local sp, onScreen = camera:WorldToViewportPoint(cand.anchor.Position)
+					if onScreen and sp.Z > 0 then
+						local frac = (Vector2.new(sp.X, sp.Y) - center).Magnitude / vp.Y
+						if not bestScore or frac < bestScore then
+							best, bestScore = cand, frac
+						end
 					end
 				end
 			end
+
+			if best then
+				setTarget(best, focus.category)
+			end
 		end
 
-		if not best then
-			clear()
-			return
-		end
-
-		setTarget(best)
-
-		if not best.adornee.Parent then
-			clear()
-		elseif best.hasHp then
-			local frac = hpFraction(best.anchor)
+		-- Keep the HP bar current for whatever is locked.
+		if lock and lock.hasHp then
+			local frac = hpFraction(lock.anchor)
 			if frac then
 				barFill.Size = UDim2.new(frac, 0, 1, 0)
 			end

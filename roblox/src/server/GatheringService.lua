@@ -123,7 +123,6 @@ local NODE_DEFS = {
 		yield = "wood",
 		capacity = 5,
 		respawn = 60,
-		range = Config.reach.axe,
 		build = buildTree,
 		spots = {
 			Vector3.new(20, 0, 12),
@@ -138,7 +137,6 @@ local NODE_DEFS = {
 		yield = "stone",
 		capacity = 5,
 		respawn = 60,
-		range = Config.reach.pickaxe,
 		build = buildRock,
 		spots = {
 			Vector3.new(22, 0, -12),
@@ -151,7 +149,7 @@ local NODE_DEFS = {
 
 -- ---- Gathering -----------------------------------------------------------
 
-local function findNearbyNode(character, toolType)
+local function findNearbyNode(character, toolType, reach)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root then
 		return nil
@@ -160,7 +158,7 @@ local function findNearbyNode(character, toolType)
 	for _, node in ipairs(nodes) do
 		if node.def.toolType == toolType and node.amount > 0 then
 			local dist = (node.anchor.Position - root.Position).Magnitude
-			if dist <= node.def.range and (not closestDist or dist < closestDist) then
+			if dist <= reach and (not closestDist or dist < closestDist) then
 				closest, closestDist = node, dist
 			end
 		end
@@ -180,6 +178,9 @@ local function onToolSwing(player, tool, def)
 		return
 	end
 
+	-- Reach is the tool's own stat (shared with combat/focus).
+	local reach = def.reach or Config.defaultReach
+
 	-- Prefer the player's focused node if it's valid, in range, and matches the
 	-- tool; otherwise fall back to the nearest matching node.
 	local node
@@ -192,7 +193,7 @@ local function onToolSwing(player, tool, def)
 					root
 					and n.def.toolType == def.toolType
 					and n.amount > 0
-					and (n.anchor.Position - root.Position).Magnitude <= n.def.range
+					and (n.anchor.Position - root.Position).Magnitude <= reach
 				then
 					node = n
 				end
@@ -201,7 +202,7 @@ local function onToolSwing(player, tool, def)
 		end
 	end
 	if not node then
-		node = findNearbyNode(player.Character, def.toolType)
+		node = findNearbyNode(player.Character, def.toolType, reach)
 	end
 	if not node then
 		return

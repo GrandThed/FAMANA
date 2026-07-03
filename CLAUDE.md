@@ -76,22 +76,27 @@ Run: `cd roblox && rojo serve`, connect via the Rojo Studio plugin.
 **Server services** (`src/server/`, started by `init.server.lua`):
 `WorldService` (per-cell theming) · `PlayerService` (load/save/cache +
 `onInventoryChanged` hook + `refreshInventory`) · `HealthService` (HP restore,
-regen, respawn) · `ToolService` (equippable Tools + `registerActivated` hook) ·
+regen, respawn) · `ManaService` (live, non-persisted mana in `Mana`/`MaxMana`
+Player attributes; steady regen; `trySpend` gates staff casts) ·
+`ToolService` (equippable Tools + `registerActivated` hook) ·
 `GatheringService` (data-driven resource nodes: trees→wood, rocks→stone) ·
 `EnemyService` (data-driven enemies: slimes, goblins + `onKilled` hook) ·
 `DropService` (loot tables → ground drops) · `BorderService` (grid teleport
 handoff) · `AdminSyncService` (polls `/player/events` every 4s → refreshes
 inventory + fires `Notify` for live admin edits).
 
-**Client** (`src/client/`): `HealthUI`, `InventoryUI` (toggle button + `I` key),
-`BorderFadeUI`, `NotificationUI` (toasts from the `Notify` remote),
+**Client** (`src/client/`): `HudUI` (Diablo-style health + mana orbs and a
+hotbar of item sockets, bottom of screen), `InventoryUI` (toggle button + `B`
+key), `BorderFadeUI`, `NotificationUI` (toasts from the `Notify` remote),
 `ShiftLockController` (cursor lock + character faces camera; frees cursor when
 inventory open), `TargetingController` (RMB focuses by equipped tool within
 reach — sword→enemies, axe→trees, pickaxe→rocks), `ClientState` (shared
 `aiming` / `inventoryOpen` flags).
 
-**Shared** (`src/shared/`): `Config` (HP/inventory constants + `reach` table for
-tool/weapon ranges) · `Items` (mirror of backend defs) · `Remotes`
+**Shared** (`src/shared/`): `Config` (HP/mana/inventory constants +
+`defaultReach` fallback + `hotbarSize`) · `Items` (mirror of backend defs; each
+equippable carries its own `reach` stat; the staff carries a `manaCost`) ·
+`Remotes`
 (RemoteEvent/Function factory) · `GridConfig` (cells keyed by PlaceId, neighbors,
 border geometry, per-cell themes).
 
@@ -104,8 +109,9 @@ border geometry, per-cell themes).
   `EnemyService`; add an item to `items.js` **and** `Items.lua`.
 - New gameplay that grants items must go through `PlayerService.addItem/
   removeItem` so it persists and the UI/tools stay in sync.
-- Tool/weapon ranges live once in `Config.reach` (server combat/gather + client
-  targeting read the same values).
+- Tool/weapon reach is a per-item `reach` stat on the def; server combat/gather
+  and client focus all read that single value (`Config.defaultReach` is only a
+  fallback). Ranged weapons (`weaponType = "ranged"`) require a focused target.
 - Item ids/defs must match between `backend/src/items.js` and
   `roblox/src/shared/Items.lua`.
 

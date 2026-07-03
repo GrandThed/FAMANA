@@ -11,15 +11,23 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local HealthService = require(script.Parent.HealthService)
+local ManaService = require(script.Parent.ManaService)
 local ToolService = require(script.Parent.ToolService)
 local TargetService = require(script.Parent.TargetService)
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local EnemyService = {}
 
-local MELEE_RANGE = Config.reach.weapon -- how close a player must be for a melee weapon to connect
-local STAFF_RANGE = Config.reach.staff -- how far a ranged staff's magic missile can reach
+local DEFAULT_REACH = Config.defaultReach -- fallback when a weapon def omits `reach`
 local MISSILE_SPEED = 90 -- studs/second the magic missile travels
+
+local notifyRemote -- RemoteEvent, resolved in start()
+
+-- Rate-limit the "not enough mana" toast so staff-spamming doesn't spam it.
+local lastManaWarn = {} -- [userId] = os.clock()
+local MANA_WARN_COOLDOWN = 1.5
 
 -- Data-driven enemy types.
 local ENEMY_DEFS = {
@@ -273,8 +281,9 @@ local function fireMissile(fromPos, targetPart, onArrive)
 end
 
 -- Called by ToolService when a "weapon" item is activated. Melee weapons hit
--- instantly; ranged weapons (staff) launch a magic missile that damages on
--- impact.
+-- instantly and can auto-swing at the nearest enemy; ranged weapons (staff)
+-- only fire at an explicitly focused target and launch a magic missile that
+-- damages on impact.
 local function onWeaponSwing(player, tool, def)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -282,15 +291,38 @@ local function onWeaponSwing(player, tool, def)
 		return
 	end
 
+	local reach = def.reach or DEFAULT_REACH
 	local ranged = def.weaponType == "ranged"
-	local reach = ranged and STAFF_RANGE or MELEE_RANGE
-	local hitEntry, hitEnemy = targetFor(player, root, reach)
+
+	local hitEntry, hitEnemy
+	if ranged then
+		-- Ranged weapons require a focus: fire only at the locked target, and
+		-- only while it's within reach. No target, no shot.
+		local focused = entryForPart(TargetService.get(player))
+		if focused and (focused.enemy.part.Position - root.Position).Magnitude <= reach then
+			hitEntry, hitEnemy = focused, focused.enemy
+		end
+	else
+		hitEntry, hitEnemy = targetFor(player, root, reach)
+	end
+
 	if not hitEnemy then
 		return
 	end
 
 	local damage = def.damage or 10
 	if ranged then
+		-- Ranged magic costs mana; block the cast (and warn) when too low. Only
+		-- charged here, once we know there's a valid target to fire at.
+		local cost = def.manaCost or 0
+		if cost > 0 and not ManaService.trySpend(player, cost) then
+			local now = os.clock()
+			if notifyRemote and now - (lastManaWarn[player.UserId] or 0) >= MANA_WARN_COOLDOWN then
+				lastManaWarn[player.UserId] = now
+				notifyRemote:FireClient(player, "Not enough mana")
+			end
+			return
+		end
 		fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
 			dealDamage(hitEntry, hitEnemy, damage, player)
 		end)
@@ -300,6 +332,12 @@ local function onWeaponSwing(player, tool, def)
 end
 
 function EnemyService.start()
+	notifyRemote = Remotes.get("Notify")
+
+	Players.PlayerRemoving:Connect(function(player)
+		lastManaWarn[player.UserId] = nil
+	end)
+
 	enemyFolder = Instance.new("Folder")
 	enemyFolder.Name = "Enemies"
 	enemyFolder.Parent = Workspace

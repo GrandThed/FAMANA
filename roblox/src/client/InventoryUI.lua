@@ -134,14 +134,15 @@ function InventoryUI.start()
 	local openBtn = Instance.new("TextButton")
 	openBtn.Name = "InventoryButton"
 	openBtn.Size = UDim2.new(0, 120, 0, 34)
-	openBtn.Position = UDim2.new(1, -16, 1, -16)
-	openBtn.AnchorPoint = Vector2.new(1, 1)
+	-- Top-right corner: the bottom corners now hold the health/mana orbs (HudUI).
+	openBtn.Position = UDim2.new(1, -16, 0, 16)
+	openBtn.AnchorPoint = Vector2.new(1, 0)
 	openBtn.BackgroundColor3 = Color3.fromRGB(60, 90, 160)
 	openBtn.BorderSizePixel = 0
 	openBtn.Font = Enum.Font.GothamBold
 	openBtn.TextSize = 15
 	openBtn.TextColor3 = Color3.new(1, 1, 1)
-	openBtn.Text = "Inventory (I)"
+	openBtn.Text = "Inventory (B)"
 	openBtn.Parent = gui
 
 	openBtn.Activated:Connect(toggle)
@@ -156,7 +157,7 @@ function InventoryUI.start()
 			toggle()
 		end
 		return Enum.ContextActionResult.Pass
-	end, false, Enum.KeyCode.I)
+	end, false, Enum.KeyCode.B)
 
 	-- Wire up the remotes in the background so a slow/missing server can never
 	-- block the keybind above.
