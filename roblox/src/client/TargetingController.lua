@@ -50,7 +50,9 @@ local function candidates(category)
 		local folder = Workspace:FindFirstChild("Enemies")
 		if folder then
 			for _, e in ipairs(folder:GetChildren()) do
-				if e:IsA("BasePart") then
+				-- Only real enemies (they carry a HealthBar billboard) — never
+				-- cosmetics like projectiles that pass through the folder.
+				if e:IsA("BasePart") and e:FindFirstChild("HealthBar") then
 					table.insert(out, { adornee = e, anchor = e, name = e.Name, hasHp = true })
 				end
 			end

@@ -374,7 +374,9 @@ local function fireMissile(fromPos, targetPart, onArrive)
 	light.Brightness = 3
 	light.Parent = missile
 
-	missile.Parent = enemyFolder
+	-- NOT in enemyFolder: the client targets every part in there, and a
+	-- projectile must never steal focus from the enemy it flies at.
+	missile.Parent = Workspace
 
 	local destination = targetPart.Position
 	local travel = math.clamp((destination - fromPos).Magnitude / MISSILE_SPEED, 0.05, 1)
