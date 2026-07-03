@@ -16,10 +16,18 @@ local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Ar
 local GatheringService = {}
 
 local GATHER_COOLDOWN = 1 -- global per-player gather cooldown (any node)
+local PARTICLE_BURST = 0.2 -- seconds the node's emitter stays on per harvest
 
-local nodes = {} -- { def, amount, anchor (Part), deplete(), restore() }
+local nodes = {} -- { def, amount, anchor (Part), deplete(), restore(), emitter? }
 local lastGather = {} -- [userId] = os.clock()
 local resourceFolder
+
+-- [n] = function(player, itemId, amount, position)  fired after a successful
+-- harvest (the drop system hooks in to fly the resource to the player).
+GatheringService.gatheredHandlers = {}
+function GatheringService.onGathered(fn)
+	table.insert(GatheringService.gatheredHandlers, fn)
+end
 
 local function groundY(x, z)
 	local params = RaycastParams.new()
@@ -129,6 +137,7 @@ local NODE_DEFS = {
 		capacity = 5,
 		respawn = 60,
 		build = buildTree,
+		particleColors = { "leafLight", "trunk" }, -- leaves + wood chips
 		spots = {
 			Vector3.new(20, 0, 12),
 			Vector3.new(28, 0, 18),
@@ -143,6 +152,7 @@ local NODE_DEFS = {
 		capacity = 5,
 		respawn = 60,
 		build = buildRock,
+		particleColors = { "stoneLight", "stoneDark" }, -- rock shards
 		spots = {
 			Vector3.new(22, 0, -12),
 			Vector3.new(30, 0, -18),
@@ -153,6 +163,42 @@ local NODE_DEFS = {
 }
 
 -- ---- Gathering -----------------------------------------------------------
+
+-- Node-themed particle burst each time the node yields. Toggled via Enabled
+-- (a property, so it replicates) rather than Emit() (a method call, which
+-- wouldn't reach clients from the server). The emitter is built lazily and
+-- lives on the node's anchor across deplete/restore.
+local function burstParticles(node)
+	local emitter = node.emitter
+	if not emitter then
+		local colors = node.def.particleColors or { "stone", "stoneDark" }
+		emitter = Instance.new("ParticleEmitter")
+		emitter.Enabled = false
+		emitter.Rate = 60
+		emitter.Lifetime = NumberRange.new(0.4, 0.8)
+		emitter.Speed = NumberRange.new(6, 11)
+		emitter.SpreadAngle = Vector2.new(55, 55)
+		emitter.Acceleration = Vector3.new(0, -30, 0)
+		emitter.Rotation = NumberRange.new(0, 360)
+		emitter.RotSpeed = NumberRange.new(-180, 180)
+		emitter.EmissionDirection = Enum.NormalId.Top
+		emitter.LightEmission = 0.1
+		emitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.45),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		emitter.Color = ColorSequence.new(
+			ArtKit.Palette[colors[1]] or ArtKit.Palette.stone,
+			ArtKit.Palette[colors[2] or colors[1]] or ArtKit.Palette.stone
+		)
+		emitter.Parent = node.anchor
+		node.emitter = emitter
+	end
+	emitter.Enabled = true
+	task.delay(PARTICLE_BURST, function()
+		emitter.Enabled = false
+	end)
+end
 
 local function findNearbyNode(character, toolType, reach)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -218,6 +264,13 @@ local function onToolSwing(player, tool, def)
 	local ok = PlayerService.addItem(player, node.def.yield, amount)
 	if not ok then
 		return -- inventory full or backend error; leave the node alone
+	end
+
+	-- The harvest lands immediately (backend above); everything below is the
+	-- show: a themed particle burst and the resource flying to the player.
+	burstParticles(node)
+	for _, fn in ipairs(GatheringService.gatheredHandlers) do
+		task.spawn(fn, player, node.def.yield, amount, node.anchor.Position)
 	end
 
 	node.amount -= amount

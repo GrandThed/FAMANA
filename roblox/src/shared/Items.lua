@@ -25,7 +25,7 @@ Items.defs = {
 		maxStack = 1,
 		toolType = "axe",
 		gatherPower = 1,
-		reach = 12,
+		reach = 8, -- gathering wants you up close to the node
 		size = { 2, 3 },
 	},
 	pickaxe_basic = {
@@ -36,7 +36,7 @@ Items.defs = {
 		maxStack = 1,
 		toolType = "pickaxe",
 		gatherPower = 1,
-		reach = 12,
+		reach = 8,
 		size = { 2, 3 },
 	},
 	sword_iron = {

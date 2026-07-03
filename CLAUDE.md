@@ -92,7 +92,9 @@ casts) · `EffectService` (live buffs/debuffs; walkspeed multipliers,
 replicated as `Effect_<id>` attributes holding server-clock expiry; slimes
 inflict `slow` on hit via `EnemyService.onPlayerHit`) ·
 `ToolService` (equippable Tools + `registerActivated` hook) ·
-`GatheringService` (data-driven resource nodes: trees→wood, rocks→stone) ·
+`GatheringService` (data-driven resource nodes: trees→wood, rocks→stone;
+harvests burst node-themed particles and fire the `onGathered` hook — the
+drop system flies the resource from the node to the player as pure show) ·
 `EnemyService` (data-driven enemies: slimes, goblins + `onKilled` +
 `onPlayerHit` hooks; enemies face their movement, optional `movement = "hop"`
 locomotion with squash & stretch, and per-def `details` welded via

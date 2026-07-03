@@ -24,6 +24,8 @@ See [`SPECIFICATION.md`](./SPECIFICATION.md) for the full MVP design.
 6. Drop system (ground drops + pickup)
 7. Second cell + border handoff
 
-## Getting started (backend)
+## Getting started
 
-See [`backend/README.md`](./backend/README.md).
+- **Dev environment & workflow** (Rojo, Rokit, VSCode, Studio):
+  [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
+- **Backend**: [`backend/README.md`](./backend/README.md)

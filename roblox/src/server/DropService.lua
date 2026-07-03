@@ -17,6 +17,7 @@ local ItemModels = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
 local EnemyService = require(script.Parent.EnemyService)
+local GatheringService = require(script.Parent.GatheringService)
 
 local DropService = {}
 
@@ -62,6 +63,57 @@ local function visualScale(itemId)
 end
 
 local dropFolder
+local flyFolder -- cosmetic flying pickups; kept out of dropFolder so the
+-- magnet/bob loop never touches them
+
+local FLY_SPEED = 16 -- studs/s at launch; accelerates so it always catches up
+local FLY_ARRIVE = 1.5 -- studs from the player at which it vanishes
+local FLY_TIMEOUT = 4 -- seconds before a stray visual gives up
+
+-- Cosmetic: a mini item model that flies from `position` to the player and
+-- vanishes on arrival. The item itself was already granted (gathering adds
+-- through the backend first) — this just makes the pickup visible.
+local function flyToPlayer(itemId, position, player)
+	local part = Instance.new("Part")
+	part.Name = "FlyingPickup"
+	part.Size = Vector3.new(0.6, 0.6, 0.6)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.Transparency = 1
+	part.CFrame = CFrame.new(position)
+
+	local scale = visualScale(itemId)
+	if scale then
+		ArtKit.weld(part, ItemModels.get(itemId), scale * 0.7)
+	else
+		part.Transparency = 0
+		part.Color = Color3.fromRGB(230, 200, 90)
+		part.Material = Enum.Material.Neon
+	end
+	part.Parent = flyFolder
+
+	task.spawn(function()
+		local born = os.clock()
+		while os.clock() - born < FLY_TIMEOUT and part.Parent do
+			local dt = RunService.Heartbeat:Wait()
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if not root then
+				break
+			end
+			local offset = root.Position - part.Position
+			local dist = offset.Magnitude
+			if dist <= FLY_ARRIVE then
+				break
+			end
+			local speed = FLY_SPEED + (os.clock() - born) * 40
+			part.CFrame = CFrame.new(part.Position + offset.Unit * math.min(speed * dt, dist))
+				* CFrame.Angles(0, os.clock() * 6, 0)
+		end
+		part:Destroy()
+	end)
+end
 
 local function rollLoot(source)
 	local lootTable = LOOT[source]
@@ -217,11 +269,21 @@ function DropService.start()
 	dropFolder.Name = "Drops"
 	dropFolder.Parent = Workspace
 
+	flyFolder = Instance.new("Folder")
+	flyFolder.Name = "FlyingPickups"
+	flyFolder.Parent = Workspace
+
 	-- Spawn loot when an enemy dies.
 	EnemyService.onKilled(function(source, position, _killer)
 		for _, drop in ipairs(rollLoot(source)) do
 			spawnDrop(drop.itemId, drop.quantity, position)
 		end
+	end)
+
+	-- Gathering: the harvested resource visibly flies from the node to the
+	-- player (it's already in their inventory; this is pure show).
+	GatheringService.onGathered(function(player, itemId, _amount, position)
+		flyToPlayer(itemId, position, player)
 	end)
 
 	-- Drag-out-to-drop from the inventory UI: remove the stack (backend
