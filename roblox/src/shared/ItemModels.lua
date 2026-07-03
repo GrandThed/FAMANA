@@ -75,6 +75,71 @@ ItemModels.defs = {
 		{ name = "TipR", size = V(0.45, 0.24, 0.24), offset = V(1.5, 1.12, 0), rot = V(0, 0, -15), color = "steelDark" },
 	},
 
+	-- ---- armor (paper-doll gear; thumbnails + drops, never held) ------------
+
+	helmet_leather = {
+		{ name = "Skull", size = V(1.2, 0.7, 1.2), color = "leather" },
+		{ name = "Top", size = V(0.9, 0.35, 0.9), offset = V(0, 0.5, 0), color = "leather" },
+		{ name = "Brow", size = V(1.3, 0.3, 1.3), offset = V(0, -0.4, 0), color = "leatherDark" },
+		{ name = "RivetL", size = V(0.14, 0.14, 0.14), offset = V(-0.62, -0.4, 0), color = "steelDark" },
+		{ name = "RivetR", size = V(0.14, 0.14, 0.14), offset = V(0.62, -0.4, 0), color = "steelDark" },
+	},
+
+	chest_leather = {
+		{ name = "Torso", size = V(1.4, 1.6, 0.7), color = "leather" },
+		{ name = "ShoulderL", size = V(0.5, 0.35, 0.75), offset = V(-0.85, 0.7, 0), color = "leatherDark" },
+		{ name = "ShoulderR", size = V(0.5, 0.35, 0.75), offset = V(0.85, 0.7, 0), color = "leatherDark" },
+		{ name = "Lacing", size = V(0.2, 1.4, 0.1), offset = V(0, 0, -0.38), color = "leatherDark" },
+		{ name = "Belt", size = V(1.44, 0.3, 0.74), offset = V(0, -0.75, 0), color = "leatherDark" },
+		{ name = "Buckle", size = V(0.3, 0.3, 0.12), offset = V(0, -0.75, -0.36), color = "gold" },
+	},
+
+	gloves_leather = {
+		{ name = "HandL", size = V(0.55, 0.75, 0.5), color = "leather" },
+		{ name = "CuffL", size = V(0.65, 0.3, 0.6), offset = V(0, 0.45, 0), color = "leatherDark" },
+		{ name = "ThumbL", size = V(0.2, 0.3, 0.2), offset = V(-0.32, -0.05, 0), color = "leather" },
+		{ name = "HandR", size = V(0.55, 0.75, 0.5), offset = V(1.05, 0, 0), color = "leather" },
+		{ name = "CuffR", size = V(0.65, 0.3, 0.6), offset = V(1.05, 0.45, 0), color = "leatherDark" },
+		{ name = "ThumbR", size = V(0.2, 0.3, 0.2), offset = V(1.37, -0.05, 0), color = "leather" },
+	},
+
+	legs_leather = {
+		{ name = "Waist", size = V(1.3, 0.5, 0.7), color = "leather" },
+		{ name = "Belt", size = V(1.34, 0.24, 0.74), offset = V(0, 0.3, 0), color = "leatherDark" },
+		{ name = "Buckle", size = V(0.28, 0.2, 0.1), offset = V(0, 0.3, -0.38), color = "gold" },
+		{ name = "LegL", size = V(0.55, 1.4, 0.6), offset = V(-0.35, -0.9, 0), color = "leather" },
+		{ name = "LegR", size = V(0.55, 1.4, 0.6), offset = V(0.35, -0.9, 0), color = "leather" },
+		{ name = "KneeL", size = V(0.6, 0.3, 0.65), offset = V(-0.35, -1.0, 0), color = "leatherDark" },
+		{ name = "KneeR", size = V(0.6, 0.3, 0.65), offset = V(0.35, -1.0, 0), color = "leatherDark" },
+	},
+
+	boots_leather = {
+		{ name = "ShaftL", size = V(0.5, 0.9, 0.55), color = "leather" },
+		{ name = "FootL", size = V(0.5, 0.35, 0.9), offset = V(0, -0.6, -0.25), color = "leatherDark" },
+		{ name = "CuffL", size = V(0.6, 0.25, 0.65), offset = V(0, 0.45, 0), color = "leatherDark" },
+		{ name = "ShaftR", size = V(0.5, 0.9, 0.55), offset = V(0.95, 0, 0), color = "leather" },
+		{ name = "FootR", size = V(0.5, 0.35, 0.9), offset = V(0.95, -0.6, -0.25), color = "leatherDark" },
+		{ name = "CuffR", size = V(0.6, 0.25, 0.65), offset = V(0.95, 0.45, 0), color = "leatherDark" },
+	},
+
+	-- ---- rings (tiny: they live in 1x1 tiles) --------------------------------
+
+	ring_vitality = {
+		{ name = "BandBottom", size = V(0.5, 0.1, 0.16), color = "gold" },
+		{ name = "BandL", size = V(0.1, 0.4, 0.16), offset = V(-0.2, 0.2, 0), color = "gold" },
+		{ name = "BandR", size = V(0.1, 0.4, 0.16), offset = V(0.2, 0.2, 0), color = "gold" },
+		{ name = "BandTop", size = V(0.5, 0.1, 0.16), offset = V(0, 0.4, 0), color = "gold" },
+		{ name = "Gem", size = V(0.24, 0.24, 0.24), offset = V(0, 0.55, 0), rot = V(0, 45, 45), color = "ruby", material = Enum.Material.Neon },
+	},
+
+	ring_focus = {
+		{ name = "BandBottom", size = V(0.5, 0.1, 0.16), color = "steel" },
+		{ name = "BandL", size = V(0.1, 0.4, 0.16), offset = V(-0.2, 0.2, 0), color = "steel" },
+		{ name = "BandR", size = V(0.1, 0.4, 0.16), offset = V(0.2, 0.2, 0), color = "steel" },
+		{ name = "BandTop", size = V(0.5, 0.1, 0.16), offset = V(0, 0.4, 0), color = "steel" },
+		{ name = "Gem", size = V(0.24, 0.24, 0.24), offset = V(0, 0.55, 0), rot = V(0, 45, 45), color = "sapphire", material = Enum.Material.Neon },
+	},
+
 	-- ---- resources (inventory thumbnails, ground drops) --------------------
 
 	wood = {

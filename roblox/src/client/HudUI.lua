@@ -3,10 +3,12 @@
 --   * Health reads the local Humanoid directly (HP replicates automatically).
 --   * Mana reads the "Mana"/"MaxMana" Player attributes set by the server's
 --     ManaService (attributes replicate to the owner, so no remote is needed).
---   * The hotbar mirrors the first `Config.hotbarSize` inventory slots; empty
---     slots render as empty sockets. Clicking a slot (or pressing its number
---     key) equips/unequips that item's Tool. We hide Roblox's default backpack
---     bar so this is the only hotbar on screen.
+--   * The hotbar: slots 1/2 are reserved for the equipped
+--     main weapons (the paper doll's weapon/offhand slots) and slots 3–0 are
+--     player-assigned quick binds (hover an item in the inventory grid and
+--     press the key — see HotbarBinds). Clicking a slot (or pressing its
+--     number key) equips/unequips that item's Tool. We hide Roblox's default
+--     backpack bar so this is the only hotbar on screen.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,6 +20,7 @@ local Items = require(Shared:WaitForChild("Items"))
 local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
+local HotbarBinds = require(script.Parent.HotbarBinds)
 
 local player = Players.LocalPlayer
 
@@ -28,11 +31,26 @@ local ORB_MARGIN = 22
 local SLOT = 58
 local SLOT_PAD = 8
 
+local HOTBAR_SIZE = 10 -- 1/2 = weapons, 3–0 = quick binds
+local WEAPON_SLOTS = 2
+
 local NUMBER_KEYS = {
 	Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
 	Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
 	Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine,
+	Enum.KeyCode.Zero,
 }
+
+-- Display label for slot i (0-based): 1..9 then 0.
+local function keyLabelFor(i)
+	return tostring((i + 1) % 10)
+end
+
+-- Equipment container x → hotbar slot (weapon = 0, offhand = 1).
+local SLOT_INDEX = {}
+for index, name in ipairs(Items.EQUIPMENT_SLOTS) do
+	SLOT_INDEX[name] = index - 1
+end
 
 -- Builds a circular "liquid" orb. Returns a setter: update(current, max).
 local function makeOrb(parent, anchorCorner, fillColor, rimColor)
@@ -106,7 +124,8 @@ local function makeOrb(parent, anchorCorner, fillColor, rimColor)
 end
 
 -- Builds one hotbar socket (a button). Returns { set, setEquipped }.
-local function makeSlot(parent, order, onActivated)
+-- `reserved` marks the weapon slots (1/2) with a warmer socket tint.
+local function makeSlot(parent, order, reserved, onActivated)
 	local slot = Instance.new("TextButton")
 	slot.Size = UDim2.new(0, SLOT, 0, SLOT)
 	slot.LayoutOrder = order
@@ -121,9 +140,10 @@ local function makeSlot(parent, order, onActivated)
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = slot
 
+	local baseStroke = reserved and Color3.fromRGB(110, 95, 60) or Color3.fromRGB(70, 70, 85)
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 1.5
-	stroke.Color = Color3.fromRGB(70, 70, 85)
+	stroke.Color = baseStroke
 	stroke.Transparency = 0.2
 	stroke.Parent = slot
 
@@ -132,11 +152,11 @@ local function makeSlot(parent, order, onActivated)
 	key.Size = UDim2.new(0, 14, 0, 12)
 	key.Position = UDim2.new(0, 3, 0, 2)
 	key.BackgroundTransparency = 1
-	key.TextColor3 = Color3.fromRGB(180, 180, 195)
+	key.TextColor3 = reserved and Color3.fromRGB(230, 205, 140) or Color3.fromRGB(180, 180, 195)
 	key.Font = Enum.Font.GothamBold
 	key.TextXAlignment = Enum.TextXAlignment.Left
 	key.TextSize = 11
-	key.Text = tostring(order + 1)
+	key.Text = keyLabelFor(order)
 	key.Parent = slot
 
 	-- 3D thumbnail of the item's low-poly model (fills the socket).
@@ -205,7 +225,7 @@ local function makeSlot(parent, order, onActivated)
 			stroke.Color = Color3.fromRGB(255, 220, 120)
 			stroke.Thickness = 2.5
 		else
-			stroke.Color = hasItem and Color3.fromRGB(120, 120, 145) or Color3.fromRGB(70, 70, 85)
+			stroke.Color = hasItem and Color3.fromRGB(120, 120, 145) or baseStroke
 			stroke.Thickness = 1.5
 		end
 	end
@@ -252,7 +272,7 @@ function HudUI.start()
 	local setMana = makeOrb(gui, "right", Color3.fromRGB(50, 110, 220), Color3.fromRGB(25, 55, 130))
 
 	-- ---- hotbar ----
-	local hotbarSize = Config.hotbarSize or 6
+	local hotbarSize = HOTBAR_SIZE
 	local barWidth = hotbarSize * SLOT + (hotbarSize - 1) * SLOT_PAD
 	local bar = Instance.new("Frame")
 	bar.Size = UDim2.new(0, barWidth, 0, SLOT)
@@ -294,7 +314,7 @@ function HudUI.start()
 
 	local slots = {}
 	for i = 0, hotbarSize - 1 do
-		slots[i] = makeSlot(bar, i, function()
+		slots[i] = makeSlot(bar, i, i < WEAPON_SLOTS, function()
 			activateSlot(i)
 		end)
 	end
@@ -312,15 +332,39 @@ function HudUI.start()
 		end
 	end
 
+	local lastInventory = nil
+
 	local function renderHotbar(inventory)
-		local bySlot = {}
 		if typeof(inventory) == "table" then
-			for _, entry in ipairs(inventory) do
-				bySlot[entry.slotIndex] = entry
+			lastInventory = inventory
+		end
+		inventory = lastInventory or {}
+
+		-- Slots 1/2 mirror the paper doll's weapon/offhand; the rest are binds.
+		local weaponEntries = {}
+		local mainByItem = {} -- [itemId] = first main-grid entry (for binds)
+		for _, entry in ipairs(inventory) do
+			if entry.containerId == "equipment" then
+				weaponEntries[entry.x] = entry
+			elseif entry.containerId == "main" and not mainByItem[entry.itemId] then
+				mainByItem[entry.itemId] = entry
 			end
 		end
-		for i = 0, hotbarSize - 1 do
-			local entry = bySlot[i]
+
+		for i = 0, WEAPON_SLOTS - 1 do
+			local entry = weaponEntries[i]
+			slotItem[i] = entry and entry.itemId or nil
+			slots[i].set(slotItem[i], entry and entry.quantity or nil)
+		end
+
+		for i = WEAPON_SLOTS, hotbarSize - 1 do
+			local itemId = HotbarBinds.get(i)
+			local entry = itemId and mainByItem[itemId]
+			if itemId and not entry then
+				-- The bound item left the grid; drop the bind (fires changed,
+				-- which re-renders — by then the bind is gone, so it settles).
+				HotbarBinds.clear(i)
+			end
 			slotItem[i] = entry and entry.itemId or nil
 			slots[i].set(slotItem[i], entry and entry.quantity or nil)
 		end
@@ -328,6 +372,9 @@ function HudUI.start()
 	end
 
 	renderHotbar(nil) -- start as empty sockets
+	HotbarBinds.changed:Connect(function()
+		renderHotbar(nil) -- re-render with the last known inventory
+	end)
 
 	-- Number keys 1..N equip/unequip the matching slot.
 	for i = 0, hotbarSize - 1 do

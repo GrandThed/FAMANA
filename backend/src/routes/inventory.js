@@ -1,5 +1,5 @@
 import { withTransaction } from "../db.js";
-import { getInventory, addItem, removeItem } from "../inventory.js";
+import { getInventory, addItem, removeItem, moveItem, sortInventory } from "../inventory.js";
 
 function parseId(request, reply) {
   const id = Number(request.params.id);
@@ -19,14 +19,17 @@ export default async function inventoryRoutes(fastify) {
     return { inventory };
   });
 
-  // Add an item.
+  // Add an item. With `partial: true`, adds what fits instead of failing
+  // (used by drop pickups for stackables); `added` reports the amount.
   fastify.post("/player/:id/inventory/add", async (request, reply) => {
     const id = parseId(request, reply);
     if (id === null) return;
-    const { itemId, quantity } = request.body || {};
+    const { itemId, quantity, partial } = request.body || {};
 
     try {
-      const result = await withTransaction((client) => addItem(client, id, itemId, quantity));
+      const result = await withTransaction((client) =>
+        addItem(client, id, itemId, quantity, { partial: partial === true })
+      );
       const inventory = await withTransaction((client) => getInventory(client, id));
       return { ...result, inventory };
     } catch (err) {
@@ -63,5 +66,39 @@ export default async function inventoryRoutes(fastify) {
       }
       throw err;
     }
+  });
+
+  // Move a stack (drag & drop): body { from: {containerId,x,y},
+  // to: {containerId,x,y,rotated?} }. Validates placement server-side.
+  fastify.post("/player/:id/inventory/move", async (request, reply) => {
+    const id = parseId(request, reply);
+    if (id === null) return;
+    const { from, to } = request.body || {};
+
+    try {
+      const result = await withTransaction((client) => moveItem(client, id, from, to));
+      const inventory = await withTransaction((client) => getInventory(client, id));
+      return { ...result, inventory };
+    } catch (err) {
+      if (err.code === "blocked" || err.code === "out_of_bounds" || err.code === "not_found") {
+        reply.code(409);
+        return { error: err.code };
+      }
+      if (err.code === "bad_move" || err.code === "bad_slot") {
+        reply.code(400);
+        return { error: err.code };
+      }
+      throw err;
+    }
+  });
+
+  // Repack the main grid (the Sort button).
+  fastify.post("/player/:id/inventory/sort", async (request, reply) => {
+    const id = parseId(request, reply);
+    if (id === null) return;
+
+    const result = await withTransaction((client) => sortInventory(client, id));
+    const inventory = await withTransaction((client) => getInventory(client, id));
+    return { ...result, inventory };
   });
 }

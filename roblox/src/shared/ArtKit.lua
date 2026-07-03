@@ -25,6 +25,11 @@ ArtKit.Palette = {
 	steelDark = Color3.fromRGB(136, 140, 150),
 	gold = Color3.fromRGB(206, 164, 74),
 	magic = Color3.fromRGB(150, 90, 255),
+	-- armor / trinkets
+	leather = Color3.fromRGB(146, 96, 56),
+	leatherDark = Color3.fromRGB(104, 66, 38),
+	ruby = Color3.fromRGB(200, 62, 70),
+	sapphire = Color3.fromRGB(64, 112, 200),
 	-- creatures (match ENEMY_DEFS so drops read as coming from their source)
 	slime = Color3.fromRGB(80, 200, 120),
 	goblin = Color3.fromRGB(90, 150, 70),

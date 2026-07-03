@@ -102,6 +102,13 @@ function EnemyService.onKilled(fn)
 	table.insert(EnemyService.killedHandlers, fn)
 end
 
+-- [n] = function(lootSource, player)  fired when an enemy lands a melee hit
+-- on a player (the effect system hooks in here, e.g. slime slowness).
+EnemyService.playerHitHandlers = {}
+function EnemyService.onPlayerHit(fn)
+	table.insert(EnemyService.playerHitHandlers, fn)
+end
+
 local function groundY(x, z)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -276,6 +283,9 @@ local function updateEnemy(enemy, dt)
 			if humanoid and humanoid.Health > 0 then
 				humanoid:TakeDamage(def.damage)
 				HealthService.registerDamage(target) -- pause the player's regen
+				for _, fn in ipairs(EnemyService.playerHitHandlers) do
+					task.spawn(fn, def.lootSource, target)
+				end
 			end
 		end
 	end

@@ -18,14 +18,29 @@ CREATE TABLE IF NOT EXISTS players (
 -- existing table, so each also needs an idempotent ALTER here.
 ALTER TABLE players ADD COLUMN IF NOT EXISTS gold BIGINT NOT NULL DEFAULT 0;
 
+-- Grid inventory: items occupy a WxH footprint at (x, y) in a
+-- container. container_id is 'main' (the 10x30 grid) or 'equipment' (paper
+-- doll; x = slot index, y = 0). Legacy rows (pre-grid) have x/y NULL and are
+-- repacked into grid positions on first read.
 CREATE TABLE IF NOT EXISTS inventory_items (
     id           BIGSERIAL PRIMARY KEY,
     player_id    BIGINT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-    slot_index   INT    NOT NULL,
+    slot_index   INT,                     -- legacy flat slot (pre-grid), unused
+    container_id TEXT    NOT NULL DEFAULT 'main',
+    x            INT,
+    y            INT,
+    rotated      BOOLEAN NOT NULL DEFAULT false,
     item_id      TEXT   NOT NULL,
-    quantity     INT    NOT NULL CHECK (quantity > 0),
-    UNIQUE (player_id, slot_index)
+    quantity     INT    NOT NULL CHECK (quantity > 0)
 );
+
+-- Grid-era columns / constraint relaxations for tables created pre-grid.
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS container_id TEXT NOT NULL DEFAULT 'main';
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS x INT;
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS y INT;
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS rotated BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE inventory_items ALTER COLUMN slot_index DROP NOT NULL;
+ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_player_id_slot_index_key;
 
 CREATE INDEX IF NOT EXISTS idx_inventory_player ON inventory_items (player_id);
 

@@ -80,6 +80,16 @@ local function playerFromHit(hit)
 	return nil
 end
 
+local function releaseClaimLater(part)
+	-- Inventory full or backend error: release the claim after a beat so the
+	-- player can grab it again once they've made room.
+	task.delay(RETRY_DELAY, function()
+		if part.Parent then
+			part:SetAttribute("claimed", false)
+		end
+	end)
+end
+
 local function tryPickup(player, part)
 	if part:GetAttribute("claimed") then
 		return
@@ -90,18 +100,25 @@ local function tryPickup(player, part)
 
 	local itemId = part:GetAttribute("itemId")
 	local quantity = part:GetAttribute("quantity")
+	local def = Items.get(itemId)
+	local stackable = def and def.stackable or false
 
-	local ok = PlayerService.addItem(player, itemId, quantity)
-	if ok then
+	-- Stackables pick up partially (whatever fits); the rest stays on the
+	-- ground with no fuss (decided UX: full inventory shows no toast).
+	local ok, added = PlayerService.addItem(player, itemId, quantity, stackable)
+	if ok and added >= quantity then
 		part:Destroy()
+	elseif ok and added > 0 then
+		local left = quantity - added
+		part:SetAttribute("quantity", left)
+		local billboard = part:FindFirstChildOfClass("BillboardGui")
+		local label = billboard and billboard:FindFirstChildOfClass("TextLabel")
+		if label then
+			label.Text = (def and def.name or itemId) .. (left > 1 and (" x" .. left) or "")
+		end
+		releaseClaimLater(part)
 	else
-		-- Inventory full or backend error: release the claim after a beat so the
-		-- player can grab it again once they've made room.
-		task.delay(RETRY_DELAY, function()
-			if part.Parent then
-				part:SetAttribute("claimed", false)
-			end
-		end)
+		releaseClaimLater(part)
 	end
 end
 

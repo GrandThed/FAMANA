@@ -93,13 +93,38 @@ function BackendService.savePlayer(userId, fields)
 	return ok
 end
 
--- Add an item. Returns (ok, updatedInventory).
-function BackendService.addItem(userId, itemId, quantity)
+-- Add an item. With `partial`, stackables fill whatever grid space exists
+-- instead of failing outright. Returns (ok, updatedInventory, added).
+function BackendService.addItem(userId, itemId, quantity, partial)
 	local ok, data = request(
 		"POST",
 		"/player/" .. tostring(userId) .. "/inventory/add",
-		{ itemId = itemId, quantity = quantity }
+		{ itemId = itemId, quantity = quantity, partial = partial == true }
 	)
+	if ok and data then
+		return true, data.inventory, data.added
+	end
+	return false, nil, 0
+end
+
+-- Move a stack (drag & drop): from/to are { containerId, x, y[, rotated] }.
+-- Returns (ok, updatedInventory, errorCode).
+function BackendService.moveItem(userId, from, to)
+	local ok, data = request(
+		"POST",
+		"/player/" .. tostring(userId) .. "/inventory/move",
+		{ from = from, to = to }
+	)
+	if ok and data then
+		return true, data.inventory, nil
+	end
+	return false, nil, data and data.error or nil
+end
+
+-- Repack the main grid (the Sort button). Returns (ok, updatedInventory).
+function BackendService.sortInventory(userId)
+	-- Non-empty body so Fastify's JSON parser doesn't reject the POST.
+	local ok, data = request("POST", "/player/" .. tostring(userId) .. "/inventory/sort", { sort = true })
 	if ok and data then
 		return true, data.inventory
 	end

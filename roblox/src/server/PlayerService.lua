@@ -86,13 +86,46 @@ local function loadProfile(player)
 end
 
 -- Add/remove go through the backend (source of truth), then update the cache
--- and notify the client. Used by gathering/combat/drops in later steps.
-function PlayerService.addItem(player, itemId, quantity)
+-- and notify the client. With `partial`, stackables fill whatever grid space
+-- exists (drop pickups). Returns (ok, addedCount).
+function PlayerService.addItem(player, itemId, quantity, partial)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary then
+		return false, 0
+	end
+	local ok, inventory, added = BackendService.addItem(player.UserId, itemId, quantity, partial)
+	if ok and (not partial or (added or 0) > 0) then
+		profile.inventory = inventory
+		PlayerService.pushInventory(player)
+		return true, added or quantity
+	end
+	return false, 0
+end
+
+-- Move a stack between/within containers (the drag & drop verb). The backend
+-- validates placement; on success the cache and client are refreshed.
+-- Returns (ok, errorCode).
+function PlayerService.moveItem(player, from, to)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary then
+		return false, "offline"
+	end
+	local ok, inventory, errorCode = BackendService.moveItem(player.UserId, from, to)
+	if ok then
+		profile.inventory = inventory
+		PlayerService.pushInventory(player)
+		return true
+	end
+	return false, errorCode
+end
+
+-- Repack the main grid (the Sort button).
+function PlayerService.sortInventory(player)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
 		return false
 	end
-	local ok, inventory = BackendService.addItem(player.UserId, itemId, quantity)
+	local ok, inventory = BackendService.sortInventory(player.UserId)
 	if ok then
 		profile.inventory = inventory
 		PlayerService.pushInventory(player)
@@ -203,6 +236,39 @@ function PlayerService.start()
 		end
 		local profile = cache[player.UserId]
 		return profile and profile.inventory or {}
+	end
+
+	-- Drag & drop from the client. Arguments are sanitized here (ints only);
+	-- real placement validation happens on the backend.
+	local moveItem = Remotes.getFunction("MoveItem")
+	moveItem.OnServerInvoke = function(player, from, to)
+		if typeof(from) ~= "table" or typeof(to) ~= "table" then
+			return { ok = false, error = "bad_move" }
+		end
+		local function sanitize(ref, withRotation)
+			local x, y = tonumber(ref.x), tonumber(ref.y)
+			local containerId = ref.containerId
+			if not x or not y or (containerId ~= "main" and containerId ~= "equipment") then
+				return nil
+			end
+			local safe = { containerId = containerId, x = math.floor(x), y = math.floor(y) }
+			if withRotation then
+				safe.rotated = ref.rotated == true
+			end
+			return safe
+		end
+		local safeFrom = sanitize(from, false)
+		local safeTo = sanitize(to, true)
+		if not safeFrom or not safeTo then
+			return { ok = false, error = "bad_move" }
+		end
+		local ok, errorCode = PlayerService.moveItem(player, safeFrom, safeTo)
+		return { ok = ok, error = errorCode }
+	end
+
+	local sortInventory = Remotes.getFunction("SortInventory")
+	sortInventory.OnServerInvoke = function(player)
+		return { ok = PlayerService.sortInventory(player) }
 	end
 
 	-- Load data BEFORE the character spawns so HealthService can restore HP/pos.

@@ -210,7 +210,11 @@ Plus, per the §3 layout:
 ## 6. Rough scope tiers
 
 - **Done:** gold stat (backend `players.gold` column + save/load +
-  `PlayerService.addGold/spendGold` + `Gold` Player attribute).
+  `PlayerService.addGold/spendGold` + `Gold` Player attribute). V1 below is
+  implemented (grid backend + migration, drag & drop UI with rotation, paper
+  doll, sort + gold bar, hotbar, effects framework + slime slowness, armor/
+  ring items & models). Remaining: obtain-paths for armor/rings and gold
+  sources, plus everything in V2+.
 - **V1 (the core loop):** the §3 layout shell (two columns) with the main
   10×30 grid + footprints + rotation + drag-drop + server `moveItem` +
   find-first-fit pickups + migration + full equipment paper doll (all §3
@@ -240,7 +244,7 @@ Plus, per the §3 layout:
 6. **Instance ids:** not needed (backpack tiers = grid rows, no sub-grids).
 7. **Mobile/gamepad:** out of scope.
 
-## 8. Asset spec: armor & rings (to build)
+## 8. Asset spec: armor & rings (implemented — kept as the reference)
 
 The paper doll needs items to fill it. First set: a **leather tier** of the
 five armor pieces plus two rings. Everything follows the existing item

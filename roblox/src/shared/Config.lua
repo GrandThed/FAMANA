@@ -5,11 +5,9 @@
 -- from PlaceId), not here.
 
 return {
-	inventoryCapacity = 20,
-
-	-- How many quick slots the Diablo-style HUD hotbar shows (mirrors the first
-	-- inventory slots). Empty slots render as empty sockets.
-	hotbarSize = 6,
+	-- The main inventory grid: fixed width, `height` rows for the basic
+	-- backpack (bigger packs add rows later). MUST match backend items.js GRID.
+	inventoryGrid = { width = 10, height = 30 },
 
 	-- Reach (studs) now lives per-item as a `reach` stat on each weapon/tool def
 	-- (see Items.lua). Server combat/gather and client focus all read that single

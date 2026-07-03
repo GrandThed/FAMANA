@@ -339,7 +339,7 @@ async function viewPlayer(id) {
       const qty = el("input", { type: "number", value: 1, min: 1 });
       return el("div", { class: "slot" },
         el("div", { class: "name" }, itemName(slot.itemId)),
-        el("div", { class: "meta" }, `slot ${slot.slotIndex} · ${slot.itemId}`),
+        el("div", { class: "meta" }, slot.containerId === "equipment" ? `equipped · ${slot.itemId}` : `(${slot.x},${slot.y}) · ${slot.itemId}`),
         el("div", { class: "qty" }, "×" + slot.quantity),
         el("div", { class: "ctrls" },
           el("button", { title: "Remove", onclick: () => changeItem(id, slot.itemId, Number(qty.value), "remove", reloadInventory) }, "−"),
