@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local HealthService = require(script.Parent.HealthService)
 local ToolService = require(script.Parent.ToolService)
+local TargetService = require(script.Parent.TargetService)
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
 local EnemyService = {}
@@ -193,6 +194,16 @@ local function killEnemy(entry, enemy, killer)
 	end)
 end
 
+-- Finds the enemy entry backed by a given part (the client's focused target).
+local function entryForPart(part)
+	for _, entry in ipairs(spawns) do
+		if entry.enemy and not entry.enemy.dead and entry.enemy.part == part then
+			return entry
+		end
+	end
+	return nil
+end
+
 -- Called by ToolService when a "weapon" item is activated (sword swing).
 local function onWeaponSwing(player, tool, def)
 	local character = player.Character
@@ -201,13 +212,24 @@ local function onWeaponSwing(player, tool, def)
 		return
 	end
 
-	local hitEntry, hitEnemy, hitDist
-	for _, entry in ipairs(spawns) do
-		local enemy = entry.enemy
-		if enemy and not enemy.dead then
-			local dist = (enemy.part.Position - root.Position).Magnitude
-			if dist <= MELEE_RANGE and (not hitDist or dist < hitDist) then
-				hitEntry, hitEnemy, hitDist = entry, enemy, dist
+	local hitEntry, hitEnemy
+
+	-- Prefer the player's focused target if it's a valid enemy within reach.
+	local focused = entryForPart(TargetService.get(player))
+	if focused and (focused.enemy.part.Position - root.Position).Magnitude <= MELEE_RANGE then
+		hitEntry, hitEnemy = focused, focused.enemy
+	end
+
+	-- Otherwise fall back to the nearest enemy in range.
+	if not hitEnemy then
+		local hitDist
+		for _, entry in ipairs(spawns) do
+			local enemy = entry.enemy
+			if enemy and not enemy.dead then
+				local dist = (enemy.part.Position - root.Position).Magnitude
+				if dist <= MELEE_RANGE and (not hitDist or dist < hitDist) then
+					hitEntry, hitEnemy, hitDist = entry, enemy, dist
+				end
 			end
 		end
 	end

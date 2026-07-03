@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlayerService = require(script.Parent.PlayerService)
 local ToolService = require(script.Parent.ToolService)
+local TargetService = require(script.Parent.TargetService)
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
 local GatheringService = {}
@@ -173,7 +174,29 @@ local function onToolSwing(player, tool, def)
 		return
 	end
 
-	local node = findNearbyNode(player.Character, def.toolType)
+	-- Prefer the player's focused node if it's valid, in range, and matches the
+	-- tool; otherwise fall back to the nearest matching node.
+	local node
+	local focusPart = TargetService.get(player)
+	if focusPart then
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		for _, n in ipairs(nodes) do
+			if n.anchor == focusPart then
+				if
+					root
+					and n.def.toolType == def.toolType
+					and n.amount > 0
+					and (n.anchor.Position - root.Position).Magnitude <= n.def.range
+				then
+					node = n
+				end
+				break
+			end
+		end
+	end
+	if not node then
+		node = findNearbyNode(player.Character, def.toolType)
+	end
 	if not node then
 		return
 	end

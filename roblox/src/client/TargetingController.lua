@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
 local Config = require(Shared:WaitForChild("Config"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 local ClientState = require(script.Parent.ClientState)
 
 local player = Players.LocalPlayer
@@ -131,6 +132,7 @@ function TargetingController.start()
 	highlight.OutlineColor = Color3.fromRGB(255, 230, 120)
 	highlight.OutlineTransparency = 0
 
+	local setTargetRemote = Remotes.get("SetTarget")
 	local currentAdornee
 
 	local function clear()
@@ -139,6 +141,7 @@ function TargetingController.start()
 			highlight.Adornee = nil
 			highlight.Parent = nil
 			gui.Enabled = false
+			setTargetRemote:FireServer(nil) -- tell the server we have no focus
 		end
 	end
 
@@ -150,6 +153,8 @@ function TargetingController.start()
 			nameLabel.Text = cand.name
 			barBg.Visible = cand.hasHp
 			gui.Enabled = true
+			-- Send the anchor part so the server can match + validate it.
+			setTargetRemote:FireServer(cand.anchor)
 		end
 	end
 

@@ -1,7 +1,8 @@
--- Shift-lock: the cursor stays locked to screen center and the character faces
--- the camera's look direction (action-RPG aiming). Holding right mouse button
--- sets ClientState.aiming, which the targeting system uses to focus a target.
--- The cursor frees automatically while the inventory panel is open.
+-- Hold-right-click to aim. While RMB is held (and the inventory is closed) the
+-- cursor locks to screen center and the character faces the camera's look
+-- direction (action-RPG aiming); a crosshair shows and ClientState.aiming is
+-- set so the targeting system focuses a target. Releasing RMB frees the cursor
+-- and restores normal movement facing.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -59,7 +60,9 @@ function ShiftLockController.start()
 	end)
 
 	RunService.RenderStepped:Connect(function()
-		local locked = not ClientState.inventoryOpen
+		-- Only lock/aim while holding RMB (and not in the inventory). Otherwise
+		-- the cursor is free for normal play and UI.
+		local locked = ClientState.aiming and not ClientState.inventoryOpen
 		UserInputService.MouseBehavior = locked and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
 		dot.Visible = locked
 
