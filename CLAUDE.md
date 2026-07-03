@@ -80,8 +80,13 @@ regen, respawn) · `ManaService` (live, non-persisted mana in `Mana`/`MaxMana`
 Player attributes; steady regen; `trySpend` gates staff casts) ·
 `ToolService` (equippable Tools + `registerActivated` hook) ·
 `GatheringService` (data-driven resource nodes: trees→wood, rocks→stone) ·
-`EnemyService` (data-driven enemies: slimes, goblins + `onKilled` hook) ·
-`DropService` (loot tables → ground drops) · `BorderService` (grid teleport
+`EnemyService` (data-driven enemies: slimes, goblins + `onKilled` hook; enemies
+face their movement, optional `movement = "hop"` locomotion with squash &
+stretch, and per-def `details` welded via `ArtKit.weld`) ·
+`DropService` (loot tables → ground drops + public `spawn(itemId, qty, pos)`) ·
+`ItemStandService` (data-driven pedestals showing a spinning item copy;
+ProximityPrompt takes a copy as a normal ground drop) ·
+`BorderService` (grid teleport
 handoff) · `AdminSyncService` (polls `/player/events` every 4s → refreshes
 inventory + fires `Notify` for live admin edits).
 

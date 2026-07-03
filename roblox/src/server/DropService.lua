@@ -116,6 +116,7 @@ local function spawnDrop(itemId, quantity, position)
 	part.Size = Vector3.new(1.2, 1.2, 1.2)
 	part.Anchored = true
 	part.CanCollide = false
+	part.CanQuery = false -- pickup works via Touched; don't block ground raycasts
 	part.CFrame = CFrame.new(spot)
 	part:SetAttribute("itemId", itemId)
 	part:SetAttribute("quantity", quantity)
@@ -160,6 +161,12 @@ local function spawnDrop(itemId, quantity, position)
 			part:Destroy()
 		end
 	end)
+end
+
+-- Public: spawn a ground drop. Other systems (e.g. item stands) use this so
+-- everything a player can pick up flows through the same claim/persist path.
+function DropService.spawn(itemId, quantity, position)
+	spawnDrop(itemId, quantity, position)
 end
 
 function DropService.start()

@@ -87,7 +87,7 @@ function BackendService.createPlayer(userId, username)
 	return nil
 end
 
--- Save coarse fields { health, cell, position = {x,y,z} }. Returns bool.
+-- Save coarse fields { health, gold, cell, position = {x,y,z} }. Returns bool.
 function BackendService.savePlayer(userId, fields)
 	local ok = request("POST", "/player/" .. tostring(userId) .. "/save", fields)
 	return ok

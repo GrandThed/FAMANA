@@ -13,7 +13,7 @@ local GridConfig = require(Shared:WaitForChild("GridConfig"))
 
 local PlayerService = {}
 
--- [userId] = { health, maxHealth, cell, position = {x,y,z}, inventory = {...}, _temporary? }
+-- [userId] = { health, maxHealth, gold, cell, position = {x,y,z}, inventory = {...}, _temporary? }
 local cache = {}
 
 local inventoryUpdated -- RemoteEvent
@@ -57,12 +57,17 @@ local function loadProfile(player)
 		data = {
 			health = Config.HP.max,
 			maxHealth = Config.HP.max,
+			gold = 0,
 			cell = GridConfig.currentCell(),
 			position = { x = 0, y = 0, z = 0 },
 			inventory = {},
 			_temporary = true,
 		}
 	end
+
+	-- Profiles saved before the gold column existed come back without it.
+	data.gold = data.gold or 0
+	player:SetAttribute("Gold", data.gold)
 
 	-- This Place represents a specific cell; record it so saves reflect reality.
 	data.cell = GridConfig.currentCell()
@@ -124,6 +129,29 @@ function PlayerService.removeItem(player, itemId, quantity)
 	return false
 end
 
+-- Gold is a live server-authoritative stat (like health): mutate it here,
+-- mirror it to the Gold attribute for UI, and let autosave/leave persist it.
+function PlayerService.addGold(player, amount)
+	local profile = cache[player.UserId]
+	if not profile or amount <= 0 then
+		return false
+	end
+	profile.gold = profile.gold + amount
+	player:SetAttribute("Gold", profile.gold)
+	return true
+end
+
+-- Returns false (and changes nothing) if the player can't afford it.
+function PlayerService.spendGold(player, amount)
+	local profile = cache[player.UserId]
+	if not profile or amount <= 0 or profile.gold < amount then
+		return false
+	end
+	profile.gold = profile.gold - amount
+	player:SetAttribute("Gold", profile.gold)
+	return true
+end
+
 local function buildSaveFields(player)
 	local profile = cache[player.UserId]
 	if not profile then
@@ -144,6 +172,7 @@ local function buildSaveFields(player)
 
 	return {
 		health = profile.health,
+		gold = profile.gold,
 		cell = profile.cell,
 		position = profile.position,
 	}

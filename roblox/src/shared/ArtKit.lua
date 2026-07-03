@@ -103,6 +103,7 @@ function ArtKit.weld(handle, specs, scale)
 		part.Size = part.Size * scale
 		part.Anchored = false
 		part.CanCollide = false
+		part.CanQuery = false -- cosmetic; don't intercept raycasts (ground checks, aim)
 		part.Massless = true
 		local rot = spec.rot or Vector3.zero
 		part.CFrame = handle.CFrame

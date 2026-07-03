@@ -24,6 +24,8 @@ function rowToPlayer(row, inventory) {
     username: row.username,
     health: row.health,
     maxHealth: row.max_health,
+    gold: Number(row.gold), // BIGINT arrives as a string from pg
+
     cell: row.cell,
     position: { x: row.pos_x, y: row.pos_y, z: row.pos_z },
     inventory,
@@ -67,12 +69,13 @@ export async function createPlayer(playerId, username) {
 
 // Saves the coarse mutable fields. Only provided fields are updated.
 // Returns false if the player doesn't exist.
-export async function savePlayer(playerId, { health, cell, position }) {
+export async function savePlayer(playerId, { health, gold, cell, position }) {
   const sets = [];
   const params = [];
   let i = 1;
 
   if (health !== undefined) { sets.push(`health = $${i++}`); params.push(health); }
+  if (gold !== undefined) { sets.push(`gold = $${i++}`); params.push(gold); }
   if (cell !== undefined) { sets.push(`cell = $${i++}`); params.push(cell); }
   if (position !== undefined) {
     sets.push(`pos_x = $${i++}`); params.push(position.x);
