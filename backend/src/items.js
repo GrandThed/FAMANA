@@ -1,174 +1,61 @@
-// Static item definitions. Mirrored in the Roblox code (shared/Items.lua).
-// Keep the two in sync by hand for the MVP.
+// Item definitions, loaded from the git-tracked content file
+// (content/items.json) — the source of truth for item/starter-kit design
+// data. Mirrored in the Roblox code (shared/Items.lua) for now; the game
+// fetches GET /content at boot so the mirror is only a fallback.
 //
 // `size` is the grid footprint [width, height] in inventory cells.
-// Armor/rings carry a `slot` matching an EQUIPMENT_SLOTS entry.
+// Armor carries a `slot` naming the paper-doll slot it fits.
+// Weapons/tools carry `reach` (studs a swing/gather/focus can connect),
+// ranged weapons a `manaCost` per cast.
+//
+// Validation below fails the boot loudly on malformed content — better a
+// dead deploy than a live server handing out broken defs.
 
-export const ITEMS = {
-  sword_basic: {
-    id: "sword_basic",
-    name: "Basic Sword",
-    type: "weapon",
-    weaponType: "melee",
-    stackable: false,
-    maxStack: 1,
-    damage: 10,
-    reach: 10, // studs the swing (and its focus/targeting) can connect
-    size: [1, 3],
-  },
-  axe_basic: {
-    id: "axe_basic",
-    name: "Basic Axe",
-    type: "tool",
-    stackable: false,
-    maxStack: 1,
-    toolType: "axe",
-    gatherPower: 1,
-    reach: 8, // gathering wants you up close to the node
-    size: [2, 3],
-  },
-  pickaxe_basic: {
-    id: "pickaxe_basic",
-    name: "Basic Pickaxe",
-    type: "tool",
-    stackable: false,
-    maxStack: 1,
-    toolType: "pickaxe",
-    gatherPower: 1,
-    reach: 8,
-    size: [2, 3],
-  },
-  sword_iron: {
-    id: "sword_iron",
-    name: "Iron Sword",
-    type: "weapon",
-    weaponType: "melee",
-    stackable: false,
-    maxStack: 1,
-    damage: 20,
-    reach: 10,
-    size: [1, 3],
-  },
-  staff_basic: {
-    id: "staff_basic",
-    name: "Magic Staff",
-    type: "weapon",
-    weaponType: "ranged",
-    stackable: false,
-    maxStack: 1,
-    damage: 15,
-    reach: 60,
-    manaCost: 25, // mana spent per cast; blocked when mana is too low
-    size: [1, 4],
-  },
-  wood: {
-    id: "wood",
-    name: "Wood",
-    type: "resource",
-    stackable: true,
-    maxStack: 50,
-    size: [1, 1],
-  },
-  stone: {
-    id: "stone",
-    name: "Stone",
-    type: "resource",
-    stackable: true,
-    maxStack: 50,
-    size: [1, 1],
-  },
-  slime_goo: {
-    id: "slime_goo",
-    name: "Slime Goo",
-    type: "resource",
-    stackable: true,
-    maxStack: 50,
-    size: [1, 1],
-  },
-  goblin_ear: {
-    id: "goblin_ear",
-    name: "Goblin Ear",
-    type: "resource",
-    stackable: true,
-    maxStack: 50,
-    size: [1, 1],
-  },
+import fs from "node:fs";
 
-  // ---- armor (paper-doll equipment; combat stats come later) --------------
-  helmet_leather: {
-    id: "helmet_leather",
-    name: "Leather Helmet",
-    type: "armor",
-    slot: "head",
-    stackable: false,
-    maxStack: 1,
-    size: [2, 2],
-  },
-  chest_leather: {
-    id: "chest_leather",
-    name: "Leather Tunic",
-    type: "armor",
-    slot: "chest",
-    stackable: false,
-    maxStack: 1,
-    size: [2, 3],
-  },
-  gloves_leather: {
-    id: "gloves_leather",
-    name: "Leather Gloves",
-    type: "armor",
-    slot: "hands",
-    stackable: false,
-    maxStack: 1,
-    size: [2, 2],
-  },
-  legs_leather: {
-    id: "legs_leather",
-    name: "Leather Leggings",
-    type: "armor",
-    slot: "legs",
-    stackable: false,
-    maxStack: 1,
-    size: [2, 2],
-  },
-  boots_leather: {
-    id: "boots_leather",
-    name: "Leather Boots",
-    type: "armor",
-    slot: "feet",
-    stackable: false,
-    maxStack: 1,
-    size: [2, 2],
-  },
+const raw = JSON.parse(
+  fs.readFileSync(new URL("../content/items.json", import.meta.url), "utf8")
+);
 
-  // ---- rings ---------------------------------------------------------------
-  ring_vitality: {
-    id: "ring_vitality",
-    name: "Ring of Vitality",
-    type: "ring",
-    slot: "ring",
-    stackable: false,
-    maxStack: 1,
-    size: [1, 1],
-  },
-  ring_focus: {
-    id: "ring_focus",
-    name: "Ring of Focus",
-    type: "ring",
-    slot: "ring",
-    stackable: false,
-    maxStack: 1,
-    size: [1, 1],
-  },
-};
+const ARMOR_SLOTS = new Set(["head", "chest", "hands", "legs", "feet"]);
+
+function fail(message) {
+  throw new Error(`content/items.json: ${message}`);
+}
+
+function validateItem(key, def) {
+  if (def.id !== key) fail(`item "${key}" has mismatched id "${def.id}"`);
+  if (typeof def.name !== "string" || !def.name) fail(`item "${key}" needs a name`);
+  if (typeof def.type !== "string" || !def.type) fail(`item "${key}" needs a type`);
+  const size = def.size;
+  if (
+    !Array.isArray(size) ||
+    size.length !== 2 ||
+    !size.every((n) => Number.isInteger(n) && n > 0)
+  ) {
+    fail(`item "${key}" needs a size [w, h] of positive integers`);
+  }
+  if (typeof def.stackable !== "boolean") fail(`item "${key}" needs stackable`);
+  if (!Number.isInteger(def.maxStack) || def.maxStack < 1) {
+    fail(`item "${key}" needs a positive integer maxStack`);
+  }
+  if (def.type === "armor" && !ARMOR_SLOTS.has(def.slot)) {
+    fail(`armor "${key}" needs a slot in ${[...ARMOR_SLOTS].join("/")}`);
+  }
+}
+
+for (const [key, def] of Object.entries(raw.items)) validateItem(key, def);
+for (const entry of raw.starterItems) {
+  if (!raw.items[entry.itemId]) fail(`starter item "${entry.itemId}" is not defined`);
+  if (!Number.isInteger(entry.quantity) || entry.quantity < 1) {
+    fail(`starter item "${entry.itemId}" needs a positive integer quantity`);
+  }
+}
+
+export const ITEMS = raw.items;
 
 // Items a brand-new player starts with.
-export const STARTER_ITEMS = [
-  { itemId: "sword_basic", quantity: 1 },
-  { itemId: "staff_basic", quantity: 1 },
-  { itemId: "axe_basic", quantity: 1 },
-  { itemId: "pickaxe_basic", quantity: 1 },
-];
+export const STARTER_ITEMS = raw.starterItems;
 
 // The permanent starter kit (tools/weapons) is reconciled on every load so
 // existing players pick up newly-added starter gear (e.g. the pickaxe).
@@ -178,11 +65,13 @@ export const STARTER_EQUIPPABLES = STARTER_ITEMS.filter((entry) => {
 });
 
 // The main inventory grid: fixed width, rows grow with backpack tiers
-// later. Mirrored in Roblox shared/Config.lua.
+// later. Mirrored in Roblox shared/Config.lua. Structural, not content —
+// stored stack positions assume these dims, so it lives in code.
 export const GRID = { width: 10, height: 30 };
 
 // Paper-doll equipment slots. A slot's index is its `x` in the `equipment`
-// container (y = 0). Mirrored in Roblox shared/Items.lua.
+// container (y = 0) — the order below is persisted data, never reorder.
+// Mirrored in Roblox shared/Items.lua.
 export const EQUIPMENT_SLOTS = [
   "weapon",
   "offhand",

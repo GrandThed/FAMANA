@@ -4,6 +4,7 @@ import { requireApiKey } from "./auth.js";
 import healthRoutes from "./routes/health.js";
 import playerRoutes from "./routes/player.js";
 import inventoryRoutes from "./routes/inventory.js";
+import contentRoutes from "./routes/content.js";
 import adminRoutes from "./routes/admin.js";
 import { pool } from "./db.js";
 
@@ -23,6 +24,7 @@ await fastify.register(async (instance) => {
   instance.addHook("preHandler", requireApiKey);
   await instance.register(playerRoutes);
   await instance.register(inventoryRoutes);
+  await instance.register(contentRoutes);
 });
 
 // Graceful shutdown so Railway restarts/deploys don't drop the pg pool abruptly.
