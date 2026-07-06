@@ -179,8 +179,25 @@ function ItemModels.get(itemId)
 	return ItemModels.defs[itemId]
 end
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 -- Builds an anchored display model at the origin (thumbnails, drops).
 function ItemModels.build(itemId)
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local customModel = assets and assets:FindFirstChild(itemId)
+	if customModel then
+		local clone = customModel:Clone()
+		if clone:IsA("Model") then
+			if not clone.PrimaryPart then
+				clone.PrimaryPart = clone:FindFirstChild("Handle") or clone:FindFirstChildOfClass("BasePart")
+			end
+			clone:PivotTo(CFrame.new())
+		elseif clone:IsA("BasePart") then
+			clone.CFrame = CFrame.new()
+		end
+		return clone
+	end
+
 	local specs = ItemModels.defs[itemId]
 	if not specs then
 		return nil

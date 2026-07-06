@@ -103,10 +103,76 @@ local DEFAULT_SPECS = {
 	tool = { { name = "Handle", size = Vector3.new(0.4, 3, 0.4), color = "trunk" } },
 }
 
--- Builds the Tool's part assembly from the shared ItemModels catalog: the
--- first spec becomes the Handle (the hand holds its center); the rest are
--- welded on around it.
+-- Builds the Tool's part assembly: if a custom model exists in
+-- ReplicatedStorage.Assets with the itemId, we clone it and ensure it has a
+-- Handle part with all other parts welded to it. Otherwise, we fallback to
+-- the shared ItemModels catalog.
 local function buildHandle(def)
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local customModel = assets and assets:FindFirstChild(def.id)
+
+	if customModel then
+		local clone = customModel:Clone()
+		if clone:IsA("BasePart") then
+			clone.Name = "Handle"
+			clone.Anchored = false
+			clone.CanCollide = false
+			return clone
+		elseif clone:IsA("Model") then
+			local handle = clone:FindFirstChild("Handle")
+			if not handle and clone.PrimaryPart then
+				handle = clone.PrimaryPart
+				handle.Name = "Handle"
+			elseif not handle then
+				handle = clone:FindFirstChildOfClass("BasePart")
+				if handle then
+					handle.Name = "Handle"
+				end
+			end
+
+			if not handle then
+				handle = Instance.new("Part")
+				handle.Name = "Handle"
+				handle.Size = Vector3.new(0.5, 0.5, 0.5)
+				handle.Transparency = 1
+				handle.CanCollide = false
+				handle.Parent = clone
+			end
+
+			handle.Anchored = false
+
+			for _, part in ipairs(clone:GetDescendants()) do
+				if part:IsA("BasePart") and part ~= handle then
+					part.Anchored = false
+					part.CanCollide = false
+
+					local hasWeld = false
+					for _, joint in ipairs(part:GetJoints()) do
+						if joint:IsA("Weld") or joint:IsA("WeldConstraint") or joint:IsA("ManualWeld") then
+							hasWeld = true
+							break
+						end
+					end
+
+					if not hasWeld then
+						local weld = Instance.new("WeldConstraint")
+						weld.Part0 = handle
+						weld.Part1 = part
+						weld.Parent = part
+					end
+				end
+			end
+
+			for _, child in ipairs(clone:GetChildren()) do
+				if child ~= handle then
+					child.Parent = handle
+				end
+			end
+
+			return handle
+		end
+	end
+
 	local specs = ItemModels.get(def.id) or DEFAULT_SPECS[def.type]
 	local handle = ArtKit.part(specs[1])
 	handle.Name = "Handle"
@@ -126,6 +192,12 @@ local function buildTool(player, itemId)
 	tool:SetAttribute("itemId", itemId)
 	local handle = buildHandle(def)
 	handle.Parent = tool
+
+	-- Automatically set the Grip offset to match the RightGripAttachment if present in the Handle
+	local gripAttachment = handle:FindFirstChild("RightGripAttachment")
+	if gripAttachment and gripAttachment:IsA("Attachment") then
+		tool.Grip = gripAttachment.CFrame
+	end
 
 	-- Any "Orb" part in the model glows (e.g. the magic staff's head).
 	local orb = handle:FindFirstChild("Orb")
