@@ -31,7 +31,7 @@ function NotificationUI.start()
 
 	local list = Instance.new("Frame")
 	list.Size = UDim2.new(0, LIST_WIDTH, 0, 400)
-	list.Position = UDim2.new(0.78, 0, 0.5, 0)
+	list.Position = UDim2.new(0.78, 18, 0.5, 0)
 	list.AnchorPoint = Vector2.new(1, 0.5)
 	list.BackgroundTransparency = 1
 	list.Parent = gui
@@ -40,7 +40,7 @@ function NotificationUI.start()
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
-	layout.Padding = UDim.new(0, 6)
+	layout.Padding = UDim.new(0, 4)
 	layout.Parent = list
 
 	local NORMAL_POS = list.Position
@@ -65,14 +65,15 @@ function NotificationUI.start()
 
 	local function toast(message)
 		local frame = Instance.new("Frame")
-		frame.Size = UDim2.new(1, 0, 0, 40)
+		frame.Size = UDim2.new(1, 0, 0, 0) -- Starts at height 0 to enable smooth entry slide
 		frame.BackgroundTransparency = 1
 		frame.BorderSizePixel = 0
+		frame.ClipsDescendants = true -- Hides the label as the frame height changes
 		frame.Parent = list
 
-local label = Instance.new("TextLabel")
-		label.Size = UDim2.new(1, 0, 1, 0)
-		label.Position = UDim2.new(0, 10, 0, 14) -- starts a bit low, slides up into place
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(1, 0, 0, 24) -- Retains a fixed height to avoid text wrapping changes
+		label.Position = UDim2.new(0, 10, 0, 8) -- Starts a bit low, slides up into place
 		label.BackgroundTransparency = 1
 		label.Font = Enum.Font.GothamBold
 		label.TextSize = 16
@@ -84,14 +85,19 @@ local label = Instance.new("TextLabel")
 		label.Text = message
 		label.Parent = frame
 
-		local fadeIn = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local fadeIn = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(frame, fadeIn, { Size = UDim2.new(1, 0, 0, 24) }):Play()
 		TweenService:Create(label, fadeIn, { TextTransparency = 0, Position = UDim2.new(0, 0, 0, 0) }):Play()
 
 		task.delay(HOLD, function()
-			local fadeOut = TweenInfo.new(0.4)
-			local out = TweenService:Create(label, fadeOut, { TextTransparency = 1 })
-			out:Play()
-			out.Completed:Once(function()
+			local fadeOut = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local outLabel = TweenService:Create(label, fadeOut, { TextTransparency = 1 })
+			local outFrame = TweenService:Create(frame, fadeOut, { Size = UDim2.new(1, 0, 0, 0) })
+			
+			outLabel:Play()
+			outFrame:Play()
+			
+			outLabel.Completed:Once(function()
 				frame:Destroy()
 			end)
 		end)

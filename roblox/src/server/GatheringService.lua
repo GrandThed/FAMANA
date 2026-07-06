@@ -298,6 +298,9 @@ local function onToolSwing(player, tool, def)
 end
 
 function GatheringService.start()
+	-- Pre-create remote so client doesn't warn/yield infinitely at startup
+	Remotes.get("GatherFeedback")
+
 	resourceFolder = Instance.new("Folder")
 	resourceFolder.Name = "Resources"
 	resourceFolder.Parent = Workspace
@@ -316,3 +319,4 @@ function GatheringService.start()
 end
 
 return GatheringService
+
