@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Effects = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Effects"))
 local EnemyService = require(script.Parent.EnemyService)
+local ClassService = require(script.Parent.ClassService)
 
 local EffectService = {}
 
@@ -39,8 +40,43 @@ local function applyWalkSpeed(player)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
-		humanoid.WalkSpeed = BASE_WALKSPEED * walkSpeedMult(player.UserId)
+		-- Effects multiply on top of the class's own walkspeed, not raw 16.
+		local classBase = BASE_WALKSPEED * ClassService.getDef(player).walkSpeedMult
+		humanoid.WalkSpeed = classBase * walkSpeedMult(player.UserId)
 	end
+end
+
+-- Outgoing damage multiplier from active effects for a damage kind
+-- ("melee" | "physical" | "magic"). Combat reads this through the
+-- EnemyService damage-mult hook registered in start().
+function EffectService.damageMult(player, kind)
+	local effects = active[player.UserId]
+	local mult = 1
+	if effects then
+		for effectId in pairs(effects) do
+			local def = Effects.get(effectId)
+			local mults = def and def.damageMults
+			if mults and mults[kind] then
+				mult *= mults[kind]
+			end
+		end
+	end
+	return mult
+end
+
+-- Incoming damage multiplier from active effects (< 1 = tankier).
+function EffectService.damageTakenMult(player)
+	local effects = active[player.UserId]
+	local mult = 1
+	if effects then
+		for effectId in pairs(effects) do
+			local def = Effects.get(effectId)
+			if def and def.damageTakenMult then
+				mult *= def.damageTakenMult
+			end
+		end
+	end
+	return mult
 end
 
 -- Applies (or refreshes) an effect on the player.
@@ -91,12 +127,20 @@ function EffectService.start()
 		end
 	end)
 
+	-- Feed effect buffs/debuffs into the combat damage pipeline.
+	EnemyService.registerDamageMult(function(player, kind)
+		return EffectService.damageMult(player, kind)
+	end)
+	EnemyService.registerDamageTakenMult(function(player)
+		return EffectService.damageTakenMult(player)
+	end)
+
 	-- Respawning resets WalkSpeed; reapply active effects to the new character.
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function(character)
 			local humanoid = character:WaitForChild("Humanoid", 5)
 			if humanoid then
-				humanoid.WalkSpeed = BASE_WALKSPEED * walkSpeedMult(player.UserId)
+				applyWalkSpeed(player)
 			end
 		end)
 	end)

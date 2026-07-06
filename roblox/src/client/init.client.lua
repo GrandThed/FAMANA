@@ -2,6 +2,7 @@
 -- the UI modules are its children.
 
 local ContentSync = require(script:WaitForChild("ContentSync"))
+local SpellsClient = require(script:WaitForChild("SpellsClient"))
 local HudUI = require(script:WaitForChild("HudUI"))
 local InventoryUI = require(script:WaitForChild("InventoryUI"))
 local BorderFadeUI = require(script:WaitForChild("BorderFadeUI"))
@@ -16,6 +17,7 @@ local LevelUpUI = require(script:WaitForChild("LevelUpUI"))
 local EnemyLevelUI = require(script:WaitForChild("EnemyLevelUI"))
 
 ContentSync.start() -- first: overlays backend item defs onto the mirror
+SpellsClient.start() -- seeds/auto-places spell hotbar binds (HudUI renders them)
 HudUI.start()
 InventoryUI.start()
 BorderFadeUI.start()

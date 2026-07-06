@@ -13,6 +13,7 @@ local Items = require(Shared:WaitForChild("Items"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local GridConfig = require(Shared:WaitForChild("GridConfig"))
 local Classes = require(Shared:WaitForChild("Classes"))
+local Spells = require(Shared:WaitForChild("Spells"))
 
 local PlayerService = {}
 
@@ -116,6 +117,11 @@ local function loadProfile(player)
 	-- Hotbar quick binds (keys 3–0) persist with the profile; the client
 	-- seeds its HotbarBinds registry from this attribute.
 	data.hotbarBinds = typeof(data.hotbarBinds) == "table" and data.hotbarBinds or {}
+	-- Fresh profiles (nothing ever bound) start with the gathering tools on
+	-- keys 3/4 so a new player spawns ready to chop and mine.
+	if next(data.hotbarBinds) == nil then
+		data.hotbarBinds = { ["2"] = "axe_basic", ["3"] = "pickaxe_basic" }
+	end
 	player:SetAttribute("HotbarBinds", HttpService:JSONEncode(data.hotbarBinds))
 
 	-- This Place represents a specific cell; record it so saves reflect reality.
@@ -452,12 +458,21 @@ function PlayerService.start()
 		end
 		local clean = {}
 		local count = 0
-		for key, itemId in pairs(payload) do
+		for key, bindValue in pairs(payload) do
 			local slot = tonumber(key)
-			if slot and slot >= 2 and slot <= 9 and slot == math.floor(slot) and typeof(itemId) == "string" then
-				local def = Items.get(itemId)
-				if def and (def.type == "tool" or def.type == "consumable") then
-					clean[tostring(slot)] = itemId
+			if slot and slot >= 2 and slot <= 9 and slot == math.floor(slot) and typeof(bindValue) == "string" then
+				-- A bind is either a spell ("spell:<id>") or a quick-bindable
+				-- item (tools/consumables — weapons live on the 1/2 keys).
+				local spellId = Spells.fromBind(bindValue)
+				local valid
+				if spellId then
+					valid = Spells.get(spellId) ~= nil
+				else
+					local def = Items.get(bindValue)
+					valid = def ~= nil and (def.type == "tool" or def.type == "consumable")
+				end
+				if valid then
+					clean[tostring(slot)] = bindValue
 					count += 1
 					if count >= 8 then
 						break

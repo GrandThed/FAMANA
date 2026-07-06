@@ -20,10 +20,24 @@ local player = Players.LocalPlayer
 
 local HotbarBinds = {}
 
-local binds = {} -- [hotbarSlotIndex 2..9] = itemId
+local binds = {} -- [hotbarSlotIndex 2..9] = itemId or "spell:<id>"
 local changed = Instance.new("BindableEvent")
 
 HotbarBinds.changed = changed.Event
+
+-- True once the saved map has been applied (or timed out). Systems that
+-- auto-assign binds (SpellsClient placing new spells) must wait for this,
+-- or their first push would overwrite the persisted binds server-side.
+HotbarBinds.isReady = false
+
+-- Yields until the saved binds landed (or `timeout` seconds passed).
+function HotbarBinds.waitReady(timeout)
+	local deadline = os.clock() + (timeout or 10)
+	while not HotbarBinds.isReady and os.clock() < deadline do
+		task.wait(0.1)
+	end
+	return HotbarBinds.isReady
+end
 
 local setBindsRemote -- resolved async below
 
@@ -91,10 +105,13 @@ task.spawn(function()
 		return true
 	end
 
-	if not apply(player:GetAttribute("HotbarBinds")) then
+	if apply(player:GetAttribute("HotbarBinds")) then
+		HotbarBinds.isReady = true
+	else
 		local conn
 		conn = player:GetAttributeChangedSignal("HotbarBinds"):Connect(function()
 			if apply(player:GetAttribute("HotbarBinds")) then
+				HotbarBinds.isReady = true
 				conn:Disconnect()
 			end
 		end)

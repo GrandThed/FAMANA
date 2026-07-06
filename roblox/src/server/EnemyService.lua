@@ -142,6 +142,61 @@ function EnemyService.onPlayerHit(fn)
 	table.insert(EnemyService.playerHitHandlers, fn)
 end
 
+-- Damage-pipeline hooks, so buffs (EffectService) and subclass passives
+-- (SpellService) can scale combat without EnemyService knowing about them.
+-- registerDamageMult: fn(player, damageKind) -> mult on the player's outgoing
+-- damage. registerDamageTakenMult: fn(player) -> mult on damage they receive.
+local damageMultHooks = {}
+function EnemyService.registerDamageMult(fn)
+	table.insert(damageMultHooks, fn)
+end
+
+local damageTakenMultHooks = {}
+function EnemyService.registerDamageTakenMult(fn)
+	table.insert(damageTakenMultHooks, fn)
+end
+
+local function hookedDamageMult(player, damageKind)
+	local mult = 1
+	for _, fn in ipairs(damageMultHooks) do
+		local ok, value = pcall(fn, player, damageKind)
+		if ok and typeof(value) == "number" then
+			mult *= value
+		end
+	end
+	return mult
+end
+
+local function hookedDamageTakenMult(player)
+	local mult = 1
+	for _, fn in ipairs(damageTakenMultHooks) do
+		local ok, value = pcall(fn, player)
+		if ok and typeof(value) == "number" then
+			mult *= value
+		end
+	end
+	return mult
+end
+
+-- The full outgoing-damage roll for a player: class multiplier, hook
+-- multipliers (effects + passives), then the crit roll. Used by weapon swings
+-- here and by SpellService for spell damage. Returns (damage, isCrit).
+function EnemyService.computePlayerDamage(player, baseDamage, damageKind, opts)
+	local damage = baseDamage
+		* ClassService.getDamageMult(player, damageKind)
+		* hookedDamageMult(player, damageKind)
+
+	local isCrit = false
+	if not (opts and opts.noCrit) then
+		local critChance = CRIT_CHANCE + ClassService.getCritBonus(player)
+		isCrit = math.random() < critChance
+		if isCrit then
+			damage *= CRIT_MULTIPLIER
+		end
+	end
+	return math.max(1, math.floor(damage + 0.5)), isCrit
+end
+
 local function groundY(x, z)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -334,15 +389,51 @@ local function updateHop(enemy, dt, root, def)
 	end
 end
 
+-- Whether a player is a valid live chase target within `range` of `position`.
+local function playerInRange(player, position, range)
+	if not player or player.Parent == nil then
+		return false
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	return root ~= nil
+		and humanoid ~= nil
+		and humanoid.Health > 0
+		and (root.Position - position).Magnitude <= range
+end
+
 local function updateEnemy(enemy, dt)
 	if enemy.dead then
 		return
 	end
 	local def = enemy.def
-	local target = nearestPlayer(enemy.part.Position, def.aggroRange)
+	local now = os.clock()
+
+	-- A taunt (Provocar) forces the enemy onto the taunter — with a generous
+	-- leash so walking backwards doesn't instantly break it.
+	local target
+	if enemy.tauntedUntil and now < enemy.tauntedUntil then
+		if playerInRange(enemy.tauntedBy, enemy.part.Position, def.aggroRange * 2) then
+			target = enemy.tauntedBy
+		end
+	else
+		enemy.tauntedBy, enemy.tauntedUntil = nil, nil
+	end
+	target = target or nearestPlayer(enemy.part.Position, def.aggroRange)
+
 	local root
 	if target then
 		root = target.Character:FindFirstChild("HumanoidRootPart")
+	end
+
+	-- Stunned: no chasing, no winding up new hops, no attacking. A hop already
+	-- in flight still lands (freezing mid-air reads as a bug, not a stun).
+	if enemy.stunnedUntil and now < enemy.stunnedUntil then
+		if def.movement == "hop" then
+			updateHop(enemy, dt, nil, def)
+		end
+		return
 	end
 
 	if def.movement == "hop" then
@@ -363,12 +454,13 @@ local function updateEnemy(enemy, dt)
 
 	-- Attack if in range and off cooldown.
 	if root and (root.Position - enemy.part.Position).Magnitude <= def.attackRange then
-		local now = os.clock()
 		if now - enemy.lastAttack >= def.attackCooldown then
 			enemy.lastAttack = now
 			local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
-				humanoid:TakeDamage(enemy.damage * ClassService.getDamageTakenMult(target))
+				humanoid:TakeDamage(
+					enemy.damage * ClassService.getDamageTakenMult(target) * hookedDamageTakenMult(target)
+				)
 				HealthService.registerDamage(target) -- pause the player's regen
 				for _, fn in ipairs(EnemyService.playerHitHandlers) do
 					task.spawn(fn, def.lootSource, target)
@@ -452,6 +544,77 @@ local function dealDamage(entry, enemy, damage, killer, isCrit)
 	end
 end
 
+-- ---- public combat API (used by SpellService) -------------------------------
+-- Spell code sees enemies as opaque refs: { entry, enemy, part }. `part` is
+-- the enemy's body part (for missile flight / splash centers); everything
+-- else stays internal to this file.
+
+local function makeRef(entry)
+	if entry and entry.enemy and not entry.enemy.dead then
+		return { entry = entry, enemy = entry.enemy, part = entry.enemy.part }
+	end
+	return nil
+end
+
+-- The player's focused (RMB-locked) enemy if it's within `maxRange`, or nil.
+function EnemyService.focusedTarget(player, maxRange)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return nil
+	end
+	local focused = entryForPart(TargetService.get(player))
+	if focused and (focused.enemy.part.Position - root.Position).Magnitude <= maxRange then
+		return makeRef(focused)
+	end
+	return nil
+end
+
+function EnemyService.nearestTarget(position, range)
+	local best, bestDist
+	for _, entry in ipairs(spawns) do
+		local enemy = entry.enemy
+		if enemy and not enemy.dead then
+			local dist = (enemy.part.Position - position).Magnitude
+			if dist <= range and (not bestDist or dist < bestDist) then
+				best, bestDist = entry, dist
+			end
+		end
+	end
+	return makeRef(best)
+end
+
+function EnemyService.enemiesNear(position, radius)
+	local refs = {}
+	for _, entry in ipairs(spawns) do
+		local enemy = entry.enemy
+		if enemy and not enemy.dead and (enemy.part.Position - position).Magnitude <= radius then
+			table.insert(refs, makeRef(entry))
+		end
+	end
+	return refs
+end
+
+-- Applies already-rolled damage (see computePlayerDamage) to a ref.
+function EnemyService.dealSpellDamage(ref, damage, player, isCrit)
+	if ref and ref.enemy then
+		dealDamage(ref.entry, ref.enemy, damage, player, isCrit == true)
+	end
+end
+
+function EnemyService.stun(ref, duration)
+	if ref and ref.enemy and not ref.enemy.dead then
+		ref.enemy.stunnedUntil = math.max(ref.enemy.stunnedUntil or 0, os.clock() + duration)
+	end
+end
+
+function EnemyService.taunt(ref, player, duration)
+	if ref and ref.enemy and not ref.enemy.dead then
+		ref.enemy.tauntedBy = player
+		ref.enemy.tauntedUntil = os.clock() + duration
+	end
+end
+
 -- Spawns a glowing magic missile that flies from `fromPos` to the target part,
 -- then runs `onArrive`. Anchored + non-colliding so it just replicates as a
 -- cosmetic projectile to every client.
@@ -529,15 +692,7 @@ local function onWeaponSwing(player, tool, def)
 	end
 
 	local damageKind = def.damageKind or (ranged and "physical" or "melee")
-
-	local damage = def.damage or 10
-	damage = math.floor(damage * ClassService.getDamageMult(player, damageKind) + 0.5)
-
-	local critChance = CRIT_CHANCE + ClassService.getCritBonus(player)
-	local isCrit = math.random() < critChance
-	if isCrit then
-		damage = math.floor(damage * CRIT_MULTIPLIER + 0.5)
-	end
+	local damage, isCrit = EnemyService.computePlayerDamage(player, def.damage or 10, damageKind)
 
 	if ranged then
 		-- Ranged magic costs mana; block the cast (and warn) when too low. Only

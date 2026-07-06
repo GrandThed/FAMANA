@@ -6,9 +6,12 @@
 --   * The hotbar: slots 1/2 are reserved for the equipped
 --     main weapons (the paper doll's weapon/offhand slots) and slots 3–0 are
 --     player-assigned quick binds (hover an item in the inventory grid and
---     press the key — see HotbarBinds). Clicking a slot (or pressing its
---     number key) equips/unequips that item's Tool. We hide Roblox's default
---     backpack bar so this is the only hotbar on screen.
+--     press the key — see HotbarBinds). A bind is either an item or a spell
+--     ("spell:<id>", auto-placed on unlock by SpellsClient). Clicking an item
+--     slot (or pressing its key) equips/unequips its Tool; a spell slot casts
+--     through the CastSpell remote, with a cooldown veil driven by the
+--     server's SpellCd_<id> attributes. We hide Roblox's default backpack bar
+--     so this is the only hotbar on screen.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,7 +27,9 @@ local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
 local Effects = require(Shared:WaitForChild("Effects"))
+local Spells = require(Shared:WaitForChild("Spells"))
 local HotbarBinds = require(script.Parent.HotbarBinds)
+local SpellsClient = require(script.Parent.SpellsClient)
 local ClientState = require(script.Parent.ClientState)
 
 local player = Players.LocalPlayer
@@ -286,11 +291,56 @@ local function makeSlot(parent, order, reserved, onActivated)
 	qty.Text = ""
 	qty.Parent = slot
 
+	-- Spell binds render as an emoji icon (no 3D model to preview).
+	local spellIcon = Instance.new("TextLabel")
+	spellIcon.Size = UDim2.new(1, 0, 1, -8)
+	spellIcon.Position = UDim2.new(0, 0, 0, 4)
+	spellIcon.BackgroundTransparency = 1
+	spellIcon.Font = Enum.Font.GothamBold
+	spellIcon.TextSize = 26
+	spellIcon.TextColor3 = Color3.new(1, 1, 1)
+	spellIcon.Text = ""
+	spellIcon.Visible = false
+	spellIcon.ZIndex = 2
+	spellIcon.Parent = slot
+
+	-- Cooldown veil: a dark curtain that drains downward as the spell recharges.
+	local cdVeil = Instance.new("Frame")
+	cdVeil.Size = UDim2.new(1, 0, 0, 0)
+	cdVeil.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
+	cdVeil.BackgroundTransparency = 0.3
+	cdVeil.BorderSizePixel = 0
+	cdVeil.Visible = false
+	cdVeil.ZIndex = 5
+	cdVeil.Parent = slot
+
+	local cdVeilCorner = Instance.new("UICorner")
+	cdVeilCorner.CornerRadius = UDim.new(0, 6)
+	cdVeilCorner.Parent = cdVeil
+
+	local cdText = Instance.new("TextLabel")
+	cdText.Size = UDim2.new(1, 0, 1, 0)
+	cdText.BackgroundTransparency = 1
+	cdText.Font = Enum.Font.GothamBold
+	cdText.TextSize = 16
+	cdText.TextColor3 = Color3.new(1, 1, 1)
+	cdText.Text = ""
+	cdText.Visible = false
+	cdText.ZIndex = 6
+	cdText.Parent = slot
+
 	slot.Activated:Connect(onActivated)
 
 	local hasItem = false
-	local shownId = nil -- itemId whose thumbnail is currently rendered
+	local isSpell = false
+	local spellDimmed = false -- spell belongs to a class we're not playing
+	local shownId = nil -- itemId / "spell:<id>" currently rendered
+
 	local function set(itemId, quantity)
+		isSpell = false
+		spellIcon.Visible = false
+		cdVeil.Visible = false
+		cdText.Visible = false
 		if itemId then
 			hasItem = true
 			-- Only rebuild the viewport when the item actually changes.
@@ -315,7 +365,52 @@ local function makeSlot(parent, order, reserved, onActivated)
 		end
 	end
 
+	-- Renders a spell bind. `dimmed` marks spells of a class we're not
+	-- currently playing (still bound, but not castable right now).
+	local function setSpell(def, dimmed)
+		local bindId = "spell:" .. def.id
+		if shownId ~= bindId then
+			shownId = bindId
+			thumb:ClearAllChildren()
+		end
+		hasItem = false
+		isSpell = true
+		spellDimmed = dimmed == true
+		name.Text = ""
+		qty.Text = ""
+		spellIcon.Visible = true
+		spellIcon.Text = def.icon or "✦"
+		spellIcon.TextTransparency = spellDimmed and 0.6 or 0
+		slot.BackgroundTransparency = 0.1
+		local school = Spells.getSchool(def.school)
+		stroke.Color = school and school.color or Color3.fromRGB(150, 90, 255)
+		stroke.Thickness = 1.5
+	end
+
+	-- fraction = remaining/cooldown (nil/0 hides the veil); manaOk dims the
+	-- icon when the next cast isn't affordable.
+	local function setCooldown(fraction, text, manaOk)
+		if not isSpell then
+			return
+		end
+		if fraction and fraction > 0 then
+			cdVeil.Visible = true
+			cdVeil.Size = UDim2.new(1, 0, math.clamp(fraction, 0, 1), 0)
+			cdText.Visible = true
+			cdText.Text = text or ""
+		else
+			cdVeil.Visible = false
+			cdText.Visible = false
+		end
+		if not spellDimmed then
+			spellIcon.TextTransparency = manaOk == false and 0.5 or 0
+		end
+	end
+
 	local function setEquipped(equipped)
+		if isSpell then
+			return -- spell slots keep their school-colored stroke
+		end
 		if equipped then
 			stroke.Color = Color3.fromRGB(255, 220, 120)
 			stroke.Thickness = 2.5
@@ -325,7 +420,7 @@ local function makeSlot(parent, order, reserved, onActivated)
 		end
 	end
 
-	return { set = set, setEquipped = setEquipped }
+	return { set = set, setSpell = setSpell, setCooldown = setCooldown, setEquipped = setEquipped }
 end
 
 -- Finds the Tool for an item in the local player's Backpack/Character.
@@ -434,12 +529,22 @@ function HudUI.start()
 	-- XP bar: centered, same width as the hotbar, sitting just above it.
 	makeXpBar(gui, barWidth, UDim2.new(0.5, 0, 1, -(16 + SLOT + 8)), Vector2.new(0.5, 1))
 
-	local slotItem = {} -- [i] = itemId currently shown in slot i (or nil)
+	local slotItem = {} -- [i] = itemId or "spell:<id>" currently shown in slot i (or nil)
 
-	-- Equip/unequip the item in hotbar slot i (no-op for non-equippables).
+	local castSpellRemote -- resolved async in the remotes block below
+
+	-- Activate hotbar slot i: cast the spell, or equip/unequip the item's
+	-- Tool (no-op for non-equippables).
 	local function activateSlot(i)
-		local itemId = slotItem[i]
-		if not itemId then
+		local value = slotItem[i]
+		if not value then
+			return
+		end
+		local spellId = Spells.fromBind(value)
+		if spellId then
+			if castSpellRemote then
+				castSpellRemote:FireServer(spellId)
+			end
 			return
 		end
 		local character = player.Character
@@ -447,7 +552,7 @@ function HudUI.start()
 		if not humanoid then
 			return
 		end
-		local tool, equipped = findTool(itemId)
+		local tool, equipped = findTool(value)
 		if not tool then
 			return -- resource / not equippable
 		end
@@ -507,15 +612,31 @@ function HudUI.start()
 		end
 
 		for i = WEAPON_SLOTS, hotbarSize - 1 do
-			local itemId = HotbarBinds.get(i)
-			local entry = itemId and mainByItem[itemId]
-			if itemId and not entry and hasInventory then
-				-- The bound item left the grid; drop the bind (fires changed,
-				-- which re-renders — by then the bind is gone, so it settles).
-				HotbarBinds.clear(i)
+			local bindValue = HotbarBinds.get(i)
+			local spellId = bindValue and Spells.fromBind(bindValue)
+			if spellId then
+				-- Spell binds don't live in the inventory; render from the
+				-- shared defs, dimmed when the active class doesn't know it.
+				local spellDef = Spells.get(spellId)
+				if spellDef then
+					slotItem[i] = bindValue
+					slots[i].setSpell(spellDef, not SpellsClient.isKnown(spellId))
+				else
+					HotbarBinds.clear(i) -- bind to a spell that no longer exists
+					slotItem[i] = nil
+					slots[i].set(nil)
+				end
+			else
+				local itemId = bindValue
+				local entry = itemId and mainByItem[itemId]
+				if itemId and not entry and hasInventory then
+					-- The bound item left the grid; drop the bind (fires changed,
+					-- which re-renders — by then the bind is gone, so it settles).
+					HotbarBinds.clear(i)
+				end
+				slotItem[i] = entry and entry.itemId or nil
+				slots[i].set(slotItem[i], entry and entry.quantity or nil)
 			end
-			slotItem[i] = entry and entry.itemId or nil
-			slots[i].set(slotItem[i], entry and entry.quantity or nil)
 		end
 		refreshEquipped()
 	end
@@ -523,6 +644,35 @@ function HudUI.start()
 	renderHotbar(nil) -- start as empty sockets
 	HotbarBinds.changed:Connect(function()
 		renderHotbar(nil) -- re-render with the last known inventory
+	end)
+	SpellsClient.changed:Connect(function()
+		renderHotbar(nil) -- known-spells set changed: (un)dim spell slots
+	end)
+
+	-- Cooldown sweep for spell slots: drains the veil from the SpellCd_<id>
+	-- attributes (server-clock expiries) and dims icons we can't afford.
+	task.spawn(function()
+		while true do
+			task.wait(0.1)
+			local now = Workspace:GetServerTimeNow()
+			local mana = player:GetAttribute("Mana") or 0
+			for i = WEAPON_SLOTS, hotbarSize - 1 do
+				local spellId = slotItem[i] and Spells.fromBind(slotItem[i])
+				local def = spellId and Spells.get(spellId)
+				if def then
+					local manaOk = mana >= (def.manaCost or 0)
+					local expiry = player:GetAttribute(Spells.cdAttributeFor(spellId))
+					local remaining = typeof(expiry) == "number" and (expiry - now) or 0
+					if remaining > 0 and (def.cooldown or 0) > 0 then
+						local text = remaining >= 10 and string.format("%d", remaining)
+							or string.format("%.1f", remaining)
+						slots[i].setCooldown(remaining / def.cooldown, text, manaOk)
+					else
+						slots[i].setCooldown(nil, nil, manaOk)
+					end
+				end
+			end
+		end
 	end)
 
 	-- Number keys 1..9,0 equip/unequip the matching slot. While the inventory
@@ -577,6 +727,8 @@ function HudUI.start()
 
 	-- ---- inventory → hotbar ----
 	task.spawn(function()
+		castSpellRemote = Remotes.get("CastSpell")
+
 		local inventoryUpdated = Remotes.get("InventoryUpdated")
 		inventoryUpdated.OnClientEvent:Connect(renderHotbar)
 
