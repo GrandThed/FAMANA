@@ -29,6 +29,14 @@ local STAND_DEFS = {
 	{ itemId = "bow_basic", position = Vector3.new(17, 0, -34) },
 	{ itemId = "axe_basic", position = Vector3.new(-3, 0, -34) },
 	{ itemId = "pickaxe_basic", position = Vector3.new(-8, 0, -34) },
+
+	-- Trait test gear (Phase A) — a second row behind the weapon stands.
+	{ itemId = "ring_brawler", position = Vector3.new(-8, 0, -41) },
+	{ itemId = "ring_lynx", position = Vector3.new(-3, 0, -41) },
+	{ itemId = "helmet_bastion", position = Vector3.new(2, 0, -41) },
+	{ itemId = "sword_duelist", position = Vector3.new(7, 0, -41) },
+	{ itemId = "chest_colossus", position = Vector3.new(12, 0, -41) },
+	{ itemId = "boots_evader", position = Vector3.new(17, 0, -41) },
 }
 
 local standFolder

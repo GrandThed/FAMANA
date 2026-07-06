@@ -139,43 +139,55 @@ Two halves:
 - Tooltip on items must show their traits + how each contributes ("Bastión
   +3 → total 8/11").
 
-### Recommended path to start testing (no backend migration)
+### Phase A — SHIPPED (fixed-trait items, no backend migration)
 
-**Phase A — fixed-trait items (recommended first step).** Put a hand-authored
-`traits` map + `itemLevel` on a few item **defs** (`backend/content/items.json`
-+ the `Items.lua` mirror). No schema change — identical items are still
-identical. This exercises 90% of the system: aggregation, thresholds, the
-trait UI, level gating, and the first trait effects, all with the content
-pipeline that already exists.
+Traits are live: hand-authored `traits` + `itemLevel` sit on item **defs**
+(`backend/content/items.json` + the `Items.lua` mirror — no schema change,
+identical items stay identical). The pieces:
 
-Starter test set (sums always equal item level; kit designed so combining
-pieces crosses thresholds):
+- **`shared/Traits.lua`** — the catalog (Lynx Eye, Agile Hands, Perseverance,
+  Brawler, Bastion, Evasion — board thresholds, English ids), plus
+  aggregation (`totalsFor` sums equipped non-inert pieces), threshold
+  resolution, the inert check, and tooltip label helpers.
+- **`server/SynergyService.lua`** — recomputes totals on every inventory /
+  Level / Class change, replicates them as the `TraitPoints` attribute
+  (JSON), and registers stat hooks: crit (EnemyService), dodge
+  (EnemyService, with a "Dodge!" popup on evaded hits), armor →
+  `100/(100+armor)` damage-taken mult, swing cooldown (ToolService — the
+  cooldown now also gates damage, so click spam can't beat attack speed),
+  buff duration (EffectService), max HP mult + always-on %HP/s regen
+  (HealthService, refreshed live on gear changes).
+- **Gating** — inert rule as decided: `itemLevel` above the ACTIVE class
+  level → the piece stays equipped but contributes nothing; the paper doll
+  shows a red veil + "Lv N" on it, and item tooltips say "INERT until Lv N".
+- **UI** — trait entries join the TFT tracker below the schools (only traits
+  you have points in; lit when the first threshold is active, "8/11" counts,
+  hover for the full threshold list). Item tooltips list item level + trait
+  points.
+- **Test gear** — six stands on a second row behind the weapon stands:
 
-| Item | Slot | Item lvl | Traits |
+| Item (id) | Slot | Item lvl | Traits |
 |---|---|---|---|
-| Anillo del Matón | ring | 2 | Matón 2 |
-| Anillo del Lince | ring | 3 | Ojo de Lince 3 |
-| Casco de Bastión | head | 5 | Bastión 3 · Matón 2 |
-| Espada del Duelista | weapon | 7 | Ojo de Lince 4 · Manos Ágiles 3 |
-| Peto del Coloso | chest | 8 | Matón 5 · Bastión 3 |
-| Botas del Evasor | feet | 9 | Evasión 5 · Matón 4 |
+| Brawler Ring (`ring_brawler`) | ring | 2 | Brawler 2 |
+| Lynx Ring (`ring_lynx`) | ring | 3 | Lynx Eye 3 |
+| Bastion Helm (`helmet_bastion`) | head | 5 | Bastion 3 · Brawler 2 |
+| Duelist Sword (`sword_duelist`) | weapon | 7 | Lynx Eye 4 · Agile Hands 3 |
+| Colossus Chestplate (`chest_colossus`) | chest | 8 | Brawler 5 · Bastion 3 |
+| Evader Boots (`boots_evader`) | feet | 9 | Evasion 5 · Brawler 4 |
 
-Full kit totals: Matón 13 (tier 11 ✓), Bastión 6 (tier 5 ✓), Ojo de Lince 7
-(tier 7 ✓), Manos Ágiles 3 (below 4 ✗ — visible as "3/4" in the UI), Evasión
-5 (tier 5 ✓). Perfect for verifying partial progress display.
+Full kit totals: Brawler 13 (tier 11 ✓), Bastion 6 (tier 5 ✓), Lynx Eye 7
+(tier 7 ✓), Agile Hands 3 (below 4 ✗ — shows as "3/4"), Evasion 5 (tier 5
+✓). Good coverage of active tiers AND partial progress. Note the kit needs
+class level 9 to fully wake up — level up via the admin panel to test the
+inert rule both ways.
 
-First trait effects to wire (all have pipelines ready after the spell work):
-1. **Ojo de Lince** → add to the crit chance in `EnemyService.computePlayerDamage`.
-2. **Bastión** → a `registerDamageTakenMult` hook (armor formula above).
-3. **Matón** → MaxHealth mult in `HealthService` + regen amount.
-4. **Manos Ágiles** → scale `SWING_COOLDOWN` per player in `ToolService`.
-5. **Evasión** → dodge roll where enemies call `TakeDamage`.
-6. **Perseverancia** → duration mult in `EffectService.apply`.
+Still deferred: Guardián (ally shields/auras), Rodar/Dash (movement +
+iframes), gathering + mana-regen traits.
 
-Defer to later phases: Guardián, Rodar/Dash, recolección, mana regen trait.
-
-**Phase B** — random roll generator + `meta JSONB` migration (items become
-unique). **Phase C** — utility/active traits (movement system) + Guardián.
+**Phase B** — random roll generator + per-instance `meta JSONB` migration
+(items become unique; see the TRAITS.md corrections for every path that must
+become trait-aware). **Phase C** — utility/active traits (movement system) +
+Guardián.
 
 ---
 

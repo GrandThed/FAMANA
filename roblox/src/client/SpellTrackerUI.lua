@@ -1,19 +1,23 @@
--- TFT-style subclass tracker: a vertical strip on the left edge listing every
--- school (subclass) of the current class, with the class level against the
--- next unlock threshold ("7/10", like TFT's trait counts). Hovering an entry
--- opens a tooltip with the school's whole level timeline (spells + passive
--- per threshold, reached tiers bright / future ones gray) and its spell
--- list — hover a spell row and press 3–0 to bind it to that hotbar key on
--- the active page. The mouse is never locked in this game, so this works
--- mid-play; ClientState.spellHover stops HudUI from also casting on the
--- same keypress.
+-- TFT-style tracker on the left screen edge, two sections in one strip:
+--   * SCHOOLS — one entry per subclass of the current class, class level vs
+--     next unlock ("7/10"). Hover → tooltip with the school's whole level
+--     timeline (reached tiers bright / future gray) and its spell list;
+--     hover a spell row and press 3–0 to bind it to that hotbar key.
+--   * TRAITS — one entry per equipment trait you have points in (from the
+--     server-set `TraitPoints` attribute), points vs next threshold, lit
+--     once the first threshold is active. Hover → tooltip with every
+--     threshold's stats.
+-- The mouse is never locked in this game, so this works mid-play;
+-- ClientState.spellHover stops HudUI from also casting on the same keypress.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Spells = require(Shared:WaitForChild("Spells"))
+local Traits = require(Shared:WaitForChild("Traits"))
 local HotbarBinds = require(script.Parent.HotbarBinds)
 local SpellsClient = require(script.Parent.SpellsClient)
 local ClientState = require(script.Parent.ClientState)
@@ -87,9 +91,20 @@ function SpellTrackerUI.start()
 
 	-- ---- state ----
 	local entries = {} -- [schoolId] = { frame, count, school }
-	local currentSchool, currentAnchor -- school shown in the tooltip + its entry
+	local traitEntries = {} -- [traitId] = { frame, count, stroke }
+	local currentSchool, currentTraitId, currentAnchor -- tooltip subject + its entry
 	local hoveredSpellId -- spell row under the mouse (known spells only)
 	local hideToken = 0
+
+	-- Trait totals from the server ({ [traitId] = points }).
+	local function traitTotals()
+		local raw = player:GetAttribute("TraitPoints")
+		if typeof(raw) ~= "string" or raw == "" then
+			return {}
+		end
+		local ok, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+		return (ok and typeof(decoded) == "table") and decoded or {}
+	end
 
 	local function levelNow()
 		return player:GetAttribute("Level") or 1
@@ -122,7 +137,7 @@ function SpellTrackerUI.start()
 		task.delay(0.15, function()
 			if token == hideToken then
 				tooltip.Visible = false
-				currentSchool, currentAnchor = nil, nil
+				currentSchool, currentTraitId, currentAnchor = nil, nil, nil
 				setHoveredSpell(nil)
 			end
 		end)
@@ -273,16 +288,76 @@ function SpellTrackerUI.start()
 		tooltip.Visible = true
 	end
 
+	-- Trait tooltip: description + every threshold with its stats; the tiers
+	-- your current points reach read bright, the rest gray.
+	local function buildTraitTooltip(traitDef, anchorFrame)
+		for _, child in ipairs(tooltip:GetChildren()) do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		setHoveredSpell(nil)
+
+		local points = traitTotals()[traitDef.id] or 0
+		local y = 8
+
+		local title = makeTooltipLabel(
+			("%s  %s — %d pts"):format(traitDef.icon or "✦", traitDef.name, points),
+			16,
+			traitDef.color,
+			true
+		)
+		title.Size = UDim2.new(1, -20, 0, 20)
+		title.Position = UDim2.new(0, 10, 0, y)
+		y += 24
+
+		local desc = makeTooltipLabel(traitDef.description or "", 11, COLORS.textDim)
+		desc.Size = UDim2.new(1, -20, 0, 28)
+		desc.Position = UDim2.new(0, 10, 0, y)
+		desc.TextWrapped = true
+		desc.TextTruncate = Enum.TextTruncate.None
+		y += 32
+
+		for _, threshold in ipairs(traitDef.thresholds) do
+			local reached = points >= threshold[1]
+			local line = makeTooltipLabel(
+				("%d — %s"):format(threshold[1], Traits.tierLabel(threshold[2])),
+				12,
+				reached and COLORS.text or COLORS.textDim
+			)
+			line.Size = UDim2.new(1, -20, 0, 15)
+			line.Position = UDim2.new(0, 10, 0, y)
+			y += 17
+		end
+
+		tooltip.Size = UDim2.new(0, TOOLTIP_W, 0, y + 8)
+		local anchorY = anchorFrame.AbsolutePosition.Y
+		local maxY = math.max(8, gui.AbsoluteSize.Y - (y + 16))
+		tooltip.Position = UDim2.new(0, PANEL_X + ENTRY_W + 10, 0, math.clamp(anchorY, 8, maxY))
+		tooltip.Visible = true
+	end
+
 	local function showTooltip(school, anchorFrame)
 		cancelHide()
-		currentSchool, currentAnchor = school, anchorFrame
+		currentSchool, currentTraitId, currentAnchor = school, nil, anchorFrame
 		buildTooltip(school, anchorFrame)
 	end
 
-	-- Rebuild in place (badges, known states, timeline brightness).
+	local function showTraitTooltip(traitDef, anchorFrame)
+		cancelHide()
+		currentSchool, currentTraitId, currentAnchor = nil, traitDef.id, anchorFrame
+		buildTraitTooltip(traitDef, anchorFrame)
+	end
+
+	-- Rebuild in place (badges, known states, timeline/tier brightness).
 	local function refreshTooltip()
-		if tooltip.Visible and currentSchool and currentAnchor then
+		if not (tooltip.Visible and currentAnchor) then
+			return
+		end
+		if currentSchool then
 			buildTooltip(currentSchool, currentAnchor)
+		elseif currentTraitId and Traits.get(currentTraitId) then
+			buildTraitTooltip(Traits.get(currentTraitId), currentAnchor)
 		end
 	end
 
@@ -295,7 +370,7 @@ function SpellTrackerUI.start()
 		end
 		entries = {}
 		tooltip.Visible = false
-		currentSchool, currentAnchor = nil, nil
+		currentSchool, currentTraitId, currentAnchor = nil, nil, nil
 		setHoveredSpell(nil)
 
 		local classId = player:GetAttribute("Class")
@@ -387,6 +462,100 @@ function SpellTrackerUI.start()
 		end
 	end
 
+	-- ---- trait entries (equipment synergies) ----
+	-- Only traits with points show up; lit once their first threshold is
+	-- active, gray while still building toward it.
+	local function rebuildTraitEntries()
+		for _, entry in pairs(traitEntries) do
+			entry.frame:Destroy()
+		end
+		traitEntries = {}
+		if currentTraitId then
+			tooltip.Visible = false
+			currentTraitId, currentAnchor = nil, nil
+		end
+
+		local totals = traitTotals()
+		for order, traitId in ipairs(Traits.order) do
+			local points = tonumber(totals[traitId]) or 0
+			local traitDef = Traits.get(traitId)
+			if points > 0 and traitDef then
+				local active = Traits.activeStats(traitId, points) ~= nil
+
+				local frame = Instance.new("TextButton")
+				frame.Size = UDim2.new(1, 0, 0, ENTRY_H)
+				frame.LayoutOrder = 50 + order -- traits sit below the schools
+				frame.AutoButtonColor = false
+				frame.Text = ""
+				frame.BackgroundColor3 = COLORS.panel
+				frame.BackgroundTransparency = active and 0.25 or 0.45
+				frame.BorderSizePixel = 0
+				frame.Parent = panel
+
+				local corner = Instance.new("UICorner")
+				corner.CornerRadius = UDim.new(0, 6)
+				corner.Parent = frame
+
+				local stroke = Instance.new("UIStroke")
+				stroke.Thickness = 1.5
+				stroke.Color = active and traitDef.color or COLORS.line
+				stroke.Transparency = active and 0.35 or 0.5
+				stroke.Parent = frame
+
+				local icon = Instance.new("TextLabel")
+				icon.Size = UDim2.new(0, 26, 0, 26)
+				icon.Position = UDim2.new(0, 5, 0.5, -13)
+				icon.BackgroundColor3 = traitDef.color
+				icon.BackgroundTransparency = active and 0.55 or 0.85
+				icon.BorderSizePixel = 0
+				icon.Font = Enum.Font.GothamBold
+				icon.TextSize = 15
+				icon.Text = traitDef.icon or "✦"
+				icon.Parent = frame
+
+				local iconCorner = Instance.new("UICorner")
+				iconCorner.CornerRadius = UDim.new(0, 5)
+				iconCorner.Parent = icon
+
+				local name = Instance.new("TextLabel")
+				name.Size = UDim2.new(1, -84, 1, 0)
+				name.Position = UDim2.new(0, 38, 0, 0)
+				name.BackgroundTransparency = 1
+				name.Font = Enum.Font.GothamBold
+				name.TextSize = 13
+				name.TextColor3 = active and COLORS.text or COLORS.textDim
+				name.TextXAlignment = Enum.TextXAlignment.Left
+				name.Text = traitDef.name
+				name.Parent = frame
+
+				local count = Instance.new("TextLabel")
+				count.Size = UDim2.new(0, 42, 1, 0)
+				count.Position = UDim2.new(1, -48, 0, 0)
+				count.BackgroundTransparency = 1
+				count.Font = Enum.Font.GothamBold
+				count.TextSize = 13
+				count.TextXAlignment = Enum.TextXAlignment.Right
+				count.Parent = frame
+
+				local nextPoints = Traits.nextThreshold(traitId, points)
+				if nextPoints then
+					count.Text = ("%d/%d"):format(points, nextPoints)
+					count.TextColor3 = COLORS.textDim
+				else
+					count.Text = tostring(points)
+					count.TextColor3 = COLORS.gold
+				end
+
+				frame.MouseEnter:Connect(function()
+					showTraitTooltip(traitDef, frame)
+				end)
+				frame.MouseLeave:Connect(scheduleHide)
+
+				traitEntries[traitId] = { frame = frame, count = count }
+			end
+		end
+	end
+
 	-- Hovered spell + 3–0 → bind to that key on the active page. HudUI skips
 	-- its cast/equip handling while ClientState.spellHover is set.
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -404,10 +573,15 @@ function SpellTrackerUI.start()
 		refreshCounts()
 		refreshTooltip()
 	end)
+	player:GetAttributeChangedSignal("TraitPoints"):Connect(function()
+		rebuildTraitEntries()
+		refreshTooltip()
+	end)
 	SpellsClient.changed:Connect(refreshTooltip)
 	HotbarBinds.changed:Connect(refreshTooltip)
 
 	rebuildEntries()
+	rebuildTraitEntries()
 end
 
 return SpellTrackerUI

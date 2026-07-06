@@ -178,6 +178,72 @@ local function hookedDamageTakenMult(player)
 	return mult
 end
 
+-- registerCritChanceBonus: fn(player) -> additive crit chance (Lynx Eye).
+local critChanceHooks = {}
+function EnemyService.registerCritChanceBonus(fn)
+	table.insert(critChanceHooks, fn)
+end
+
+local function hookedCritBonus(player)
+	local bonus = 0
+	for _, fn in ipairs(critChanceHooks) do
+		local ok, value = pcall(fn, player)
+		if ok and typeof(value) == "number" then
+			bonus += value
+		end
+	end
+	return bonus
+end
+
+-- registerDodgeChance: fn(player) -> chance to fully evade an enemy hit
+-- (Evasion trait). Summed across hooks, capped so a hit always CAN land.
+local dodgeChanceHooks = {}
+function EnemyService.registerDodgeChance(fn)
+	table.insert(dodgeChanceHooks, fn)
+end
+
+local function hookedDodgeChance(player)
+	local chance = 0
+	for _, fn in ipairs(dodgeChanceHooks) do
+		local ok, value = pcall(fn, player)
+		if ok and typeof(value) == "number" then
+			chance += value
+		end
+	end
+	return math.min(chance, 0.9)
+end
+
+-- Floating "Dodge!" popup over a player who just evaded a hit.
+local function dodgePopup(character)
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.new(0, 90, 0, 24)
+	gui.StudsOffset = Vector3.new(0, 3.2, 0)
+	gui.AlwaysOnTop = true
+	gui.Parent = root
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 18
+	label.TextColor3 = Color3.fromRGB(130, 210, 140)
+	label.TextStrokeTransparency = 0.4
+	label.Text = "Dodge!"
+	label.Parent = gui
+
+	TweenService:Create(gui, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		StudsOffset = Vector3.new(0, 4.6, 0),
+	}):Play()
+	TweenService:Create(label, TweenInfo.new(0.6), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	task.delay(0.7, function()
+		gui:Destroy()
+	end)
+end
+
 -- The full outgoing-damage roll for a player: class multiplier, hook
 -- multipliers (effects + passives), then the crit roll. Used by weapon swings
 -- here and by SpellService for spell damage. Returns (damage, isCrit).
@@ -188,7 +254,7 @@ function EnemyService.computePlayerDamage(player, baseDamage, damageKind, opts)
 
 	local isCrit = false
 	if not (opts and opts.noCrit) then
-		local critChance = CRIT_CHANCE + ClassService.getCritBonus(player)
+		local critChance = CRIT_CHANCE + ClassService.getCritBonus(player) + hookedCritBonus(player)
 		isCrit = math.random() < critChance
 		if isCrit then
 			damage *= CRIT_MULTIPLIER
@@ -541,12 +607,18 @@ local function updateEnemy(enemy, dt)
 			enemy.lastAttack = now
 			local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
-				humanoid:TakeDamage(
-					enemy.damage * ClassService.getDamageTakenMult(target) * hookedDamageTakenMult(target)
-				)
-				HealthService.registerDamage(target) -- pause the player's regen
-				for _, fn in ipairs(EnemyService.playerHitHandlers) do
-					task.spawn(fn, def.lootSource, target)
+				-- Evasion: a dodged hit deals nothing and applies no on-hit
+				-- effects (the enemy still spent its attack).
+				if math.random() < hookedDodgeChance(target) then
+					dodgePopup(target.Character)
+				else
+					humanoid:TakeDamage(
+						enemy.damage * ClassService.getDamageTakenMult(target) * hookedDamageTakenMult(target)
+					)
+					HealthService.registerDamage(target) -- pause the player's regen
+					for _, fn in ipairs(EnemyService.playerHitHandlers) do
+						task.spawn(fn, def.lootSource, target)
+					end
 				end
 			end
 		end

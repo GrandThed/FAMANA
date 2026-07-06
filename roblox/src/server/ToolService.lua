@@ -18,7 +18,7 @@ local EQUIPPABLE = { weapon = true, tool = true }
 
 -- Roblox's built-in "tool slash" animation — usable by any game.
 local SLASH_ANIM = "rbxassetid://522635514"
-local SWING_COOLDOWN = 0.4
+local SWING_COOLDOWN = 0.4 -- base seconds between swings (Agile Hands scales it)
 
 -- [itemType] = function(player, tool, def)  registered by later systems.
 ToolService.activatedHandlers = {}
@@ -27,11 +27,30 @@ function ToolService.registerActivated(itemType, handler)
 	ToolService.activatedHandlers[itemType] = handler
 end
 
+-- registerSwingCooldownMult: fn(player) -> multiplier on the swing cooldown
+-- (< 1 = faster). Registered by SynergyService for the Agile Hands trait.
+local swingCooldownMultHooks = {}
+function ToolService.registerSwingCooldownMult(fn)
+	table.insert(swingCooldownMultHooks, fn)
+end
+
+local function swingCooldownFor(player)
+	local mult = 1
+	for _, fn in ipairs(swingCooldownMultHooks) do
+		local ok, value = pcall(fn, player)
+		if ok and typeof(value) == "number" then
+			mult *= value
+		end
+	end
+	return SWING_COOLDOWN * math.max(mult, 0.1)
+end
+
 -- One reusable Animation instance (the id never changes).
 local swingAnim = Instance.new("Animation")
 swingAnim.AnimationId = SLASH_ANIM
 
--- Per-player swing debounce so the animation can't be spammed.
+-- Per-player swing debounce; gates the animation AND the activation handler
+-- (combat/gather), so click spam can't out-DPS the attack speed stat.
 local lastSwing = {}
 
 -- Procedural swing per item kind: the tool itself is rotated in the hand by
@@ -63,10 +82,12 @@ local function gripWeld(character)
 	return hand and hand:FindFirstChild("RightGrip")
 end
 
-local function playSwing(player, def)
+-- Attempts a swing; returns false while still on cooldown (the caller skips
+-- the activation handler too).
+local function trySwing(player, def)
 	local now = os.clock()
-	if now - (lastSwing[player.UserId] or 0) < SWING_COOLDOWN then
-		return
+	if now - (lastSwing[player.UserId] or 0) < swingCooldownFor(player) then
+		return false
 	end
 	lastSwing[player.UserId] = now
 
@@ -95,6 +116,7 @@ local function playSwing(player, def)
 		)
 		tween:Play()
 	end
+	return true
 end
 
 -- Fallback looks for equippables without an ItemModels entry yet.
@@ -210,7 +232,9 @@ local function buildTool(player, itemId)
 	end
 
 	tool.Activated:Connect(function()
-		playSwing(player, def)
+		if not trySwing(player, def) then
+			return -- still on cooldown: no animation, no combat/gather hit
+		end
 		local handler = ToolService.activatedHandlers[def.type]
 		if handler then
 			handler(player, tool, def)

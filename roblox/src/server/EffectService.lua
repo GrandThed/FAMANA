@@ -89,9 +89,29 @@ local DIMINISH_RESET = 8 -- seconds without a reapplication before it resets
 
 local diminish = {} -- [userId] = { [effectId] = { mult, lastApplied } }
 
-local function diminishedDuration(player, def)
+-- registerDurationMult: fn(player, def) -> multiplier on BUFF durations
+-- (Perseverance trait). Debuffs are never extended by it.
+local durationMultHooks = {}
+function EffectService.registerDurationMult(fn)
+	table.insert(durationMultHooks, fn)
+end
+
+local function hookedDurationMult(player, def)
+	local mult = 1
+	for _, fn in ipairs(durationMultHooks) do
+		local ok, value = pcall(fn, player, def)
+		if ok and typeof(value) == "number" then
+			mult *= value
+		end
+	end
+	return mult
+end
+
+-- Final applied duration: buffs get the duration-mult hooks (Perseverance),
+-- debuffs get diminishing returns instead.
+local function effectDuration(player, def)
 	if def.kind ~= "debuff" then
-		return def.duration
+		return def.duration * hookedDurationMult(player, def)
 	end
 	local userDim = diminish[player.UserId]
 	if not userDim then
@@ -122,7 +142,7 @@ function EffectService.apply(player, effectId)
 		effects = {}
 		active[player.UserId] = effects
 	end
-	local expiresAt = Workspace:GetServerTimeNow() + diminishedDuration(player, def)
+	local expiresAt = Workspace:GetServerTimeNow() + effectDuration(player, def)
 	-- A diminished reapplication must never CUT SHORT a longer active timer.
 	if effects[effectId] and effects[effectId] > expiresAt then
 		return
