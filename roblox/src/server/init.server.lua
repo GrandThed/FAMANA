@@ -15,6 +15,7 @@ local GatheringService = require(script:WaitForChild("GatheringService"))
 local EnemyService = require(script:WaitForChild("EnemyService"))
 local EffectService = require(script:WaitForChild("EffectService"))
 local SpellService = require(script:WaitForChild("SpellService"))
+local SynergyService = require(script:WaitForChild("SynergyService"))
 local DropService = require(script:WaitForChild("DropService"))
 local ItemStandService = require(script:WaitForChild("ItemStandService"))
 local VendorService = require(script:WaitForChild("VendorService"))
@@ -34,6 +35,7 @@ GatheringService.start()
 EnemyService.start()
 EffectService.start() -- after EnemyService: hooks onPlayerHit
 SpellService.start() -- after EnemyService/EffectService: registers damage hooks
+SynergyService.start() -- equipment trait synergies: registers stat hooks everywhere
 DropService.start()
 ItemStandService.start() -- after DropService: stands spawn drops
 VendorService.start()

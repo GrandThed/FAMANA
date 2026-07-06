@@ -15,6 +15,11 @@
 >   goes **inert** (red square on the slot, contributes nothing) until the
 >   level allows it again — e.g. after switching to a lower-level class.
 >
+> **Update:** Phase A (fixed-trait items + SynergyService) AND Phase B
+> (random rolls) are implemented — see `TRAITS_AND_SPELLS.md`. The backend
+> went with one nullable `meta JSONB` column ({ itemLevel, traits }) instead
+> of two columns, and every path listed below was made instance-safe.
+>
 > **Corrections to this plan before implementing:**
 > - **Trait catalog/thresholds must come from the Rasgos board** (tables in
 >   `TRAITS_AND_SPELLS.md` Part 1), and names/ids in **English** (game

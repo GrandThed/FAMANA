@@ -21,14 +21,15 @@ export default async function inventoryRoutes(fastify) {
 
   // Add an item. With `partial: true`, adds what fits instead of failing
   // (used by drop pickups for stackables); `added` reports the amount.
+  // `meta` marks a rolled item instance (sanitized inside addItem).
   fastify.post("/player/:id/inventory/add", async (request, reply) => {
     const id = parseId(request, reply);
     if (id === null) return;
-    const { itemId, quantity, partial } = request.body || {};
+    const { itemId, quantity, partial, meta } = request.body || {};
 
     try {
       const result = await withTransaction((client) =>
-        addItem(client, id, itemId, quantity, { partial: partial === true })
+        addItem(client, id, itemId, quantity, { partial: partial === true, meta })
       );
       const inventory = await withTransaction((client) => getInventory(client, id));
       return { ...result, inventory };

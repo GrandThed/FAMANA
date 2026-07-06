@@ -149,6 +149,60 @@ ItemModels.defs = {
 		{ name = "Gem", size = V(0.24, 0.24, 0.24), offset = V(0, 0.55, 0), rot = V(0, 45, 45), color = "sapphire", material = Enum.Material.Neon },
 	},
 
+	-- ---- trait test gear (Phase A) -------------------------------------------
+
+	ring_brawler = {
+		{ name = "BandBottom", size = V(0.5, 0.1, 0.16), color = "steelDark" },
+		{ name = "BandL", size = V(0.1, 0.4, 0.16), offset = V(-0.2, 0.2, 0), color = "steelDark" },
+		{ name = "BandR", size = V(0.1, 0.4, 0.16), offset = V(0.2, 0.2, 0), color = "steelDark" },
+		{ name = "BandTop", size = V(0.5, 0.1, 0.16), offset = V(0, 0.4, 0), color = "steelDark" },
+		{ name = "Gem", size = V(0.28, 0.28, 0.28), offset = V(0, 0.55, 0), rot = V(0, 45, 45), color = "ruby", material = Enum.Material.Neon },
+	},
+
+	ring_lynx = {
+		{ name = "BandBottom", size = V(0.5, 0.1, 0.16), color = "gold" },
+		{ name = "BandL", size = V(0.1, 0.4, 0.16), offset = V(-0.2, 0.2, 0), color = "gold" },
+		{ name = "BandR", size = V(0.1, 0.4, 0.16), offset = V(0.2, 0.2, 0), color = "gold" },
+		{ name = "BandTop", size = V(0.5, 0.1, 0.16), offset = V(0, 0.4, 0), color = "gold" },
+		{ name = "Gem", size = V(0.24, 0.24, 0.24), offset = V(0, 0.55, 0), rot = V(0, 45, 45), color = "gold", material = Enum.Material.Neon },
+		{ name = "Pupil", size = V(0.1, 0.26, 0.1), offset = V(0, 0.55, -0.1), color = "ink" },
+	},
+
+	helmet_bastion = {
+		{ name = "Skull", size = V(1.2, 0.7, 1.2), color = "steel" },
+		{ name = "Top", size = V(0.9, 0.35, 0.9), offset = V(0, 0.5, 0), color = "steelDark" },
+		{ name = "Crest", size = V(0.2, 0.55, 1.1), offset = V(0, 0.65, 0), color = "gold" },
+		{ name = "Brow", size = V(1.3, 0.3, 1.3), offset = V(0, -0.4, 0), color = "steelDark" },
+		{ name = "NoseGuard", size = V(0.22, 0.5, 0.16), offset = V(0, -0.6, -0.62), color = "steelDark" },
+	},
+
+	sword_duelist = {
+		{ name = "Grip", size = V(0.28, 1.1, 0.28), color = "leatherDark" },
+		{ name = "Pommel", size = V(0.4, 0.3, 0.4), offset = V(0, -0.7, 0), rot = V(0, 45, 0), color = "gold" },
+		{ name = "Guard", size = V(1.1, 0.18, 0.4), offset = V(0, 0.62, 0), color = "gold" },
+		{ name = "RingGuard", size = V(0.5, 0.4, 0.14), offset = V(0, 0.35, -0.2), color = "gold" },
+		{ name = "Blade", size = V(0.4, 2.9, 0.13), offset = V(0, 2.15, 0), color = "steel" },
+		{ name = "Tip", size = V(0.24, 0.55, 0.11), offset = V(0, 3.85, 0), color = "steel" },
+	},
+
+	chest_colossus = {
+		{ name = "Torso", size = V(1.5, 1.7, 0.8), color = "steel" },
+		{ name = "ShoulderL", size = V(0.6, 0.45, 0.85), offset = V(-0.95, 0.75, 0), color = "steelDark" },
+		{ name = "ShoulderR", size = V(0.6, 0.45, 0.85), offset = V(0.95, 0.75, 0), color = "steelDark" },
+		{ name = "Plate", size = V(0.9, 1.0, 0.16), offset = V(0, 0.2, -0.42), color = "steelDark" },
+		{ name = "Belt", size = V(1.54, 0.32, 0.84), offset = V(0, -0.8, 0), color = "leatherDark" },
+		{ name = "Buckle", size = V(0.34, 0.34, 0.12), offset = V(0, -0.8, -0.42), color = "gold" },
+	},
+
+	boots_evader = {
+		{ name = "ShaftL", size = V(0.45, 0.85, 0.5), color = "leaf" },
+		{ name = "FootL", size = V(0.45, 0.3, 0.85), offset = V(0, -0.55, -0.25), color = "leafDark" },
+		{ name = "WingL", size = V(0.12, 0.4, 0.3), offset = V(-0.28, 0.35, 0.1), rot = V(0, 0, -20), color = "leafLight" },
+		{ name = "ShaftR", size = V(0.45, 0.85, 0.5), offset = V(0.9, 0, 0), color = "leaf" },
+		{ name = "FootR", size = V(0.45, 0.3, 0.85), offset = V(0.9, -0.55, -0.25), color = "leafDark" },
+		{ name = "WingR", size = V(0.12, 0.4, 0.3), offset = V(1.18, 0.35, 0.1), rot = V(0, 0, 20), color = "leafLight" },
+	},
+
 	-- ---- resources (inventory thumbnails, ground drops) --------------------
 
 	wood = {

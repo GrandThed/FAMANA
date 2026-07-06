@@ -26,6 +26,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
+local Traits = require(Shared:WaitForChild("Traits"))
 local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
@@ -313,11 +314,31 @@ function InventoryUI.start()
 		local thumb = makeViewport(frame)
 		thumb.ZIndex = 4
 
+		-- Red veil for INERT gear: itemLevel above the active class level
+		-- (e.g. after switching to a lower-level class) — still equipped,
+		-- but contributing nothing until the level allows it again.
+		local inertOverlay = Instance.new("Frame")
+		inertOverlay.Size = UDim2.new(1, 0, 1, 0)
+		inertOverlay.BackgroundColor3 = Color3.fromRGB(200, 60, 50)
+		inertOverlay.BackgroundTransparency = 0.65
+		inertOverlay.BorderSizePixel = 0
+		inertOverlay.Visible = false
+		inertOverlay.ZIndex = 6
+		inertOverlay.Parent = frame
+
+		local inertLabel = makeLabel(frame, "", 10, Color3.fromRGB(255, 210, 205))
+		inertLabel.Size = UDim2.new(1, 0, 0, 12)
+		inertLabel.Position = UDim2.new(0, 0, 1, -13)
+		inertLabel.Visible = false
+		inertLabel.ZIndex = 7
+
 		equipSlots[slotName] = {
 			frame = frame,
 			thumb = thumb,
 			nameLabel = nameLabel,
 			stroke = stroke,
+			inertOverlay = inertOverlay,
+			inertLabel = inertLabel,
 			entry = nil,
 			shownId = nil,
 		}
@@ -481,11 +502,16 @@ function InventoryUI.start()
 		backpack = "Backpack",
 	}
 
-	-- Title + stat lines for an inventory entry.
+	-- Title + stat lines for an inventory entry. Rolled items get their
+	-- instance level in the title ("Basic Sword [Lv 4]").
 	local function describe(entry)
 		local def = Items.get(entry.itemId)
 		if not def then
 			return entry.itemId, ""
+		end
+		local titleText = def.name
+		if typeof(entry.meta) == "table" and entry.meta.itemLevel then
+			titleText = ("%s [Lv %d]"):format(def.name, entry.meta.itemLevel)
 		end
 		local kind = TYPE_NAMES[def.type] or def.type
 		if def.weaponType then
@@ -508,12 +534,35 @@ function InventoryUI.start()
 		if def.gatherPower then
 			lines[#lines + 1] = "Gather power: " .. def.gatherPower
 		end
+		-- Item level + traits: a rolled instance's meta overrides the def.
+		local itemLevel, itemTraits = Traits.entryInfo(entry, def)
+		if itemLevel > 0 then
+			local playerLevel = player:GetAttribute("Level") or 1
+			if itemLevel > playerLevel then
+				lines[#lines + 1] = ("Item level: %d — INERT until Lv %d"):format(itemLevel, itemLevel)
+			else
+				lines[#lines + 1] = "Item level: " .. itemLevel
+			end
+		end
+		if itemTraits then
+			for _, traitId in ipairs(Traits.order) do
+				local points = itemTraits[traitId]
+				if points then
+					local traitDef = Traits.get(traitId)
+					lines[#lines + 1] = ("%s %s +%d"):format(
+						traitDef and traitDef.icon or "✦",
+						traitDef and traitDef.name or traitId,
+						points
+					)
+				end
+			end
+		end
 		local w, h = Items.sizeFor(entry.itemId, false)
 		lines[#lines + 1] = ("Size: %d×%d"):format(w, h)
 		if def.stackable then
 			lines[#lines + 1] = ("Stack: %d / %d"):format(entry.quantity, def.maxStack)
 		end
-		return def.name, table.concat(lines, "\n")
+		return titleText, table.concat(lines, "\n")
 	end
 
 	local hoverToken = 0 -- invalidates pending tooltip timers
@@ -1066,6 +1115,7 @@ function InventoryUI.start()
 		end
 
 		-- Equipment slots: re-preview only when the item actually changed.
+		local playerLevel = player:GetAttribute("Level") or 1
 		for slotName, slot in pairs(equipSlots) do
 			local entry = equipEntries[slotName]
 			slot.entry = entry
@@ -1075,12 +1125,20 @@ function InventoryUI.start()
 					ItemModels.preview(slot.thumb, entry.itemId)
 				end
 				slot.nameLabel.Visible = false
+				local def = Items.get(entry.itemId)
+				local entryLevel = Traits.entryInfo(entry, def)
+				local inert = entryLevel > playerLevel
+				slot.inertOverlay.Visible = inert
+				slot.inertLabel.Visible = inert
+				slot.inertLabel.Text = inert and ("Lv " .. entryLevel) or ""
 			else
 				if slot.shownId then
 					slot.shownId = nil
 					slot.thumb:ClearAllChildren()
 				end
 				slot.nameLabel.Visible = true
+				slot.inertOverlay.Visible = false
+				slot.inertLabel.Visible = false
 			end
 		end
 
@@ -1170,6 +1228,11 @@ function InventoryUI.start()
 	end
 	player:GetAttributeChangedSignal("Gold"):Connect(updateGold)
 	updateGold()
+
+	-- Leveling (or switching class) moves the inert gate on equipped gear.
+	player:GetAttributeChangedSignal("Level"):Connect(function()
+		render(currentInventory)
+	end)
 
 	-- ---- class picker ----------------------------------------------------
 	local switchClassRemote = Remotes.getFunction("SwitchClass")
