@@ -1,12 +1,13 @@
--- TFT-style tracker on the left screen edge, two sections in one strip:
---   * SCHOOLS — one entry per subclass of the current class, class level vs
---     next unlock ("7/10"). Hover → tooltip with the school's whole level
---     timeline (reached tiers bright / future gray) and its spell list;
---     hover a spell row and press 3–0 to bind it to that hotbar key.
---   * TRAITS — one entry per equipment trait you have points in (from the
---     server-set `TraitPoints` attribute), points vs next threshold, lit
---     once the first threshold is active. Hover → tooltip with every
---     threshold's stats.
+-- TFT-style tracker on the left screen edge. EVERYTHING here is earned by
+-- equipment (the server-set `TraitPoints` attribute — schools and traits
+-- alike; the class never feeds points). Two sections in one strip:
+--   * SCHOOLS — one entry per school you have points in, points vs next
+--     unlock ("3/10"). Hover → tooltip with the whole point timeline
+--     (reached tiers bright / future gray) and the spell list; hover a
+--     spell row and press 3–0 to bind it to that hotbar key.
+--   * TRAITS — one entry per stat trait you have points in, points vs next
+--     threshold, lit once the first threshold is active. Hover → tooltip
+--     with every threshold's stats.
 -- The mouse is never locked in this game, so this works mid-play;
 -- ClientState.spellHover stops HudUI from also casting on the same keypress.
 
@@ -106,10 +107,6 @@ function SpellTrackerUI.start()
 		return (ok and typeof(decoded) == "table") and decoded or {}
 	end
 
-	local function levelNow()
-		return player:GetAttribute("Level") or 1
-	end
-
 	local function setHoveredSpell(spellId)
 		hoveredSpellId = spellId
 		ClientState.spellHover = spellId ~= nil
@@ -167,16 +164,21 @@ function SpellTrackerUI.start()
 		end
 		setHoveredSpell(nil)
 
-		local level = levelNow()
+		local points = tonumber(traitTotals()[school.id]) or 0
 		local y = 8
 
-		local title = makeTooltipLabel((school.icon or "") .. "  " .. school.name, 16, school.color, true)
+		local title = makeTooltipLabel(
+			("%s  %s — %d pts"):format(school.icon or "", school.name, points),
+			16,
+			school.color,
+			true
+		)
 		title.Size = UDim2.new(1, -20, 0, 20)
 		title.Position = UDim2.new(0, 10, 0, y)
 		y += 26
 
-		-- Level timeline: every threshold with what it grants; reached tiers
-		-- read bright, future ones gray.
+		-- Point timeline: every threshold with what it grants; the tiers your
+		-- equipment points reach read bright, future ones gray.
 		for _, step in ipairs(Spells.timelineFor(school)) do
 			local parts = {}
 			for _, spellId in ipairs(step.spells) do
@@ -191,9 +193,9 @@ function SpellTrackerUI.start()
 			if step.passive and school.passive then
 				table.insert(parts, Spells.passiveLabel(school.passive.stat, step.passive))
 			end
-			local reached = level >= step.level
+			local reached = points >= step.level
 			local line = makeTooltipLabel(
-				("Lv %d — %s"):format(step.level, table.concat(parts, " · ")),
+				("%d — %s"):format(step.level, table.concat(parts, " · ")),
 				12,
 				reached and COLORS.text or COLORS.textDim
 			)
@@ -252,7 +254,7 @@ function SpellTrackerUI.start()
 					badge.Text = "[" .. boundKey .. "]"
 					badge.TextColor3 = COLORS.gold
 				elseif not known then
-					badge.Text = "Lv " .. unlockLevel
+					badge.Text = unlockLevel .. " pts"
 					badge.TextColor3 = COLORS.textDim
 				else
 					badge.Text = ""
@@ -362,102 +364,101 @@ function SpellTrackerUI.start()
 	end
 
 	-- ---- tracker entries ----
-	local refreshCounts
-
+	-- Schools appear only once equipment gives them points (like traits —
+	-- equipment is the only source), counted points vs next unlock.
 	local function rebuildEntries()
 		for _, entry in pairs(entries) do
 			entry.frame:Destroy()
 		end
 		entries = {}
-		tooltip.Visible = false
-		currentSchool, currentTraitId, currentAnchor = nil, nil, nil
-		setHoveredSpell(nil)
-
-		local classId = player:GetAttribute("Class")
-		for order, school in ipairs(Spells.schoolsFor(classId)) do
-			local frame = Instance.new("TextButton")
-			frame.Size = UDim2.new(1, 0, 0, ENTRY_H)
-			frame.LayoutOrder = order
-			frame.AutoButtonColor = false
-			frame.Text = ""
-			frame.BackgroundColor3 = COLORS.panel
-			frame.BackgroundTransparency = 0.25
-			frame.BorderSizePixel = 0
-			frame.Parent = panel
-
-			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, 6)
-			corner.Parent = frame
-
-			local stroke = Instance.new("UIStroke")
-			stroke.Thickness = 1.5
-			stroke.Color = school.color
-			stroke.Transparency = 0.45
-			stroke.Parent = frame
-
-			local icon = Instance.new("TextLabel")
-			icon.Size = UDim2.new(0, 26, 0, 26)
-			icon.Position = UDim2.new(0, 5, 0.5, -13)
-			icon.BackgroundColor3 = school.color
-			icon.BackgroundTransparency = 0.65
-			icon.BorderSizePixel = 0
-			icon.Font = Enum.Font.GothamBold
-			icon.TextSize = 15
-			icon.Text = school.icon or "✦"
-			icon.Parent = frame
-
-			local iconCorner = Instance.new("UICorner")
-			iconCorner.CornerRadius = UDim.new(0, 5)
-			iconCorner.Parent = icon
-
-			local name = Instance.new("TextLabel")
-			name.Size = UDim2.new(1, -84, 1, 0)
-			name.Position = UDim2.new(0, 38, 0, 0)
-			name.BackgroundTransparency = 1
-			name.Font = Enum.Font.GothamBold
-			name.TextSize = 13
-			name.TextColor3 = COLORS.text
-			name.TextXAlignment = Enum.TextXAlignment.Left
-			name.Text = school.name
-			name.Parent = frame
-
-			local count = Instance.new("TextLabel")
-			count.Size = UDim2.new(0, 42, 1, 0)
-			count.Position = UDim2.new(1, -48, 0, 0)
-			count.BackgroundTransparency = 1
-			count.Font = Enum.Font.GothamBold
-			count.TextSize = 13
-			count.TextXAlignment = Enum.TextXAlignment.Right
-			count.Text = ""
-			count.Parent = frame
-
-			frame.MouseEnter:Connect(function()
-				showTooltip(school, frame)
-			end)
-			frame.MouseLeave:Connect(scheduleHide)
-
-			entries[school.id] = { frame = frame, count = count, school = school }
+		if currentSchool then
+			tooltip.Visible = false
+			currentSchool, currentAnchor = nil, nil
+			setHoveredSpell(nil)
 		end
-		refreshCounts()
-	end
 
-	-- "7/10" toward the next threshold; plain gold level once maxed.
-	refreshCounts = function()
-		local level = levelNow()
-		for _, entry in pairs(entries) do
-			local nextLevel
-			for _, step in ipairs(Spells.timelineFor(entry.school)) do
-				if step.level > level then
-					nextLevel = step.level
-					break
+		local totals = traitTotals()
+		for order, schoolId in ipairs(Spells.schoolOrder) do
+			local points = tonumber(totals[schoolId]) or 0
+			if points > 0 then
+				local school = Spells.schools[schoolId]
+
+				local frame = Instance.new("TextButton")
+				frame.Size = UDim2.new(1, 0, 0, ENTRY_H)
+				frame.LayoutOrder = order
+				frame.AutoButtonColor = false
+				frame.Text = ""
+				frame.BackgroundColor3 = COLORS.panel
+				frame.BackgroundTransparency = 0.25
+				frame.BorderSizePixel = 0
+				frame.Parent = panel
+
+				local corner = Instance.new("UICorner")
+				corner.CornerRadius = UDim.new(0, 6)
+				corner.Parent = frame
+
+				local stroke = Instance.new("UIStroke")
+				stroke.Thickness = 1.5
+				stroke.Color = school.color
+				stroke.Transparency = 0.45
+				stroke.Parent = frame
+
+				local icon = Instance.new("TextLabel")
+				icon.Size = UDim2.new(0, 26, 0, 26)
+				icon.Position = UDim2.new(0, 5, 0.5, -13)
+				icon.BackgroundColor3 = school.color
+				icon.BackgroundTransparency = 0.65
+				icon.BorderSizePixel = 0
+				icon.Font = Enum.Font.GothamBold
+				icon.TextSize = 15
+				icon.Text = school.icon or "✦"
+				icon.Parent = frame
+
+				local iconCorner = Instance.new("UICorner")
+				iconCorner.CornerRadius = UDim.new(0, 5)
+				iconCorner.Parent = icon
+
+				local name = Instance.new("TextLabel")
+				name.Size = UDim2.new(1, -84, 1, 0)
+				name.Position = UDim2.new(0, 38, 0, 0)
+				name.BackgroundTransparency = 1
+				name.Font = Enum.Font.GothamBold
+				name.TextSize = 13
+				name.TextColor3 = COLORS.text
+				name.TextXAlignment = Enum.TextXAlignment.Left
+				name.Text = school.name
+				name.Parent = frame
+
+				local count = Instance.new("TextLabel")
+				count.Size = UDim2.new(0, 42, 1, 0)
+				count.Position = UDim2.new(1, -48, 0, 0)
+				count.BackgroundTransparency = 1
+				count.Font = Enum.Font.GothamBold
+				count.TextSize = 13
+				count.TextXAlignment = Enum.TextXAlignment.Right
+				count.Parent = frame
+
+				local nextPoints
+				for _, step in ipairs(Spells.timelineFor(school)) do
+					if step.level > points then
+						nextPoints = step.level
+						break
+					end
 				end
-			end
-			if nextLevel then
-				entry.count.Text = ("%d/%d"):format(level, nextLevel)
-				entry.count.TextColor3 = COLORS.textDim
-			else
-				entry.count.Text = tostring(level)
-				entry.count.TextColor3 = COLORS.gold
+				if nextPoints then
+					count.Text = ("%d/%d"):format(points, nextPoints)
+					count.TextColor3 = COLORS.textDim
+				else
+					count.Text = tostring(points)
+					count.TextColor3 = COLORS.gold
+				end
+
+				frame.MouseEnter:Connect(function()
+					showTooltip(school, frame)
+				end)
+				frame.MouseLeave:Connect(scheduleHide)
+
+				entries[school.id] = { frame = frame, count = count, school = school }
 			end
 		end
 	end
@@ -568,12 +569,9 @@ function SpellTrackerUI.start()
 		end
 	end)
 
-	player:GetAttributeChangedSignal("Class"):Connect(rebuildEntries)
-	player:GetAttributeChangedSignal("Level"):Connect(function()
-		refreshCounts()
-		refreshTooltip()
-	end)
+	-- Everything keys off the equipment-earned points.
 	player:GetAttributeChangedSignal("TraitPoints"):Connect(function()
+		rebuildEntries()
 		rebuildTraitEntries()
 		refreshTooltip()
 	end)

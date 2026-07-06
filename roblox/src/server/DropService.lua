@@ -49,7 +49,7 @@ local LOOT = {
 local GEAR_LOOT = {
 	slime = { chance = 0.08, pool = { "ring_vitality", "ring_focus" } },
 	goblin = {
-		chance = 0.12,
+		chance = 1.0, -- goblins ALWAYS drop a rolled piece (decided 2026-07-06)
 		pool = {
 			"sword_basic",
 			"helmet_leather",

@@ -29,6 +29,10 @@ Items.defs = {
 		damage = 10,
 		reach = 10, -- studs the swing (and its focus/targeting) can connect
 		size = { 1, 3 },
+		-- Starter weapons carry 1 school point so a fresh player's first
+		-- equip unlocks their first spell (schools are equipment-only).
+		itemLevel = 1,
+		traits = { berserker = 1 },
 	},
 	axe_basic = {
 		id = "axe_basic",
@@ -76,6 +80,8 @@ Items.defs = {
 		reach = 60,
 		manaCost = 25, -- mana spent per cast; blocked when mana is too low
 		size = { 1, 4 },
+		itemLevel = 1,
+		traits = { pyromancer = 1 },
 	},
 	bow_basic = {
 		id = "bow_basic",
@@ -88,6 +94,8 @@ Items.defs = {
 		damage = 12,
 		reach = 55,
 		size = { 1, 4 },
+		itemLevel = 1,
+		traits = { sniper = 1 },
 	},
 	wood = {
 		id = "wood",
@@ -261,6 +269,31 @@ Items.defs = {
 		size = { 2, 2 },
 		itemLevel = 9,
 		traits = { evasion = 5, brawler = 4 },
+	},
+
+	-- School emblems: pure school-point items (TFT emblem fantasy) for
+	-- testing the equipment-driven spell unlocks.
+	emblem_pyromancer = {
+		id = "emblem_pyromancer",
+		name = "Pyromancer Emblem",
+		type = "ring",
+		slot = "ring",
+		stackable = false,
+		maxStack = 1,
+		size = { 1, 1 },
+		itemLevel = 5,
+		traits = { pyromancer = 5 },
+	},
+	emblem_berserker = {
+		id = "emblem_berserker",
+		name = "Berserker Emblem",
+		type = "ring",
+		slot = "ring",
+		stackable = false,
+		maxStack = 1,
+		size = { 1, 1 },
+		itemLevel = 5,
+		traits = { berserker = 5 },
 	},
 }
 

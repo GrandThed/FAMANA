@@ -37,6 +37,10 @@ local STAND_DEFS = {
 	{ itemId = "sword_duelist", position = Vector3.new(7, 0, -41) },
 	{ itemId = "chest_colossus", position = Vector3.new(12, 0, -41) },
 	{ itemId = "boots_evader", position = Vector3.new(17, 0, -41) },
+
+	-- School emblems: pure school-point rings for testing spell unlocks.
+	{ itemId = "emblem_pyromancer", position = Vector3.new(22, 0, -41) },
+	{ itemId = "emblem_berserker", position = Vector3.new(27, 0, -41) },
 }
 
 local standFolder

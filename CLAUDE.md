@@ -124,17 +124,21 @@ duration, never cutting an active timer; slimes inflict `slow` on hit via
 the `CastSpell` remote — known → target → mana → cooldown, nothing charged on
 a whiff — with behaviors projectile/zone/strike/aoe/buff/taunt/summon
 (familiars orbit + auto-attack; zones tick damage and/or slows — Snare Trap
-is a pure-slow zone); cooldowns replicate as `SpellCd_<id>`
-attributes; recomputes known spells on the Level/Class attributes and pushes
+is a pure-slow zone); cooldowns replicate as `SpellCd_<id>` attributes.
+Knowns/passives/familiar counts derive from EQUIPMENT-earned school points
+(`SynergyService.getSchoolPoints`; re-pushed via `onRecomputed` on every
+inventory/Level/Class change — the class never feeds points), pushed as
 `SpellsChanged` (known + newlyUnlocked + recommended); school passives ride
-the damage hooks. See [`docs/TRAITS_AND_SPELLS.md`](docs/TRAITS_AND_SPELLS.md)) ·
-`SynergyService` (TFT-style equipment traits from `shared/Traits`: sums the
-trait points of every non-INERT equipped piece — an item whose `itemLevel`
-exceeds the active class level contributes nothing — replicates totals as the
-`TraitPoints` attribute, and registers the stat hooks: crit + dodge + armor
-(EnemyService), swing cooldown (ToolService), buff duration (EffectService),
-max HP + always-on regen (HealthService); recomputes on inventory/Level/Class
-changes) ·
+the damage hooks and same-stat passives SUM.
+See [`docs/TRAITS_AND_SPELLS.md`](docs/TRAITS_AND_SPELLS.md)) ·
+`SynergyService` (TFT-style equipment points from `shared/Traits`: sums the
+trait AND school points of every non-INERT equipped piece — an item whose
+`itemLevel` exceeds the active class level contributes nothing — replicates
+totals as the `TraitPoints` attribute, exposes `getSchoolPoints` +
+`onRecomputed` (SpellService re-derives knowns from them), and registers the
+stat hooks: crit + dodge + armor (EnemyService), swing cooldown
+(ToolService), buff duration (EffectService), max HP + always-on regen
+(HealthService); recomputes on inventory/Level/Class changes) ·
 `ToolService` (equippable Tools + `registerActivated` hook +
 `registerSwingCooldownMult`; the swing cooldown gates the activation handler
 too, so click spam can't out-DPS attack speed) ·
@@ -161,8 +165,9 @@ drag-out-of-inventory throws; drops are magnetic — they fly to the nearest
 eligible player within 10 studs — and a thrown drop ignores its owner until
 they step away from it once, so others have pickup priority; stackables pick up partially
 when the grid is nearly full, leftovers stay on the ground with no toast;
-`GEAR_LOOT` rolls trait gear via `Traits.roll` at the mob's level ±1, the
-instance meta rides the drop part as a JSON attribute — labels show
+`GEAR_LOOT` rolls trait gear via `Traits.roll` at the mob's level ±1
+(goblins ALWAYS drop a rolled piece; rolled lines are 25% school points),
+the instance meta rides the drop part as a JSON attribute — labels show
 "[Lv N]" — and survives pickups and throws end to end) ·
 `ItemStandService` (data-driven pedestals showing a spinning item copy;
 ProximityPrompt takes a copy as a normal ground drop) ·
@@ -182,16 +187,16 @@ XP bar over the hotbar, an active-effects strip, and a
 10-slot hotbar: keys 1/2 mirror the paper doll's weapon/offhand, keys 3–0 are
 quick binds from `HotbarBinds` — item binds equip Tools, spell binds
 (`spell:<id>`) cast via `CastSpell` and render a school-colored icon with a
-cooldown veil from the `SpellCd_<id>` attributes (grayed when the active
-class doesn't know the spell); clicking an empty bind slot opens a pick-list
+cooldown veil from the `SpellCd_<id>` attributes (grayed while the spell
+isn't currently known — its gear unequipped); clicking an empty bind slot opens a pick-list
 of known spells, and the three bind pages cycle via the button at the bar's
-right end or the `X` key; HUD effect rows drain a remaining-duration bar), `SpellTrackerUI` (TFT-style tracker on the left edge:
-one entry per school of the active class with level vs next threshold —
-hover → tooltip with the school's level timeline + spell rows, hover a row
-and press 3–0 to bind it (sets `ClientState.spellHover` so the keypress
-doesn't also cast) — plus trait entries below the schools from the
-`TraitPoints` attribute, lit when their first threshold is active, hover →
-all thresholds), `SpellsClient` (known-spell
+right end or the `X` key; HUD effect rows drain a remaining-duration bar), `SpellTrackerUI` (TFT-style tracker on the
+left edge, all driven by the equipment-earned `TraitPoints` attribute:
+school entries appear once gear gives them points (points vs next unlock —
+hover → point timeline + spell rows, hover a row and press 3–0 to bind it;
+sets `ClientState.spellHover` so the keypress doesn't also cast), trait
+entries below them lit when their first threshold is active, hover → all
+thresholds), `SpellsClient` (known-spell
 registry from `SpellsChanged`/`RequestSpells`; auto-places newly unlocked
 spells in the next free hotbar slot (page 1 first) and seeds the recommended
 loadout on fresh profiles — waits on `HotbarBinds.waitReady` so it never

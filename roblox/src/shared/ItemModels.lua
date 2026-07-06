@@ -203,6 +203,22 @@ ItemModels.defs = {
 		{ name = "WingR", size = V(0.12, 0.4, 0.3), offset = V(1.18, 0.35, 0.1), rot = V(0, 0, 20), color = "leafLight" },
 	},
 
+	emblem_pyromancer = {
+		{ name = "BandBottom", size = V(0.5, 0.1, 0.16), color = "gold" },
+		{ name = "BandL", size = V(0.1, 0.4, 0.16), offset = V(-0.2, 0.2, 0), color = "gold" },
+		{ name = "BandR", size = V(0.1, 0.4, 0.16), offset = V(0.2, 0.2, 0), color = "gold" },
+		{ name = "BandTop", size = V(0.5, 0.1, 0.16), offset = V(0, 0.4, 0), color = "gold" },
+		{ name = "Flame", shape = "Ball", size = V(0.3, 0.42, 0.3), offset = V(0, 0.6, 0), color = "ruby", material = Enum.Material.Neon },
+	},
+
+	emblem_berserker = {
+		{ name = "BandBottom", size = V(0.5, 0.1, 0.16), color = "trunkDark" },
+		{ name = "BandL", size = V(0.1, 0.4, 0.16), offset = V(-0.2, 0.2, 0), color = "trunkDark" },
+		{ name = "BandR", size = V(0.1, 0.4, 0.16), offset = V(0.2, 0.2, 0), color = "trunkDark" },
+		{ name = "BandTop", size = V(0.5, 0.1, 0.16), offset = V(0, 0.4, 0), color = "trunkDark" },
+		{ name = "Spike", shape = "Wedge", size = V(0.2, 0.4, 0.24), offset = V(0, 0.6, 0), color = "ruby", material = Enum.Material.Neon },
+	},
+
 	-- ---- resources (inventory thumbnails, ground drops) --------------------
 
 	wood = {

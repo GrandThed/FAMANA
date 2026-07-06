@@ -1,8 +1,9 @@
 -- Active spells (subclass abilities from shared/Spells.lua). Owns:
---   * which spells each player knows (active class + its level, recomputed on
---     the Level/Class attributes changing — covers kills, class switches and
---     admin Progress edits alike) and pushing that to the client through the
---     SpellsChanged remote (known + newlyUnlocked + recommended order);
+--   * which spells each player knows — derived from EQUIPMENT-earned school
+--     points (SynergyService.getSchoolPoints; recomputed on every inventory/
+--     Level/Class change, so equipping a Berserker item can unlock Battle
+--     Cry on the spot) and pushed to the client through the SpellsChanged
+--     remote (known + newlyUnlocked + recommended order);
 --   * the CastSpell remote: validation (known, alive, cooldown, mana), then
 --     dispatch to a behavior (projectile / zone / strike / aoe / buff /
 --     taunt / summon);
@@ -27,6 +28,7 @@ local PlayerService = require(script.Parent.PlayerService)
 local ManaService = require(script.Parent.ManaService)
 local EnemyService = require(script.Parent.EnemyService)
 local EffectService = require(script.Parent.EffectService)
+local SynergyService = require(script.Parent.SynergyService)
 
 local SpellService = {}
 
@@ -56,25 +58,15 @@ end
 
 -- ---- known spells + unlock push ----------------------------------------------
 
-local function classAndLevel(player)
-	local profile = PlayerService.get(player)
-	if profile then
-		return profile.currentClass, profile.level
+-- Recomputes the player's known spells from their equipment-earned school
+-- points; pushes SpellsChanged (and toasts) when something new unlocked.
+-- `recommended` is the same priority-sorted list — v1 of the hotbar
+-- recommendation system (see docs/TRAITS_AND_SPELLS.md).
+local function pushSpells(player)
+	if not PlayerService.get(player) then
+		return -- profile still loading; the load-time recompute re-fires this
 	end
-	return player:GetAttribute("Class"), player:GetAttribute("Level") or 1
-end
-
--- Recomputes the player's known spells; pushes SpellsChanged (and toasts) when
--- something new unlocked. `recommended` is the same priority-sorted list —
--- v1 of the hotbar recommendation system (see docs/TRAITS_AND_SPELLS.md).
--- `quiet` skips the toasts (class switches "unlock" the whole other kit at
--- once — the client still auto-places, but 3 toasts per switch is spam).
-local function pushSpells(player, quiet)
-	local classId, level = classAndLevel(player)
-	if not classId then
-		return
-	end
-	local list = Spells.knownFor(classId, level)
+	local list = Spells.knownFor(SynergyService.getSchoolPoints(player))
 
 	local previous = knownCache[player.UserId]
 	local set, newlyUnlocked = {}, {}
@@ -96,7 +88,7 @@ local function pushSpells(player, quiet)
 		})
 	end
 
-	if previous and notifyRemote and not quiet then
+	if previous and notifyRemote then
 		for _, spellId in ipairs(newlyUnlocked) do
 			local def = Spells.get(spellId)
 			notifyRemote:FireClient(player, ("New spell: %s %s"):format(def.name, def.icon or ""))
@@ -443,8 +435,7 @@ function BEHAVIORS.summon(player, root, def)
 		despawnFamiliars(player.UserId)
 		local count = 1
 		if def.summon.variant == "familiar" then
-			local classId, level = classAndLevel(player)
-			count = Spells.familiarCountFor(classId, level)
+			count = Spells.familiarCountFor(SynergyService.getSchoolPoints(player))
 		end
 		local units = {}
 		for i = 1, count do
@@ -589,34 +580,20 @@ function SpellService.start()
 		}
 	end
 
-	-- Subclass passives ride the same damage hooks as effect buffs, so weapon
+	-- School passives ride the same damage hooks as effect buffs, so weapon
 	-- swings and spells both benefit. Armor converts to a damage-taken
 	-- multiplier: 100/(100+armor) — 42 armor ≈ 30% less damage.
 	EnemyService.registerDamageMult(function(player, kind)
-		local classId, level = classAndLevel(player)
-		if not classId then
-			return 1
-		end
-		return 1 + (Spells.passivesFor(classId, level)[kind] or 0)
+		return 1 + (Spells.passivesFor(SynergyService.getSchoolPoints(player))[kind] or 0)
 	end)
 	EnemyService.registerDamageTakenMult(function(player)
-		local classId, level = classAndLevel(player)
-		if not classId then
-			return 1
-		end
-		local armor = Spells.passivesFor(classId, level).armor
+		local armor = Spells.passivesFor(SynergyService.getSchoolPoints(player)).armor
 		return armor > 0 and 100 / (100 + armor) or 1
 	end)
 
-	Players.PlayerAdded:Connect(function(player)
-		-- Level covers kills and admin edits; Class covers switches/respecs.
-		player:GetAttributeChangedSignal("Level"):Connect(function()
-			pushSpells(player)
-		end)
-		player:GetAttributeChangedSignal("Class"):Connect(function()
-			pushSpells(player, true)
-		end)
-	end)
+	-- Equipment is the only source of school points, so knowns re-derive on
+	-- every synergy recompute (equip/unequip, level gating, class switches).
+	SynergyService.onRecomputed(pushSpells)
 
 	Players.PlayerRemoving:Connect(function(player)
 		knownCache[player.UserId] = nil

@@ -71,15 +71,18 @@ Two halves:
   but equipment will contribute trait/school **points** (see the next
   question).
 
-**Equipment → trait points (decided 2026-07-06)**
-- Trait points come ONLY from equipment (weapons included). Each equipped
-  paper-doll piece contributes its points to its trait(s); totals accumulate
-  across the whole doll — Brawler 20 is meant to be assembled from several
-  pieces (e.g. Lvl 5 helmet + Lvl 3 shield with Brawler = 8 points, matching
-  the `docs/TRAITS.md` proposal).
-- Spell schools are untouched by items: class level alone drives spell
-  unlocks and school passives. Class level's only other job is gating which
-  item levels actually count (below).
+**Equipment → points (decided 2026-07-06, corrected same day)**
+- ALL points come ONLY from equipment (weapons included) — stat traits
+  (Brawler, Lynx Eye…) AND schools (Berserker, Pyromancer…) alike. Each
+  equipped paper-doll piece contributes its points; totals accumulate across
+  the whole doll — Brawler 20 is meant to be assembled from several pieces.
+- Schools therefore behave exactly like TFT traits: school points unlock the
+  actives (1/10/20-point thresholds) and scale the passive (1/5/10/15/20).
+  The class NEVER feeds points — it only shapes base stats (`Classes`
+  multipliers) and gates which item levels count (below). Any class can use
+  any school's items.
+- Starter weapons carry 1 school point (sword→Berserker, staff→Pyromancer,
+  bow→Sniper) so a fresh player's first equip unlocks their first spell.
 
 **Roll rules (needed before implementing the generator)**
 - How many traits can one item roll? Suggestion: 1–2 for levels 1–6, 2–3
@@ -238,11 +241,16 @@ burst/CC/movement) — rename/redesign freely. Ultimates without board names
 got working titles: Arcane Storm, Grand Familiar, Bulwark, Verdict.
 **Decided:** ultimates are separate spells, they never replace the basic one.
 
-**Current unlock mode ("all schools"):** a player knows every spell of every
-school of their *active* class at their class level — no subclass picking yet
-(that's the board's own open question). When you decide, restricting is just
-filtering `Spells.schoolsFor()` by a chosen subclass; same-stat passives
-already take the max, not the sum, so test mode isn't overpowered.
+**Unlock mode (equipment-driven, corrected 2026-07-06):** spells unlock from
+**school POINTS earned by equipped gear**, never from class level — the
+threshold numbers above are point totals now. Sources of school points:
+fixed def traits (starter weapons carry 1; the emblem ring stands carry 5),
+and rolled drops (25% of rolled lines land on a school instead of a stat
+trait). Equip a Berserker item → Battle Cry unlocks on the spot, with the
+toast + hotbar auto-place. Unequip → the spell grays out on the hotbar.
+Same-stat school passives SUM (each school earns from its own points).
+"¿Se pueden combinar subclases?" is answered by construction: yes, wear the
+right mix of gear.
 
 ### Systems built (and where to extend)
 

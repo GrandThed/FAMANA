@@ -1,12 +1,10 @@
 -- Spell + subclass-school definitions (see docs/TRAITS_AND_SPELLS.md and the
--- "Rasgos" design board). Each class has up to three schools (subclasses);
--- a school grants active spells at level thresholds plus a scaling passive
--- (+% damage of a kind, or flat armor).
---
--- MVP unlock rule ("all schools" test mode): a player knows every implemented
--- spell of every school of their ACTIVE class whose unlock level they've
--- reached. Restricting to one chosen subclass later only means filtering
--- schoolsFor() by the player's pick — defs already carry their school.
+-- "Rasgos" design board). Schools (subclasses) work like TFT traits: their
+-- POINTS come only from equipment (fixed def traits or rolled instance meta,
+-- aggregated by shared/Traits + SynergyService). A school's point total
+-- unlocks its actives at the threshold levels below and scales its passive
+-- (+% damage of a kind, or flat armor). The class never feeds points — it
+-- only gates equipment by item level (and shapes base stats via Classes).
 --
 -- Numbers here are demonstrative (like the board says) and made to be tuned.
 
@@ -21,9 +19,11 @@ Spells.cdAttributePrefix = "SpellCd_"
 
 -- ---- schools (subclasses) ---------------------------------------------------
 -- passive.stat: "magic" | "physical" (physical also boosts melee) | "armor".
--- passive.thresholds: { {level, value} } — highest reached level applies.
--- spells: { {id, level} } — actives granted at that class level.
+-- passive.thresholds: { {points, value} } — highest reached tier applies.
+-- spells: { {id, points} } — actives granted at that school point total.
 -- familiars: invoker-only summon-count thresholds.
+-- classIds is flavor/metadata (the board groups subclasses by class); it no
+-- longer restricts anything — points decide.
 
 Spells.schools = {
 	-- ---- Mage ---------------------------------------------------------------
@@ -489,18 +489,22 @@ function Spells.schoolsFor(classId)
 	return list
 end
 
--- Every implemented spell a player of `classId` at `level` knows, sorted by
--- hotbarPriority (i.e. already in recommended-loadout order).
-function Spells.knownFor(classId, level)
+-- Every implemented spell the given school point totals unlock
+-- ({ [schoolId] = points }), sorted by hotbarPriority (i.e. already in
+-- recommended-loadout order).
+function Spells.knownFor(schoolPoints)
 	local known = {}
 	local seen = {}
-	for _, school in ipairs(Spells.schoolsFor(classId)) do
-		for _, grant in ipairs(school.spells) do
-			local spellId, unlockLevel = grant[1], grant[2]
-			local def = Spells.defs[spellId]
-			if def and def.implemented ~= false and level >= unlockLevel and not seen[spellId] then
-				seen[spellId] = true
-				table.insert(known, spellId)
+	for _, schoolId in ipairs(Spells.schoolOrder) do
+		local points = tonumber(schoolPoints and schoolPoints[schoolId]) or 0
+		if points > 0 then
+			for _, grant in ipairs(Spells.schools[schoolId].spells) do
+				local spellId, unlockPoints = grant[1], grant[2]
+				local def = Spells.defs[spellId]
+				if def and def.implemented ~= false and points >= unlockPoints and not seen[spellId] then
+					seen[spellId] = true
+					table.insert(known, spellId)
+				end
 			end
 		end
 	end
@@ -515,58 +519,49 @@ function Spells.knownFor(classId, level)
 	return known
 end
 
--- The class level at which `classId` unlocks `spellId`, or nil if it never does.
-function Spells.unlockLevelFor(classId, spellId)
-	for _, school in ipairs(Spells.schoolsFor(classId)) do
-		for _, grant in ipairs(school.spells) do
-			if grant[1] == spellId then
-				return grant[2]
-			end
-		end
-	end
-	return nil
-end
-
-local function thresholdValue(thresholds, level)
+local function thresholdValue(thresholds, points)
 	local value = 0
 	for _, entry in ipairs(thresholds) do
-		if level >= entry[1] then
+		if points >= entry[1] then
 			value = entry[2]
 		end
 	end
 	return value
 end
 
--- Aggregated school passives for a class at a level. While "all schools" test
--- mode is on, same-stat passives take the BEST value, not the sum (so a mage
--- with Pyromancer+Arcanist+Invoker doesn't triple-dip on +% magic damage).
+-- Aggregated school passives from point totals. Each school contributes from
+-- its OWN points, so same-stat passives sum (they're independently earned
+-- through different gear, TFT-style).
 -- Returns { magic = frac, physical = frac, melee = frac, armor = flat }.
-function Spells.passivesFor(classId, level)
+function Spells.passivesFor(schoolPoints)
 	local out = { magic = 0, physical = 0, melee = 0, armor = 0 }
-	for _, school in ipairs(Spells.schoolsFor(classId)) do
-		local passive = school.passive
+	for _, schoolId in ipairs(Spells.schoolOrder) do
+		local points = tonumber(schoolPoints and schoolPoints[schoolId]) or 0
+		local passive = points > 0 and Spells.schools[schoolId].passive or nil
 		if passive then
-			local value = thresholdValue(passive.thresholds, level)
+			local value = thresholdValue(passive.thresholds, points)
 			if passive.stat == "magic" then
-				out.magic = math.max(out.magic, value)
+				out.magic += value
 			elseif passive.stat == "physical" then
 				-- Physical schools boost both bow shots and melee swings.
-				out.physical = math.max(out.physical, value)
-				out.melee = math.max(out.melee, value)
+				out.physical += value
+				out.melee += value
 			elseif passive.stat == "armor" then
-				out.armor = math.max(out.armor, value)
+				out.armor += value
 			end
 		end
 	end
 	return out
 end
 
--- How many familiars a summon cast produces for this class/level.
-function Spells.familiarCountFor(classId, level)
+-- How many familiars a summon cast produces at these school point totals.
+function Spells.familiarCountFor(schoolPoints)
 	local count = 1
-	for _, school in ipairs(Spells.schoolsFor(classId)) do
+	for _, schoolId in ipairs(Spells.schoolOrder) do
+		local school = Spells.schools[schoolId]
 		if school.familiars then
-			count = math.max(count, thresholdValue(school.familiars, level))
+			local points = tonumber(schoolPoints and schoolPoints[schoolId]) or 0
+			count = math.max(count, thresholdValue(school.familiars, points))
 		end
 	end
 	return count

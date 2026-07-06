@@ -11,6 +11,7 @@
 -- catalog when their systems exist.
 
 local Items = require(script.Parent.Items)
+local Spells = require(script.Parent.Spells) -- school ids also earn equipment points
 
 local Traits = {}
 
@@ -173,8 +174,10 @@ function Traits.isInert(entry, def, level)
 	return itemLevel > level
 end
 
--- Sums trait points across the equipped (paper doll) items of an inventory
--- listing, skipping inert pieces. Returns { [traitId] = points }.
+-- Sums trait AND school points across the equipped (paper doll) items of an
+-- inventory listing, skipping inert pieces. Schools (Berserker, Pyromancer…)
+-- are equipment-earned exactly like traits — SynergyService splits the two
+-- families out of this one map. Returns { [traitOrSchoolId] = points }.
 function Traits.totalsFor(inventory, level)
 	local totals = {}
 	for _, entry in ipairs(inventory) do
@@ -183,7 +186,7 @@ function Traits.totalsFor(inventory, level)
 			local itemLevel, itemTraits = Traits.entryInfo(entry, def)
 			if typeof(itemTraits) == "table" and itemLevel <= level then
 				for traitId, points in pairs(itemTraits) do
-					if Traits.defs[traitId] and typeof(points) == "number" then
+					if (Traits.defs[traitId] or Spells.schools[traitId]) and typeof(points) == "number" then
 						totals[traitId] = (totals[traitId] or 0) + points
 					end
 				end
@@ -203,10 +206,22 @@ local TYPE_POOLS = {
 	ring = Traits.order,
 }
 
--- Rolls instance meta for a drop: `itemLevel` points split across 1–2 traits
--- from the item type's pool (sum of points == itemLevel, the core rule).
--- Two-trait rolls appear from level 4 and keep the bigger share on the main
--- trait. Returns { itemLevel, traits } or nil for un-rollable types.
+-- Chance for a rolled line to be a SCHOOL (Berserker, Pyromancer…) instead
+-- of a stat trait — the equipment-only path to spells and school passives.
+local SCHOOL_ROLL_CHANCE = 0.25
+
+local function rollLineId(pool)
+	if math.random() < SCHOOL_ROLL_CHANCE then
+		return Spells.schoolOrder[math.random(#Spells.schoolOrder)]
+	end
+	return pool[math.random(#pool)]
+end
+
+-- Rolls instance meta for a drop: `itemLevel` points split across 1–2 lines
+-- (traits from the item type's pool, or schools) — the sum of points always
+-- equals the item level, the core rule. Two-line rolls appear from level 4
+-- and keep the bigger share on the main line.
+-- Returns { itemLevel, traits } or nil for un-rollable types.
 function Traits.roll(def, itemLevel)
 	local pool = def and TYPE_POOLS[def.type]
 	itemLevel = math.floor(itemLevel or 0)
@@ -216,17 +231,24 @@ function Traits.roll(def, itemLevel)
 
 	local traits = {}
 	if itemLevel >= 4 and math.random() < 0.6 then
-		local firstIndex = math.random(#pool)
-		local secondIndex = firstIndex
-		while secondIndex == firstIndex do
-			secondIndex = math.random(#pool)
+		local first = rollLineId(pool)
+		local second = first
+		for _ = 1, 10 do
+			second = rollLineId(pool)
+			if second ~= first then
+				break
+			end
 		end
-		local split = math.random(1, itemLevel - 1)
-		local main = math.max(split, itemLevel - split)
-		traits[pool[firstIndex]] = main
-		traits[pool[secondIndex]] = itemLevel - main
+		if second == first then
+			traits[first] = itemLevel
+		else
+			local split = math.random(1, itemLevel - 1)
+			local main = math.max(split, itemLevel - split)
+			traits[first] = main
+			traits[second] = itemLevel - main
+		end
 	else
-		traits[pool[math.random(#pool)]] = itemLevel
+		traits[rollLineId(pool)] = itemLevel
 	end
 	return { itemLevel = itemLevel, traits = traits }
 end

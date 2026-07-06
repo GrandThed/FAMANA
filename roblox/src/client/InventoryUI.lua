@@ -27,6 +27,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
 local Traits = require(Shared:WaitForChild("Traits"))
+local Spells = require(Shared:WaitForChild("Spells"))
 local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
@@ -545,6 +546,14 @@ function InventoryUI.start()
 			end
 		end
 		if itemTraits then
+			-- School points first (they gate spells), then stat traits.
+			for _, schoolId in ipairs(Spells.schoolOrder) do
+				local points = itemTraits[schoolId]
+				if points then
+					local school = Spells.schools[schoolId]
+					lines[#lines + 1] = ("%s %s +%d"):format(school.icon or "✦", school.name, points)
+				end
+			end
 			for _, traitId in ipairs(Traits.order) do
 				local points = itemTraits[traitId]
 				if points then
