@@ -246,12 +246,15 @@ function playersTable(rows, sortable) {
       el("td", { class: "muted" }, p.id),
       el("td", {}, el("span", { class: "badge" }, p.cell)),
       el("td", {}, `${p.health}/${p.maxHealth}`),
+      el("td", {}, p.level !== undefined ? `${p.level} (${p.currentClass})` : "—"),
+      el("td", {}, p.gold !== undefined ? p.gold : "—"),
       el("td", { class: "muted" }, fmtDate(p.updatedAt)),
-    )) : [el("tr", {}, el("td", { colspan: "5", class: "muted" }, "No players found."))]));
+    )) : [el("tr", {}, el("td", { colspan: "7", class: "muted" }, "No players found."))]));
   return el("table", {},
     el("thead", {}, el("tr", {},
       th("Username", "username"), th("ID", "id"), th("Cell", "cell"),
-      th("HP", "health"), th("Updated", "updated_at"))),
+      th("HP", "health"), th("Level", "level"), th("Gold", "gold"),
+      th("Updated", "updated_at"))),
     body);
 }
 
@@ -328,6 +331,42 @@ async function viewPlayer(id) {
     } catch (e) { toast("Save failed: " + (e.data && e.data.field ? "bad " + e.data.field : e.message), "err"); }
   };
 
+  // --- progress (gold / level / xp / class) — pushed live if online ---
+  const goldIn = el("input", { type: "number", value: p.gold, style: "width:110px" });
+  const levelIn = el("input", { type: "number", value: p.level, style: "width:90px" });
+  const xpIn = el("input", { type: "number", value: p.xp, style: "width:90px" });
+  const classSel = el("select", {},
+    ...Object.keys(p.classLevels).map((cid) =>
+      el("option", { value: cid, selected: cid === p.currentClass ? "" : null }, cid)));
+
+  const classChips = Object.entries(p.classLevels).map(([cid, lv]) =>
+    el("span", { class: "chip" }, `${cid}: Lv.${lv.level} · ${lv.xp} xp`));
+
+  const saveProgress = async () => {
+    try {
+      await api("PATCH", `/admin/players/${id}/progress`, {
+        gold: Number(goldIn.value),
+        level: Number(levelIn.value),
+        xp: Number(xpIn.value),
+        currentClass: classSel.value,
+      });
+      toast("Saved — applied live if the player is online.", "ok");
+      refresh();
+    } catch (e) { toast("Save failed: " + (e.data && e.data.field ? "bad " + e.data.field : e.message), "err"); }
+  };
+
+  const progressPanel = el("div", { class: "panel" },
+    el("h2", {}, "Progress"),
+    el("div", { class: "kv" },
+      el("label", {}, "Gold"), goldIn,
+      el("label", {}, "Class"), classSel,
+      el("label", {}, "Level / XP"), el("div", { class: "row" }, levelIn, el("span", { class: "muted" }, "·"), xpIn,
+        el("span", { class: "muted" }, "applies to the selected class")),
+    ),
+    el("div", { class: "chips", style: "margin-top:12px" }, ...classChips),
+    el("div", { style: "margin-top:14px" }, el("button", { class: "primary", onclick: saveProgress }, "Save progress")),
+  );
+
   // --- inventory (re-renders in place so +/- doesn't reload the whole page) ---
   const invPanel = el("div", { class: "panel" });
   async function reloadInventory() {
@@ -389,6 +428,8 @@ async function viewPlayer(id) {
       ),
       el("div", { style: "margin-top:14px" }, el("button", { class: "primary", onclick: saveStats }, "Save stats")),
     ),
+
+    progressPanel,
 
     invPanel,
 

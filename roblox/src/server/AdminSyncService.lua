@@ -1,14 +1,15 @@
--- Polls the backend for pending player events (e.g. admin inventory edits) and
--- applies them live: refreshes the affected player's inventory and shows them a
--- notification. This is what makes admin-panel changes appear in-game without a
--- rejoin. (A MessagingService/Open Cloud push could replace polling later for
--- instant delivery in the published game.)
+-- Polls the backend for pending player events (e.g. admin inventory or stats
+-- edits) and applies them live: refreshes the affected player's inventory or
+-- profile stats and shows them a notification. This is what makes admin-panel
+-- changes appear in-game without a rejoin. (A MessagingService/Open Cloud push
+-- could replace polling later for instant delivery in the published game.)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BackendService = require(script.Parent.BackendService)
 local PlayerService = require(script.Parent.PlayerService)
+local ClassService = require(script.Parent.ClassService)
 
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
@@ -39,6 +40,13 @@ local function poll()
 		if player then
 			if event.kind == "inventory" then
 				PlayerService.refreshInventory(player)
+			elseif event.kind == "stats" then
+				local classChanged = PlayerService.applyStats(player, event.payload)
+				if classChanged then
+					-- Same full refresh as a player-initiated class switch:
+					-- new class's HP/mana caps + walk speed, refilled.
+					ClassService.respecLiveStats(player)
+				end
 			end
 			if event.message then
 				notifyRemote:FireClient(player, event.message)

@@ -5,6 +5,7 @@ import { query, withTransaction } from "./db.js";
 import { getInventory, addItem, removeItem } from "./inventory.js";
 import { enqueueEvent } from "./events.js";
 import { ITEMS } from "./items.js";
+import { isValidClass, defaultClassLevels, DEFAULT_CLASS } from "./classes.js";
 
 function itemName(itemId) {
   return ITEMS[itemId]?.name || itemId;
@@ -18,7 +19,21 @@ const SORT_COLUMNS = {
   cell: "cell",
   health: "health",
   id: "id",
+  level: "level",
+  gold: "gold",
 };
+
+// Same seeding as playerService rowToPlayer: profiles saved before the class
+// system come back with an empty class_levels blob — the active class's track
+// is seeded from the old flat level/xp columns.
+function seedClassLevels(row) {
+  const currentClass = isValidClass(row.current_class) ? row.current_class : DEFAULT_CLASS;
+  const classLevels =
+    row.class_levels && Object.keys(row.class_levels).length > 0
+      ? row.class_levels
+      : { ...defaultClassLevels(), [currentClass]: { level: row.level, xp: Number(row.xp) } };
+  return { currentClass, classLevels };
+}
 
 function auditInsert(client, { actor, action, targetPlayer, detail }) {
   return client.query(
@@ -94,7 +109,9 @@ export async function listPlayers({ query: search, cell, limit, offset, sort } =
 
   const countPromise = query(`SELECT COUNT(*)::int AS n FROM players ${whereSql}`, params);
   const rowsPromise = query(
-    `SELECT id::text, username, cell, health, max_health AS "maxHealth", updated_at AS "updatedAt"
+    `SELECT id::text, username, cell, health, max_health AS "maxHealth",
+            level, gold::text AS gold, current_class AS "currentClass",
+            updated_at AS "updatedAt"
        FROM players ${whereSql}
       ORDER BY ${col} ${dir}
       LIMIT $${i} OFFSET $${i + 1}`,
@@ -112,11 +129,17 @@ export async function getPlayerDetail(playerId) {
     if (rows.length === 0) return null;
     const inventory = await getInventory(client, playerId);
     const row = rows[0];
+    const { currentClass, classLevels } = seedClassLevels(row);
     return {
       id: String(row.id),
       username: row.username,
       health: row.health,
       maxHealth: row.max_health,
+      gold: Number(row.gold),
+      level: row.level,
+      xp: Number(row.xp),
+      currentClass,
+      classLevels,
       cell: row.cell,
       position: { x: row.pos_x, y: row.pos_y, z: row.pos_z },
       createdAt: row.created_at,
@@ -199,6 +222,91 @@ export async function updatePlayer(playerId, patch, actor) {
       detail: applied,
     });
     return true;
+  });
+}
+
+// Updates live-progress fields: gold / level / xp / currentClass. Keeps the
+// per-class level tracks consistent — the flat level/xp columns always mirror
+// the active class's track, the same invariant the game server maintains.
+// Level/xp edits target the (possibly just-switched) active class. Enqueues a
+// "stats" event so an online player receives the change immediately (unlike
+// health/cell/position, these are game-server-authoritative while online and
+// would otherwise be clobbered by the next autosave).
+export async function updateProgress(playerId, patch, actor) {
+  const applied = {};
+
+  let gold;
+  if (patch.gold !== undefined) {
+    gold = Number(patch.gold);
+    if (!Number.isInteger(gold) || gold < 0) throw fieldError("gold");
+    applied.gold = gold;
+  }
+  let level;
+  if (patch.level !== undefined) {
+    level = Number(patch.level);
+    if (!Number.isInteger(level) || level < 1 || level > 1000) throw fieldError("level");
+    applied.level = level;
+  }
+  let xp;
+  if (patch.xp !== undefined) {
+    xp = Number(patch.xp);
+    if (!Number.isInteger(xp) || xp < 0) throw fieldError("xp");
+    applied.xp = xp;
+  }
+  if (patch.currentClass !== undefined) {
+    if (!isValidClass(patch.currentClass)) throw fieldError("currentClass");
+    applied.currentClass = patch.currentClass;
+  }
+  if (Object.keys(applied).length === 0) {
+    throw Object.assign(new Error("no fields"), { code: "no_fields" });
+  }
+
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `SELECT gold, level, xp, current_class, class_levels FROM players WHERE id = $1 FOR UPDATE`,
+      [playerId]
+    );
+    if (rows.length === 0) return null;
+    const row = rows[0];
+
+    const seeded = seedClassLevels(row);
+    const classLevels = seeded.classLevels;
+    const currentClass = applied.currentClass ?? seeded.currentClass;
+    classLevels[currentClass] = classLevels[currentClass] || { level: 1, xp: 0 };
+    if (level !== undefined) classLevels[currentClass].level = level;
+    if (xp !== undefined) classLevels[currentClass].xp = xp;
+
+    const flat = classLevels[currentClass];
+    const newGold = gold ?? Number(row.gold);
+
+    await client.query(
+      `UPDATE players
+          SET gold = $1, level = $2, xp = $3, current_class = $4,
+              class_levels = $5::jsonb, updated_at = now()
+        WHERE id = $6`,
+      [newGold, flat.level, flat.xp, currentClass, JSON.stringify(classLevels), playerId]
+    );
+    await auditInsert(client, {
+      actor,
+      action: "update_progress",
+      targetPlayer: playerId,
+      detail: applied,
+    });
+
+    const parts = [];
+    if (gold !== undefined) parts.push(`gold to ${gold}`);
+    if (applied.currentClass !== undefined) parts.push(`class to ${currentClass}`);
+    if (level !== undefined) parts.push(`level to ${flat.level}`);
+    if (xp !== undefined) parts.push(`xp to ${flat.xp}`);
+    await enqueueEvent(client, playerId, "stats", `An admin set your ${parts.join(", ")}.`, {
+      gold: newGold,
+      level: flat.level,
+      xp: flat.xp,
+      currentClass,
+      classLevels,
+    });
+
+    return { gold: newGold, level: flat.level, xp: flat.xp, currentClass, classLevels };
   });
 }
 

@@ -27,6 +27,7 @@ import {
   getPlayerDetail,
   getItemCatalog,
   updatePlayer,
+  updateProgress,
   adminAddItem,
   adminRemoveItem,
   clearInventory,
@@ -128,6 +129,27 @@ export default async function adminRoutes(fastify) {
           return { error: "not_found" };
         }
         return getPlayerDetail(id);
+      } catch (err) {
+        if (err.code === "bad_field" || err.code === "no_fields") {
+          reply.code(400);
+          return { error: err.code, field: err.field };
+        }
+        throw err;
+      }
+    });
+
+    // Gold / level / xp / class — pushed live to online players via the
+    // player_events queue (kind "stats").
+    instance.patch("/admin/players/:id/progress", async (request, reply) => {
+      const id = parsePlayerId(request, reply);
+      if (id === null) return;
+      try {
+        const result = await updateProgress(id, request.body || {}, request.ip);
+        if (!result) {
+          reply.code(404);
+          return { error: "not_found" };
+        }
+        return result;
       } catch (err) {
         if (err.code === "bad_field" || err.code === "no_fields") {
           reply.code(400);

@@ -307,6 +307,49 @@ function PlayerService.addXp(player, amount)
 	end
 end
 
+-- Applies an admin-pushed stats update (see the backend's updateProgress:
+-- the payload carries the final resolved gold/level/xp/currentClass/
+-- classLevels) to the live profile + attributes — without it, the next
+-- autosave would clobber the admin's edit with the stale cached values.
+-- Returns whether the active class changed, so the caller (AdminSyncService)
+-- can respec live stats through ClassService.
+function PlayerService.applyStats(player, stats)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(stats) ~= "table" then
+		return false
+	end
+
+	if typeof(stats.gold) == "number" then
+		profile.gold = stats.gold
+		player:SetAttribute("Gold", profile.gold)
+	end
+	if typeof(stats.classLevels) == "table" then
+		profile.classLevels = stats.classLevels
+	end
+
+	local classChanged = false
+	if typeof(stats.currentClass) == "string" and Classes.isValid(stats.currentClass) then
+		classChanged = profile.currentClass ~= stats.currentClass
+		profile.currentClass = stats.currentClass
+		profile.classLevels[profile.currentClass] = profile.classLevels[profile.currentClass]
+			or { level = 1, xp = 0 }
+		player:SetAttribute("Class", profile.currentClass)
+	end
+
+	if typeof(stats.level) == "number" and typeof(stats.xp) == "number" then
+		local lv = profile.classLevels[profile.currentClass]
+		lv.level = stats.level
+		lv.xp = stats.xp
+		profile.level = lv.level
+		profile.xp = lv.xp
+		player:SetAttribute("Level", profile.level)
+		player:SetAttribute("Xp", profile.xp)
+		player:SetAttribute("XpToNext", xpToNext(profile.level))
+	end
+
+	return classChanged
+end
+
 local function buildSaveFields(player)
 	local profile = cache[player.UserId]
 	if not profile then
