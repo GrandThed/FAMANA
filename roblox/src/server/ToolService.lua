@@ -1,10 +1,16 @@
 -- Turns equippable inventory items (weapons/tools) into Roblox Tools in the
--- player's hotbar. Plays a swing animation on activation and dispatches to
--- registered handlers so gathering (step 4) and combat (step 5) can hook in.
+-- player's hotbar. Fires a SwingRemote so the client plays the animation, and
+-- dispatches to registered handlers so gathering (step 4) and combat (step 5) can hook in.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+
+-- RemoteEvent used to tell the client which swing style to animate.
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or Instance.new("Folder", ReplicatedStorage)
+Remotes.Name = "Remotes"
+local SwingRemote = Remotes:FindFirstChild("SwingRemote") or Instance.new("RemoteEvent", Remotes)
+SwingRemote.Name = "SwingRemote"
 
 local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Items"))
 local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
@@ -16,9 +22,7 @@ local ToolService = {}
 -- Item types that become held Tools.
 local EQUIPPABLE = { weapon = true, tool = true }
 
--- Roblox's built-in "tool slash" animation — usable by any game.
-local SLASH_ANIM = "rbxassetid://522635514"
-local SWING_COOLDOWN = 0.4 -- base seconds between swings (Agile Hands scales it)
+local SWING_COOLDOWN = 0.4
 
 -- [itemType] = function(player, tool, def)  registered by later systems.
 ToolService.activatedHandlers = {}
@@ -27,30 +31,7 @@ function ToolService.registerActivated(itemType, handler)
 	ToolService.activatedHandlers[itemType] = handler
 end
 
--- registerSwingCooldownMult: fn(player) -> multiplier on the swing cooldown
--- (< 1 = faster). Registered by SynergyService for the Agile Hands trait.
-local swingCooldownMultHooks = {}
-function ToolService.registerSwingCooldownMult(fn)
-	table.insert(swingCooldownMultHooks, fn)
-end
-
-local function swingCooldownFor(player)
-	local mult = 1
-	for _, fn in ipairs(swingCooldownMultHooks) do
-		local ok, value = pcall(fn, player)
-		if ok and typeof(value) == "number" then
-			mult *= value
-		end
-	end
-	return SWING_COOLDOWN * math.max(mult, 0.1)
-end
-
--- One reusable Animation instance (the id never changes).
-local swingAnim = Instance.new("Animation")
-swingAnim.AnimationId = SLASH_ANIM
-
--- Per-player swing debounce; gates the animation AND the activation handler
--- (combat/gather), so click spam can't out-DPS the attack speed stat.
+-- Per-player swing debounce so the animation can't be spammed.
 local lastSwing = {}
 
 -- Procedural swing per item kind: the tool itself is rotated in the hand by
@@ -82,12 +63,10 @@ local function gripWeld(character)
 	return hand and hand:FindFirstChild("RightGrip")
 end
 
--- Attempts a swing; returns false while still on cooldown (the caller skips
--- the activation handler too).
-local function trySwing(player, def)
+local function playSwing(player, def)
 	local now = os.clock()
-	if now - (lastSwing[player.UserId] or 0) < swingCooldownFor(player) then
-		return false
+	if now - (lastSwing[player.UserId] or 0) < SWING_COOLDOWN then
+		return
 	end
 	lastSwing[player.UserId] = now
 
@@ -96,27 +75,31 @@ local function trySwing(player, def)
 		return
 	end
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-	if animator then
-		local track = animator:LoadAnimation(swingAnim)
-		track:Play()
-		track.Stopped:Once(function()
-			track:Destroy()
-		end)
+	-- Tell the activating client to play the animation locally (server-side
+	-- LoadAnimation is not visible to other clients).
+	local styleName = "slash"
+	if def.type == "tool" then
+		styleName = "chop"
+	elseif def.weaponType == "ranged" then
+		if def.damageKind == "physical" then
+			styleName = "draw"
+		else
+			styleName = "cast"
+		end
 	end
+	SwingRemote:FireClient(player, styleName)
 
+	-- Procedural grip-weld tween is cosmetic and fine to run on the server.
 	local weld = gripWeld(character)
 	if weld then
 		local style = swingStyleFor(def)
 		local tween = TweenService:Create(
 			weld,
-			TweenInfo.new(style.time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true), -- reverses back
+			TweenInfo.new(style.time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true),
 			{ C0 = weld.C0 * style.rot }
 		)
 		tween:Play()
 	end
-	return true
 end
 
 -- Fallback looks for equippables without an ItemModels entry yet.
@@ -232,9 +215,7 @@ local function buildTool(player, itemId)
 	end
 
 	tool.Activated:Connect(function()
-		if not trySwing(player, def) then
-			return -- still on cooldown: no animation, no combat/gather hit
-		end
+		playSwing(player, def)
 		local handler = ToolService.activatedHandlers[def.type]
 		if handler then
 			handler(player, tool, def)
