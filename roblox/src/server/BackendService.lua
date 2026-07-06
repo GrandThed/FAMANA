@@ -96,12 +96,14 @@ function BackendService.savePlayer(userId, fields)
 end
 
 -- Add an item. With `partial`, stackables fill whatever grid space exists
--- instead of failing outright. Returns (ok, updatedInventory, added).
-function BackendService.addItem(userId, itemId, quantity, partial)
+-- instead of failing outright. `meta` marks a rolled item instance
+-- ({ itemLevel, traits }; the backend sanitizes and stores it per row).
+-- Returns (ok, updatedInventory, added).
+function BackendService.addItem(userId, itemId, quantity, partial, meta)
 	local ok, data = request(
 		"POST",
 		"/player/" .. tostring(userId) .. "/inventory/add",
-		{ itemId = itemId, quantity = quantity, partial = partial == true }
+		{ itemId = itemId, quantity = quantity, partial = partial == true, meta = meta }
 	)
 	if ok and data then
 		return true, data.inventory, data.added
@@ -124,13 +126,14 @@ function BackendService.moveItem(userId, from, to)
 end
 
 -- Remove the whole stack at a position (thrown on the ground by the game).
--- ref = { containerId, x, y }. Returns (ok, updatedInventory, itemId, quantity).
+-- ref = { containerId, x, y }. Returns (ok, updatedInventory, itemId,
+-- quantity, meta) — meta rides along so a thrown rolled item keeps its roll.
 function BackendService.dropItem(userId, ref)
 	local ok, data = request("POST", "/player/" .. tostring(userId) .. "/inventory/drop", ref)
 	if ok and data then
-		return true, data.inventory, data.itemId, data.quantity
+		return true, data.inventory, data.itemId, data.quantity, data.meta
 	end
-	return false, nil, nil, nil
+	return false, nil, nil, nil, nil
 end
 
 -- Repack the main grid (the Sort button). Returns (ok, updatedInventory).

@@ -502,11 +502,16 @@ function InventoryUI.start()
 		backpack = "Backpack",
 	}
 
-	-- Title + stat lines for an inventory entry.
+	-- Title + stat lines for an inventory entry. Rolled items get their
+	-- instance level in the title ("Basic Sword [Lv 4]").
 	local function describe(entry)
 		local def = Items.get(entry.itemId)
 		if not def then
 			return entry.itemId, ""
+		end
+		local titleText = def.name
+		if typeof(entry.meta) == "table" and entry.meta.itemLevel then
+			titleText = ("%s [Lv %d]"):format(def.name, entry.meta.itemLevel)
 		end
 		local kind = TYPE_NAMES[def.type] or def.type
 		if def.weaponType then
@@ -529,17 +534,19 @@ function InventoryUI.start()
 		if def.gatherPower then
 			lines[#lines + 1] = "Gather power: " .. def.gatherPower
 		end
-		if def.itemLevel then
+		-- Item level + traits: a rolled instance's meta overrides the def.
+		local itemLevel, itemTraits = Traits.entryInfo(entry, def)
+		if itemLevel > 0 then
 			local playerLevel = player:GetAttribute("Level") or 1
-			if def.itemLevel > playerLevel then
-				lines[#lines + 1] = ("Item level: %d — INERT until Lv %d"):format(def.itemLevel, def.itemLevel)
+			if itemLevel > playerLevel then
+				lines[#lines + 1] = ("Item level: %d — INERT until Lv %d"):format(itemLevel, itemLevel)
 			else
-				lines[#lines + 1] = "Item level: " .. def.itemLevel
+				lines[#lines + 1] = "Item level: " .. itemLevel
 			end
 		end
-		if def.traits then
+		if itemTraits then
 			for _, traitId in ipairs(Traits.order) do
-				local points = def.traits[traitId]
+				local points = itemTraits[traitId]
 				if points then
 					local traitDef = Traits.get(traitId)
 					lines[#lines + 1] = ("%s %s +%d"):format(
@@ -555,7 +562,7 @@ function InventoryUI.start()
 		if def.stackable then
 			lines[#lines + 1] = ("Stack: %d / %d"):format(entry.quantity, def.maxStack)
 		end
-		return def.name, table.concat(lines, "\n")
+		return titleText, table.concat(lines, "\n")
 	end
 
 	local hoverToken = 0 -- invalidates pending tooltip timers
@@ -1119,10 +1126,11 @@ function InventoryUI.start()
 				end
 				slot.nameLabel.Visible = false
 				local def = Items.get(entry.itemId)
-				local inert = Traits.isInert(def, playerLevel)
+				local entryLevel = Traits.entryInfo(entry, def)
+				local inert = entryLevel > playerLevel
 				slot.inertOverlay.Visible = inert
 				slot.inertLabel.Visible = inert
-				slot.inertLabel.Text = inert and ("Lv " .. def.itemLevel) or ""
+				slot.inertLabel.Text = inert and ("Lv " .. entryLevel) or ""
 			else
 				if slot.shownId then
 					slot.shownId = nil

@@ -8,6 +8,10 @@
 //                   item per slot (footprints don't apply).
 // Legacy pre-grid rows (x IS NULL) are repacked into grid positions the
 // first time any operation touches the inventory.
+//
+// Rolled (unique) items carry `meta` ({ itemLevel, traits }) per row. Meta
+// rows are item INSTANCES: they never merge/top-up, generic removeItem skips
+// them, and sortInventory re-places them as their own stacks.
 
 import {
   getItem,
@@ -24,13 +28,43 @@ const err = (message, code, extra = {}) =>
 async function fetchRows(client, playerId) {
   const { rows } = await client.query(
     `SELECT id, slot_index AS "slotIndex", container_id AS "containerId",
-            x, y, rotated, item_id AS "itemId", quantity
+            x, y, rotated, item_id AS "itemId", quantity, meta
        FROM inventory_items
       WHERE player_id = $1
       ORDER BY container_id, y NULLS LAST, x NULLS LAST, id`,
     [playerId]
   );
   return rows;
+}
+
+// Shape-validates client-provided instance meta (trait-id VALIDITY lives in
+// the Roblox shared Traits module; unknown ids simply aggregate to nothing).
+// Returns a clean object or null.
+export function sanitizeMeta(meta) {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const out = {};
+  if (Number.isInteger(meta.itemLevel) && meta.itemLevel >= 1 && meta.itemLevel <= 99) {
+    out.itemLevel = meta.itemLevel;
+  }
+  if (meta.traits && typeof meta.traits === "object" && !Array.isArray(meta.traits)) {
+    const traits = {};
+    let count = 0;
+    for (const [traitId, points] of Object.entries(meta.traits)) {
+      if (
+        typeof traitId === "string" &&
+        traitId.length <= 32 &&
+        Number.isInteger(points) &&
+        points >= 1 &&
+        points <= 30
+      ) {
+        traits[traitId] = points;
+        count += 1;
+        if (count >= 4) break;
+      }
+    }
+    if (count > 0) out.traits = traits;
+  }
+  return out.itemLevel || out.traits ? out : null;
 }
 
 // ---- placement helpers ------------------------------------------------------
@@ -119,16 +153,18 @@ async function loadRows(client, playerId) {
 
 // ---- public operations ------------------------------------------------------
 
-// Returns the inventory as [{ containerId, x, y, rotated, itemId, quantity }].
+// Returns the inventory as [{ containerId, x, y, rotated, itemId, quantity,
+// meta? }] (meta only on rolled-item rows).
 export async function getInventory(client, playerId) {
   const rows = await loadRows(client, playerId);
-  return rows.map(({ containerId, x, y, rotated, itemId, quantity }) => ({
+  return rows.map(({ containerId, x, y, rotated, itemId, quantity, meta }) => ({
     containerId,
     x,
     y,
     rotated,
     itemId,
     quantity,
+    meta: meta || undefined,
   }));
 }
 
@@ -137,29 +173,41 @@ export async function getInventory(client, playerId) {
 // then rotated). Throws { code: 'no_room' } if it can't all fit — unless
 // `partial` is set, in which case it adds what fits and reports the rest
 // (drop pickups use this so stackables can be picked up partially).
-// Returns { added, remaining }.
-export async function addItem(client, playerId, itemId, quantity, { partial = false } = {}) {
+// With `meta` (a rolled instance) nothing merges: no top-up phase, and every
+// inserted row carries the meta. Returns { added, remaining }.
+export async function addItem(
+  client,
+  playerId,
+  itemId,
+  quantity,
+  { partial = false, meta = null } = {}
+) {
   if (!getItem(itemId)) {
     throw err(`unknown item: ${itemId}`, "unknown_item");
   }
   if (!Number.isInteger(quantity) || quantity <= 0) {
     throw err("quantity must be a positive integer", "bad_quantity");
   }
+  const cleanMeta = sanitizeMeta(meta);
 
   const maxStack = maxStackFor(itemId);
   const rows = await loadRows(client, playerId);
   let remaining = quantity;
 
-  // 1) top up existing partial stacks in the main grid
-  for (const row of rows) {
-    if (remaining <= 0) break;
-    if (row.containerId !== "main" || row.itemId !== itemId || row.quantity >= maxStack) continue;
-    const add = Math.min(maxStack - row.quantity, remaining);
-    await client.query(
-      `UPDATE inventory_items SET quantity = quantity + $1 WHERE id = $2`,
-      [add, row.id]
-    );
-    remaining -= add;
+  // 1) top up existing partial stacks in the main grid (plain items only —
+  //    instance rows never gain or give quantity)
+  if (!cleanMeta) {
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      if (row.containerId !== "main" || row.itemId !== itemId || row.quantity >= maxStack) continue;
+      if (row.meta) continue;
+      const add = Math.min(maxStack - row.quantity, remaining);
+      await client.query(
+        `UPDATE inventory_items SET quantity = quantity + $1 WHERE id = $2`,
+        [add, row.id]
+      );
+      remaining -= add;
+    }
   }
 
   // 2) place new stacks wherever the footprint fits
@@ -171,9 +219,9 @@ export async function addItem(client, playerId, itemId, quantity, { partial = fa
     const [w, h] = sizeFor(itemId, spot.rotated);
     occupy(occ, spot.x, spot.y, w, h);
     await client.query(
-      `INSERT INTO inventory_items (player_id, container_id, x, y, rotated, item_id, quantity)
-       VALUES ($1, 'main', $2, $3, $4, $5, $6)`,
-      [playerId, spot.x, spot.y, spot.rotated, itemId, add]
+      `INSERT INTO inventory_items (player_id, container_id, x, y, rotated, item_id, quantity, meta)
+       VALUES ($1, 'main', $2, $3, $4, $5, $6, $7::jsonb)`,
+      [playerId, spot.x, spot.y, spot.rotated, itemId, add, cleanMeta ? JSON.stringify(cleanMeta) : null]
     );
     remaining -= add;
   }
@@ -185,7 +233,9 @@ export async function addItem(client, playerId, itemId, quantity, { partial = fa
 }
 
 // Removes `quantity` of `itemId` from the main grid (equipped items are not
-// touched), draining stacks from the bottom of the grid up.
+// touched), draining stacks from the bottom of the grid up. Rolled-item rows
+// (meta) are never consumed by generic id-based removal — selling/crafting a
+// unique instance needs an instance-aware verb (future work).
 // Throws { code: 'insufficient' } if the player doesn't have that many.
 export async function removeItem(client, playerId, itemId, quantity) {
   if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -193,7 +243,7 @@ export async function removeItem(client, playerId, itemId, quantity) {
   }
 
   const rows = (await loadRows(client, playerId)).filter(
-    (r) => r.containerId === "main" && r.itemId === itemId
+    (r) => r.containerId === "main" && r.itemId === itemId && !r.meta
   );
   const total = rows.reduce((sum, r) => sum + r.quantity, 0);
   if (total < quantity) {
@@ -218,7 +268,8 @@ export async function removeItem(client, playerId, itemId, quantity) {
 }
 
 // Removes the entire stack at a specific position (drag-out-to-drop: the
-// game turns it into a ground drop). Returns { itemId, quantity }.
+// game turns it into a ground drop). Returns { itemId, quantity, meta? } so
+// a thrown rolled item keeps its identity on the ground.
 // Throws { code: 'bad_move' | 'not_found' }.
 export async function removeAt(client, playerId, ref) {
   if (
@@ -237,7 +288,7 @@ export async function removeAt(client, playerId, ref) {
     throw err("no item at position", "not_found");
   }
   await client.query(`DELETE FROM inventory_items WHERE id = $1`, [source.id]);
-  return { itemId: source.itemId, quantity: source.quantity };
+  return { itemId: source.itemId, quantity: source.quantity, meta: source.meta || undefined };
 }
 
 // Moves the stack at `from` to `to` (the drag & drop verb). Handles main-grid
@@ -306,13 +357,16 @@ export async function moveItem(client, playerId, from, to) {
     return { moved: true };
   }
 
-  // Dropped onto a single same-item stack: merge as much as fits.
+  // Dropped onto a single same-item stack: merge as much as fits. Instance
+  // rows (meta) never merge — each is a distinct item.
   const target = overlapping[0];
   const maxStack = maxStackFor(source.itemId);
   if (
     overlapping.length === 1 &&
     target.itemId === source.itemId &&
     def.stackable &&
+    !source.meta &&
+    !target.meta &&
     target.quantity < maxStack
   ) {
     const transfer = Math.min(maxStack - target.quantity, source.quantity);
@@ -337,13 +391,16 @@ export async function moveItem(client, playerId, from, to) {
 // Sort order for the repack: gear first, materials last.
 const TYPE_ORDER = { weapon: 1, tool: 2, armor: 3, ring: 4, backpack: 5, resource: 6 };
 
-// Repacks the main grid: stacks merged to full, items ordered by type then
-// id, each placed at the first fitting spot. Equipment is untouched.
+// Repacks the main grid: plain stacks merged to full and ordered by type
+// then id; rolled-item rows (meta) are preserved verbatim as their own
+// stacks — sorting must NEVER fuse or wipe instance data. Equipment is
+// untouched.
 export async function sortInventory(client, playerId) {
   const rows = (await loadRows(client, playerId)).filter((r) => r.containerId === "main");
 
   const totals = new Map();
   for (const row of rows) {
+    if (row.meta) continue;
     totals.set(row.itemId, (totals.get(row.itemId) || 0) + row.quantity);
   }
 
@@ -353,9 +410,12 @@ export async function sortInventory(client, playerId) {
     let left = total;
     while (left > 0) {
       const qty = Math.min(maxStack, left);
-      stacks.push({ itemId, quantity: qty });
+      stacks.push({ itemId, quantity: qty, meta: null });
       left -= qty;
     }
+  }
+  for (const row of rows) {
+    if (row.meta) stacks.push({ itemId: row.itemId, quantity: row.quantity, meta: row.meta });
   }
   stacks.sort((a, b) => {
     const ta = TYPE_ORDER[getItem(a.itemId).type] || 99;
@@ -380,9 +440,10 @@ export async function sortInventory(client, playerId) {
     const [w, h] = sizeFor(stack.itemId, spot.rotated);
     occupy(occ, spot.x, spot.y, w, h);
     await client.query(
-      `INSERT INTO inventory_items (player_id, container_id, x, y, rotated, item_id, quantity)
-       VALUES ($1, 'main', $2, $3, $4, $5, $6)`,
-      [playerId, spot.x, spot.y, spot.rotated, stack.itemId, stack.quantity]
+      `INSERT INTO inventory_items (player_id, container_id, x, y, rotated, item_id, quantity, meta)
+       VALUES ($1, 'main', $2, $3, $4, $5, $6, $7::jsonb)`,
+      [playerId, spot.x, spot.y, spot.rotated, stack.itemId, stack.quantity,
+        stack.meta ? JSON.stringify(stack.meta) : null]
     );
   }
   return { sorted: true };

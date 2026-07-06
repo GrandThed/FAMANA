@@ -47,7 +47,12 @@ Fastify + `pg` (raw SQL, ESM). Live at
   add (first-fit + stack-filling, `partial` option for pickups), remove,
   `moveItem` (drag & drop verb: placement/overlap/slot validation + stack
   merge), `sortInventory` (repack). Legacy flat `slot_index` rows are
-  repacked into grid positions on first read. Schema in `src/schema.sql`.
+  repacked into grid positions on first read. Rolled trait items carry a
+  per-row `meta JSONB` ({ itemLevel, traits }, shape-checked by
+  `sanitizeMeta`): meta rows are unique INSTANCES — never top-up/merge,
+  preserved verbatim by sort, skipped by generic id-based remove (vendor
+  sell), returned by `removeAt` so ground drops keep the roll. Schema in
+  `src/schema.sql`.
   **Item defs live in `content/items.json`** (git-tracked source of truth);
   `src/items.js` loads + validates them at boot (fails the deploy on bad
   content) and keeps the structural constants (`GRID`, `EQUIPMENT_SLOTS` —
@@ -155,7 +160,10 @@ drain bars, slows scale walk speed and hop cadence) ·
 drag-out-of-inventory throws; drops are magnetic — they fly to the nearest
 eligible player within 10 studs — and a thrown drop ignores its owner until
 they step away from it once, so others have pickup priority; stackables pick up partially
-when the grid is nearly full, leftovers stay on the ground with no toast) ·
+when the grid is nearly full, leftovers stay on the ground with no toast;
+`GEAR_LOOT` rolls trait gear via `Traits.roll` at the mob's level ±1, the
+instance meta rides the drop part as a JSON attribute — labels show
+"[Lv N]" — and survives pickups and throws end to end) ·
 `ItemStandService` (data-driven pedestals showing a spinning item copy;
 ProximityPrompt takes a copy as a normal ground drop) ·
 `VendorService` (vendor NPCs placed via `VENDOR_DEFS`; the ProximityPrompt
@@ -222,8 +230,11 @@ behaviors, school passives, `hotbarPriority` recommendation order, and the
 `spell:<id>` hotbar-bind + `SpellCd_<id>` attribute helpers; design + open
 questions in [`docs/TRAITS_AND_SPELLS.md`](docs/TRAITS_AND_SPELLS.md)) ·
 `Traits` (TFT-style trait catalog + thresholds, totals aggregation over the
-equipped paper doll, the `isInert` gate, and tooltip label helpers — item
-defs carry `traits` points + `itemLevel` in both content mirrors) · `Effects`
+equipped paper doll, the inert gate, tooltip label helpers, and the
+`roll(def, itemLevel)` generator — points always sum to the item level,
+type-pooled traits; `entryInfo` resolves an entry's effective level/traits
+with instance `meta` overriding the def's fixed values; item defs carry
+`traits` points + `itemLevel` in both content mirrors) · `Effects`
 (buff/debuff defs + the `Effect_<id>` attribute naming scheme) · `Remotes`
 (RemoteEvent/Function factory) · `GridConfig` (cells keyed by PlaceId, neighbors,
 border geometry, per-cell themes) · `ArtKit` (low-poly design frame: shared

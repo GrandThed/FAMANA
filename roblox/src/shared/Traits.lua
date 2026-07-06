@@ -157,9 +157,20 @@ end
 
 -- ---- aggregation ----------------------------------------------------------------
 
--- Whether an item def is inert (contributes nothing) at a player level.
-function Traits.isInert(def, level)
-	return def ~= nil and (def.itemLevel or 0) > level
+-- The effective (itemLevel, traits) of an inventory entry: rolled instance
+-- meta ({ itemLevel, traits }) overrides the def's fixed values.
+function Traits.entryInfo(entry, def)
+	local meta = entry and entry.meta
+	if typeof(meta) == "table" then
+		return meta.itemLevel or (def and def.itemLevel) or 0, meta.traits or (def and def.traits)
+	end
+	return (def and def.itemLevel) or 0, def and def.traits
+end
+
+-- Whether an equipped entry is inert (contributes nothing) at a player level.
+function Traits.isInert(entry, def, level)
+	local itemLevel = Traits.entryInfo(entry, def)
+	return itemLevel > level
 end
 
 -- Sums trait points across the equipped (paper doll) items of an inventory
@@ -169,8 +180,8 @@ function Traits.totalsFor(inventory, level)
 	for _, entry in ipairs(inventory) do
 		if entry.containerId == "equipment" then
 			local def = Items.get(entry.itemId)
-			local itemTraits = def and def.traits
-			if itemTraits and not Traits.isInert(def, level) then
+			local itemLevel, itemTraits = Traits.entryInfo(entry, def)
+			if typeof(itemTraits) == "table" and itemLevel <= level then
 				for traitId, points in pairs(itemTraits) do
 					if Traits.defs[traitId] and typeof(points) == "number" then
 						totals[traitId] = (totals[traitId] or 0) + points
@@ -180,6 +191,44 @@ function Traits.totalsFor(inventory, level)
 		end
 	end
 	return totals
+end
+
+-- ---- rolling (server-side drops) ---------------------------------------------------
+
+-- Which traits an item type can roll (weapons offensive, armor defensive,
+-- rings anything). Types not listed (tools, resources...) never roll.
+local TYPE_POOLS = {
+	weapon = { "lynx_eye", "agile_hands", "perseverance" },
+	armor = { "brawler", "bastion", "evasion" },
+	ring = Traits.order,
+}
+
+-- Rolls instance meta for a drop: `itemLevel` points split across 1–2 traits
+-- from the item type's pool (sum of points == itemLevel, the core rule).
+-- Two-trait rolls appear from level 4 and keep the bigger share on the main
+-- trait. Returns { itemLevel, traits } or nil for un-rollable types.
+function Traits.roll(def, itemLevel)
+	local pool = def and TYPE_POOLS[def.type]
+	itemLevel = math.floor(itemLevel or 0)
+	if not pool or itemLevel < 1 then
+		return nil
+	end
+
+	local traits = {}
+	if itemLevel >= 4 and math.random() < 0.6 then
+		local firstIndex = math.random(#pool)
+		local secondIndex = firstIndex
+		while secondIndex == firstIndex do
+			secondIndex = math.random(#pool)
+		end
+		local split = math.random(1, itemLevel - 1)
+		local main = math.max(split, itemLevel - split)
+		traits[pool[firstIndex]] = main
+		traits[pool[secondIndex]] = itemLevel - main
+	else
+		traits[pool[math.random(#pool)]] = itemLevel
+	end
+	return { itemLevel = itemLevel, traits = traits }
 end
 
 -- Collapses totals into one combined stat block (active tiers only, summed

@@ -122,15 +122,16 @@ Two halves:
 - Stacking rules between trait bonuses and subclass passives (both give
   +% damage). Recommend: additive within a category, then multiply categories.
 
-**Persistence (the big one)**
-- Random-rolled traits make items **unique instances** — today
-  `inventory_items` rows are just `item_id + quantity` and identical items
-  stack/merge. Rolled items need a per-row `meta JSONB` (traits, itemLevel),
-  must never stack, and every path that touches items (add/move/sort/drop
-  pickup, vendor buy/sell, admin panel item grants) must carry the meta.
-  That's a real backend migration — schedule it as its own step.
-- Do vendors sell rolled items? Do rolled items have sell prices scaled by
-  level?
+**Persistence (RESOLVED — Phase B shipped)**
+- `inventory_items` gained a nullable `meta JSONB` column (auto-migrated on
+  deploy): `{ itemLevel, traits }` per row marks a rolled instance. Meta rows
+  never stack/merge (add top-up, move merge), survive `sortInventory` as
+  their own stacks, ride along on drops (`removeAt` returns meta), and are
+  skipped by generic id-based `removeItem` — so vendor selling can't eat a
+  rolled item by accident. `sanitizeMeta` shape-checks client payloads.
+- Still open: vendor support for rolled items (selling an instance needs a
+  position-based sell verb + level-scaled prices; today selling by id only
+  consumes plain copies and errors if you only own rolled ones).
 
 **UI**
 - Trait panel placement: side of the inventory panel (left column already has
@@ -184,10 +185,26 @@ inert rule both ways.
 Still deferred: Guardián (ally shields/auras), Rodar/Dash (movement +
 iframes), gathering + mana-regen traits.
 
-**Phase B** — random roll generator + per-instance `meta JSONB` migration
-(items become unique; see the TRAITS.md corrections for every path that must
-become trait-aware). **Phase C** — utility/active traits (movement system) +
-Guardián.
+### Phase B — SHIPPED (random-rolled unique items)
+
+- **Migration**: nullable `meta JSONB` on `inventory_items` (see the
+  persistence note above for the exact per-path rules — sort/merge/remove
+  are all instance-safe now).
+- **Roller** (`Traits.roll(def, itemLevel)`): sum of trait points always
+  equals the item level (the core rule); level ≥ 4 has a 60% chance to split
+  across two traits (bigger share stays on the main one). Pools by type:
+  weapons roll offense (Lynx Eye/Agile Hands/Perseverance), armor rolls
+  defense (Brawler/Bastion/Evasion), rings roll anything.
+- **Drops**: slimes have an 8% chance to drop a rolled ring, goblins 12% for
+  a rolled base weapon/armor piece; the item level is the mob's level ±1
+  (higher-level spawns drop better rolls). Ground drops and their labels
+  carry the roll ("Basic Sword [Lv 4]"), thrown items keep it, and instance
+  meta overrides the def in aggregation/tooltips/inert checks
+  (`Traits.entryInfo`).
+- Fixed-trait stand items (Phase A) coexist unchanged — def traits apply
+  whenever a row has no meta.
+
+**Phase C** — utility/active traits (Rodar/Dash movement system) + Guardián.
 
 ---
 

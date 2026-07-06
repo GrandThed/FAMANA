@@ -9,9 +9,11 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Items"))
+local Traits = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Traits"))
 local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
 local ItemModels = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemModels"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -40,6 +42,40 @@ local LOOT = {
 		{ itemId = "sword_iron", chance = 0.05, min = 1, max = 1 }, -- rare
 	},
 }
+
+-- Rolled trait gear: [source] = { chance, pool }. On a hit, one base item
+-- from the pool drops with instance meta rolled by shared/Traits — its item
+-- level is the mob's level ±1, so tougher spawns drop stronger rolls.
+local GEAR_LOOT = {
+	slime = { chance = 0.08, pool = { "ring_vitality", "ring_focus" } },
+	goblin = {
+		chance = 0.12,
+		pool = {
+			"sword_basic",
+			"helmet_leather",
+			"chest_leather",
+			"gloves_leather",
+			"legs_leather",
+			"boots_leather",
+		},
+	},
+}
+
+local MAX_ROLLED_LEVEL = 20
+
+local function rollGear(source, mobLevel)
+	local gear = GEAR_LOOT[source]
+	if not gear or math.random() > gear.chance then
+		return nil
+	end
+	local itemId = gear.pool[math.random(#gear.pool)]
+	local itemLevel = math.clamp((mobLevel or 1) + math.random(-1, 1), 1, MAX_ROLLED_LEVEL)
+	local meta = Traits.roll(Items.get(itemId), itemLevel)
+	if not meta then
+		return nil
+	end
+	return itemId, meta
+end
 
 local DROP_VISUAL_SIZE = 1.6 -- max extent of a drop's miniature model, studs
 local dropScale = {} -- [itemId] = cached uniform scale for the drop visual
@@ -196,9 +232,19 @@ local function tryPickup(player, part)
 	local def = Items.get(itemId)
 	local stackable = def and def.stackable or false
 
+	-- Rolled items carry their instance meta on the drop (JSON attribute).
+	local meta
+	local rawMeta = part:GetAttribute("meta")
+	if typeof(rawMeta) == "string" and rawMeta ~= "" then
+		local decodeOk, decoded = pcall(HttpService.JSONDecode, HttpService, rawMeta)
+		if decodeOk and typeof(decoded) == "table" then
+			meta = decoded
+		end
+	end
+
 	-- Stackables pick up partially (whatever fits); the rest stays on the
 	-- ground with no fuss (decided UX: full inventory shows no toast).
-	local ok, added = PlayerService.addItem(player, itemId, quantity, stackable)
+	local ok, added = PlayerService.addItem(player, itemId, quantity, stackable, meta)
 	if ok and added >= quantity then
 		part:Destroy()
 		notifyPickup(player, itemId, added)
@@ -239,6 +285,12 @@ local function spawnDrop(itemId, quantity, position, opts)
 		part:SetAttribute("droppedBy", opts.droppedBy)
 	end
 
+	-- Rolled instance data rides the drop as JSON (attributes can't hold tables).
+	local meta = opts and opts.meta
+	if typeof(meta) == "table" then
+		part:SetAttribute("meta", HttpService:JSONEncode(meta))
+	end
+
 	local scale = visualScale(itemId)
 	if scale then
 		part.Transparency = 1
@@ -261,7 +313,11 @@ local function spawnDrop(itemId, quantity, position, opts)
 	label.TextSize = 13
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextStrokeTransparency = 0.4
-	label.Text = (def and def.name or itemId) .. (quantity > 1 and (" x" .. quantity) or "")
+	local displayName = def and def.name or itemId
+	if typeof(meta) == "table" and meta.itemLevel then
+		displayName = ("%s [Lv %d]"):format(displayName, meta.itemLevel)
+	end
+	label.Text = displayName .. (quantity > 1 and (" x" .. quantity) or "")
 	label.Parent = billboard
 
 	part.Parent = dropFolder
@@ -289,10 +345,15 @@ function DropService.start()
 	flyFolder.Name = "FlyingPickups"
 	flyFolder.Parent = Workspace
 
-	-- Spawn loot when an enemy dies.
-	EnemyService.onKilled(function(source, position, _killer)
+	-- Spawn loot when an enemy dies: the regular table plus a chance at a
+	-- rolled trait item leveled off the mob.
+	EnemyService.onKilled(function(source, position, _killer, level)
 		for _, drop in ipairs(rollLoot(source)) do
 			spawnDrop(drop.itemId, drop.quantity, position)
+		end
+		local gearId, gearMeta = rollGear(source, level)
+		if gearId then
+			spawnDrop(gearId, 1, position, { meta = gearMeta })
 		end
 	end)
 
@@ -314,7 +375,7 @@ function DropService.start()
 		if (containerId ~= "main" and containerId ~= "equipment") or not x or not y then
 			return { ok = false }
 		end
-		local ok, itemId, quantity = PlayerService.dropItem(player, {
+		local ok, itemId, quantity, meta = PlayerService.dropItem(player, {
 			containerId = containerId,
 			x = math.floor(x),
 			y = math.floor(y),
@@ -327,7 +388,8 @@ function DropService.start()
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local position = root and (root.Position + root.CFrame.LookVector * 5 - Vector3.new(0, 2, 0))
 			or Vector3.zero
-		spawnDrop(itemId, quantity, position, { droppedBy = player.UserId })
+		-- meta rides along so a thrown rolled item keeps its roll on the ground.
+		spawnDrop(itemId, quantity, position, { droppedBy = player.UserId, meta = meta })
 		return { ok = true }
 	end
 

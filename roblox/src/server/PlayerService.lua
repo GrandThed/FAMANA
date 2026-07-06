@@ -159,13 +159,14 @@ end
 
 -- Add/remove go through the backend (source of truth), then update the cache
 -- and notify the client. With `partial`, stackables fill whatever grid space
--- exists (drop pickups). Returns (ok, addedCount).
-function PlayerService.addItem(player, itemId, quantity, partial)
+-- exists (drop pickups). `meta` marks a rolled item instance (never stacks).
+-- Returns (ok, addedCount).
+function PlayerService.addItem(player, itemId, quantity, partial, meta)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
 		return false, 0
 	end
-	local ok, inventory, added = BackendService.addItem(player.UserId, itemId, quantity, partial)
+	local ok, inventory, added = BackendService.addItem(player.UserId, itemId, quantity, partial, meta)
 	if ok and (not partial or (added or 0) > 0) then
 		profile.inventory = inventory
 		PlayerService.pushInventory(player)
@@ -209,18 +210,19 @@ function PlayerService.moveItem(player, from, to)
 end
 
 -- Removes the whole stack at `ref` so it can be thrown on the ground.
--- The backend validates the position. Returns (ok, itemId, quantity) —
--- the caller (DropService) is responsible for spawning the ground drop.
+-- The backend validates the position. Returns (ok, itemId, quantity, meta) —
+-- the caller (DropService) is responsible for spawning the ground drop
+-- (carrying the meta so rolled items survive the round trip).
 function PlayerService.dropItem(player, ref)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
 		return false
 	end
-	local ok, inventory, itemId, quantity = BackendService.dropItem(player.UserId, ref)
+	local ok, inventory, itemId, quantity, meta = BackendService.dropItem(player.UserId, ref)
 	if ok and itemId then
 		profile.inventory = inventory
 		PlayerService.pushInventory(player)
-		return true, itemId, quantity
+		return true, itemId, quantity, meta
 	end
 	return false
 end

@@ -52,6 +52,11 @@ ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS rotated BOOLEAN NOT NULL DE
 ALTER TABLE inventory_items ALTER COLUMN slot_index DROP NOT NULL;
 ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_player_id_slot_index_key;
 
+-- Per-instance item data (rolled trait items): { itemLevel, traits: {id: pts} }.
+-- NULL = a plain item. Rows with meta never stack/merge and survive sorting
+-- as their own stacks — see inventory.js.
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS meta JSONB;
+
 CREATE INDEX IF NOT EXISTS idx_inventory_player ON inventory_items (player_id);
 
 -- Speeds up the admin dashboard's "recently active" aggregates.
