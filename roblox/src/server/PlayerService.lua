@@ -12,14 +12,23 @@ local Config = require(Shared:WaitForChild("Config"))
 local Items = require(Shared:WaitForChild("Items"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local GridConfig = require(Shared:WaitForChild("GridConfig"))
+local Classes = require(Shared:WaitForChild("Classes"))
 
 local PlayerService = {}
+
+-- xp required to go from `level` to `level + 1`.
+local function xpToNext(level)
+	local Leveling = Config.PlayerLeveling
+	return Leveling.baseXp + (level - 1) * Leveling.xpPerLevel
+end
+PlayerService.xpToNext = xpToNext
 
 -- [userId] = { health, maxHealth, gold, cell, position = {x,y,z}, inventory = {...}, _temporary? }
 local cache = {}
 
 local inventoryUpdated -- RemoteEvent
 local requestInventory -- RemoteFunction
+local levelUpRemote -- RemoteEvent, resolved in start()
 
 function PlayerService.get(player)
 	return cache[player.UserId]
@@ -71,6 +80,39 @@ local function loadProfile(player)
 	data.gold = data.gold or 0
 	player:SetAttribute("Gold", data.gold)
 
+	-- Profiles saved before leveling existed come back without it.
+	data.level = data.level or 1
+	data.xp = data.xp or 0
+
+	-- Profiles saved before the class system existed come back without
+	-- currentClass/classLevels. Migrate: seed the default class's track from
+	-- the old flat level/xp so nobody loses progress, then everyone else
+	-- starts fresh at level 1.
+	if not Classes.isValid(data.currentClass) then
+		data.currentClass = Classes.DEFAULT
+	end
+	data.classLevels = typeof(data.classLevels) == "table" and data.classLevels or {}
+	for _, classId in ipairs(Classes.order) do
+		if not data.classLevels[classId] then
+			if classId == data.currentClass then
+				data.classLevels[classId] = { level = data.level, xp = data.xp }
+			else
+				data.classLevels[classId] = { level = 1, xp = 0 }
+			end
+		end
+	end
+
+	-- Mirror the active class's level/xp onto the flat fields/attributes so
+	-- the rest of the game (HUD, LevelUpUI) doesn't need to know classes exist.
+	local activeLv = data.classLevels[data.currentClass]
+	data.level = activeLv.level
+	data.xp = activeLv.xp
+
+	player:SetAttribute("Class", data.currentClass)
+	player:SetAttribute("Level", data.level)
+	player:SetAttribute("Xp", data.xp)
+	player:SetAttribute("XpToNext", xpToNext(data.level))
+
 	-- Hotbar quick binds (keys 3–0) persist with the profile; the client
 	-- seeds its HotbarBinds registry from this attribute.
 	data.hotbarBinds = typeof(data.hotbarBinds) == "table" and data.hotbarBinds or {}
@@ -107,6 +149,23 @@ function PlayerService.addItem(player, itemId, quantity, partial)
 		return true, added or quantity
 	end
 	return false, 0
+end
+
+-- Total quantity of `itemId` currently owned across every stack (main grid +
+-- equipped). Used for pickup toasts ("+1 Slime Goo (5)") so they can show a
+-- running total without the caller needing to scan the inventory itself.
+function PlayerService.getItemCount(player, itemId)
+	local profile = cache[player.UserId]
+	if not profile then
+		return 0
+	end
+	local total = 0
+	for _, stack in ipairs(profile.inventory) do
+		if stack.itemId == itemId then
+			total += stack.quantity
+		end
+	end
+	return total
 end
 
 -- Move a stack between/within containers (the drag & drop verb). The backend
@@ -209,6 +268,45 @@ function PlayerService.spendGold(player, amount)
 	return true
 end
 
+-- Grants XP (e.g. from an enemy kill or, later, a quest reward), rolling
+-- over into as many level-ups as the amount covers. Purely cosmetic for
+-- now: no stat bonuses, just the persisted level/xp and a client toast.
+-- XP is per-class: it only advances the currently active class's own
+-- level/xp track (profile.classLevels[currentClass]). profile.level/xp keep
+-- mirroring that active track so the rest of the game stays unaware classes
+-- exist at all.
+function PlayerService.addXp(player, amount)
+	local profile = cache[player.UserId]
+	local Leveling = Config.PlayerLeveling
+	if not profile or amount <= 0 or profile.level >= Leveling.maxLevel then
+		return
+	end
+
+	local lv = profile.classLevels[profile.currentClass]
+
+	lv.xp += amount
+	local leveledUp = false
+	while lv.level < Leveling.maxLevel and lv.xp >= xpToNext(lv.level) do
+		lv.xp -= xpToNext(lv.level)
+		lv.level += 1
+		leveledUp = true
+	end
+	if lv.level >= Leveling.maxLevel then
+		lv.xp = 0 -- capped: stop accruing rather than show a bar past 100%
+	end
+
+	profile.level = lv.level
+	profile.xp = lv.xp
+
+	player:SetAttribute("Level", profile.level)
+	player:SetAttribute("Xp", profile.xp)
+	player:SetAttribute("XpToNext", xpToNext(profile.level))
+
+	if leveledUp and levelUpRemote then
+		levelUpRemote:FireClient(player, profile.level)
+	end
+end
+
 local function buildSaveFields(player)
 	local profile = cache[player.UserId]
 	if not profile then
@@ -230,6 +328,10 @@ local function buildSaveFields(player)
 	return {
 		health = profile.health,
 		gold = profile.gold,
+		level = profile.level,
+		xp = profile.xp,
+		currentClass = profile.currentClass,
+		classLevels = profile.classLevels,
 		hotbarBinds = profile.hotbarBinds,
 		cell = profile.cell,
 		position = profile.position,
@@ -250,6 +352,7 @@ end
 function PlayerService.start()
 	inventoryUpdated = Remotes.get("InventoryUpdated")
 	requestInventory = Remotes.getFunction("RequestInventory")
+	levelUpRemote = Remotes.get("LevelUp")
 
 	-- Client pulls its inventory once its UI is ready. The profile loads
 	-- asynchronously (backend HTTP), and the client may ask before it's ready,

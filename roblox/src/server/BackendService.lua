@@ -63,6 +63,8 @@ local function request(method, path, body)
 	if status >= 200 and status < 300 then
 		return true, decoded, status
 	end
+	local errMsg = decoded and decoded.error or response.Body
+	warn(string.format("[BackendService] %s %s -> %d: %s", method, path, status, tostring(errMsg)))
 	return false, decoded, status
 end
 

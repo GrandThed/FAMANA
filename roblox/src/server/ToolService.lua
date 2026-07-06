@@ -42,12 +42,16 @@ local SWING_STYLES = {
 	slash = { rot = CFrame.Angles(math.rad(-60), 0, math.rad(-70)), time = 0.15 }, -- diagonal cut
 	chop = { rot = CFrame.Angles(math.rad(-100), 0, 0), time = 0.18 }, -- overhead chop
 	cast = { rot = CFrame.Angles(math.rad(-35), 0, 0), time = 0.22 }, -- staff raise
+	draw = { rot = CFrame.Angles(0, math.rad(-25), 0), time = 0.16 }, -- bow draw-back
 }
 
 local function swingStyleFor(def)
 	if def.type == "tool" then
 		return SWING_STYLES.chop
 	elseif def.weaponType == "ranged" then
+		if def.damageKind == "physical" then
+			return SWING_STYLES.draw
+		end
 		return SWING_STYLES.cast
 	end
 	return SWING_STYLES.slash

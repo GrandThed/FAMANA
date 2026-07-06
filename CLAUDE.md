@@ -100,8 +100,14 @@ the Luau mirror) ·
 `sortInventory` behind `MoveItem`/`SortInventory` remotes + live gold with a
 `Gold` Player attribute and `addGold`/`spendGold`) · `HealthService` (HP
 restore, regen, respawn) · `ManaService` (live, non-persisted mana in
-`Mana`/`MaxMana` Player attributes; steady regen; `trySpend` gates staff
-casts) · `EffectService` (live buffs/debuffs; walkspeed multipliers,
+`Mana`/`MaxMana` Player attributes; steady regen via the `ManaRegenAmount`
+attribute; `trySpend` gates staff casts) ·
+`ClassService` (classes Caballero/Arquero/Mago/Invocador as passive stat
+multipliers from `shared/Classes`; owns WalkSpeed + mana caps + the
+`SwitchClass`/`RequestClassLevels` remotes; each class keeps its own
+level/xp track in the profile — `PlayerService.addXp` advances only the
+active class and mirrors it to the `Level`/`Xp`/`XpToNext`/`Class`
+attributes, persisted via `/player/:id/save`) · `EffectService` (live buffs/debuffs; walkspeed multipliers,
 replicated as `Effect_<id>` attributes holding server-clock expiry; slimes
 inflict `slow` on hit via `EnemyService.onPlayerHit`) ·
 `ToolService` (equippable Tools + `registerActivated` hook) ·
@@ -111,7 +117,10 @@ drop system flies the resource from the node to the player as pure show) ·
 `EnemyService` (data-driven enemies: slimes, goblins + `onKilled` +
 `onPlayerHit` hooks; enemies face their movement, optional `movement = "hop"`
 locomotion with squash & stretch, and per-def `details` welded via
-`ArtKit.weld`) ·
+`ArtKit.weld`; per-spawn random levels scale hp/damage/xp via
+`Config.Combat.mobLevel`, kills grant class XP, swings roll crits and apply
+class damage multipliers by the item's `damageKind`, bow shots fly as
+arrows instead of magic orbs) ·
 `DropService` (loot tables → ground drops + public
 `spawn(itemId, qty, pos, opts?)` + the `DropItem` remote for
 drag-out-of-inventory throws; drops are magnetic — they fly to the nearest
@@ -130,7 +139,8 @@ handoff) · `AdminSyncService` (polls `/player/events` every 4s → refreshes
 inventory + fires `Notify` for live admin edits).
 
 **Client** (`src/client/`): `ContentSync` (applies the `ContentData` payload
-to the local `Items` mirror, live on change), `HudUI` (Diablo-style health + mana orbs and a
+to the local `Items` mirror, live on change), `HudUI` (Diablo-style health + mana orbs, an
+XP bar over the hotbar, an active-effects strip, and a
 10-slot hotbar: keys 1/2 mirror the paper doll's weapon/offhand, keys 3–0 are
 quick binds from `HotbarBinds`), `InventoryUI` (grid inventory screen, `B`
 key: equipment paper doll + effects panel on the left, Sort/gold utilities
@@ -139,7 +149,11 @@ dragging, drop previews green/red, hover + 3–0 quick-binds tools/consumables),
 `HotbarBinds` (session-only bind registry shared by the two UIs),
 `StoreUI` (vendor trade panel from the `OpenStore` remote: Buy/Sell tabs,
 owned counts, shift-click ×5, live gold; server errors map to a status
-line), `BorderFadeUI`, `NotificationUI` (toasts from the `Notify` remote),
+line), `LevelUpUI` (celebration on the `LevelUp` remote), `DamageIndicatorUI`
+(floating damage numbers from the `DamageIndicator` remote, crits pop),
+`EnemyLevelUI` (recolors enemy level tags relative to the player's own
+level), `GatherFeedbackUI` (harvest feedback from the `GatherFeedback`
+remote), `BorderFadeUI`, `NotificationUI` (toasts from the `Notify` remote),
 `ShiftLockController` (cursor lock + character faces camera; frees cursor when
 inventory open), `TargetingController` (RMB focuses by equipped tool within
 reach — sword→enemies, axe→trees, pickaxe→rocks), `ClientState` (shared
@@ -151,7 +165,9 @@ fallback + `inventoryGrid` dims — must match backend `GRID`) · `Items`
 `GET /content`; per-item `size` footprint, `reach`, `manaCost`, armor/ring
 `slot`; plus `EQUIPMENT_SLOTS`, `sizeFor`, `slotAccepts`) · `Stores`
 (fallback mirror of vendor trade lists, overlaid from `GET /content`;
-`get`, `trade`, `apply`) · `Effects`
+`get`, `trade`, `apply`) · `Classes` (class defs as passive stat
+multipliers + `damageMult`; class ids mirrored in backend
+`src/classes.js`) · `Effects`
 (buff/debuff defs + the `Effect_<id>` attribute naming scheme) · `Remotes`
 (RemoteEvent/Function factory) · `GridConfig` (cells keyed by PlaceId, neighbors,
 border geometry, per-cell themes) · `ArtKit` (low-poly design frame: shared

@@ -14,12 +14,16 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ContextActionService = game:GetService("ContextActionService")
 local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
 local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
+local Effects = require(Shared:WaitForChild("Effects"))
 local HotbarBinds = require(script.Parent.HotbarBinds)
 local ClientState = require(script.Parent.ClientState)
 
@@ -122,6 +126,96 @@ local function makeOrb(parent, anchorCorner, fillColor, rimColor)
 		fill.Size = UDim2.new(1, 0, frac, 0)
 		label.Text = string.format("%d / %d", current, maximum)
 	end
+end
+
+-- Active effects strip (buffs/debuffs), anchored above the health orb so it's
+-- always visible during play — not just while the inventory is open. Reads
+-- the same Effect_<id> attributes as InventoryUI's panel (see shared/Effects).
+local EFFECT_ROW = 22
+local function makeEffectsPanel(parent)
+	local list = Instance.new("Frame")
+	list.Size = UDim2.new(0, 200, 0, 120)
+	list.AnchorPoint = Vector2.new(0, 1)
+	list.Position = UDim2.new(0, ORB_MARGIN, 1, -(ORB_MARGIN + ORB_SIZE + 14))
+	list.BackgroundTransparency = 1
+	list.Parent = parent
+
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	layout.Padding = UDim.new(0, 4)
+	layout.Parent = list
+
+	local rows = {} -- [effectId] = { frame, label }
+
+	local function refresh()
+		local now = Workspace:GetServerTimeNow()
+		local seen = {}
+		for name, value in pairs(player:GetAttributes()) do
+			local effectId = Effects.idFromAttribute(name)
+			local def = effectId and Effects.get(effectId)
+			if def and typeof(value) == "number" and value > now then
+				seen[effectId] = true
+				local row = rows[effectId]
+				if not row then
+					local frame = Instance.new("Frame")
+					frame.Size = UDim2.new(1, 0, 0, EFFECT_ROW)
+					frame.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+					frame.BackgroundTransparency = 0.25
+					frame.BorderSizePixel = 0
+					frame.Parent = list
+
+					local corner = Instance.new("UICorner")
+					corner.CornerRadius = UDim.new(0, 5)
+					corner.Parent = frame
+
+					local icon = Instance.new("Frame")
+					icon.Size = UDim2.new(0, 14, 0, 14)
+					icon.Position = UDim2.new(0, 5, 0.5, -7)
+					icon.BackgroundColor3 = def.color or Color3.fromRGB(200, 200, 200)
+					icon.BorderSizePixel = 0
+					icon.Parent = frame
+
+					local iconCorner = Instance.new("UICorner")
+					iconCorner.CornerRadius = UDim.new(0.3, 0)
+					iconCorner.Parent = icon
+
+					local label = Instance.new("TextLabel")
+					label.Size = UDim2.new(1, -28, 1, 0)
+					label.Position = UDim2.new(0, 26, 0, 0)
+					label.BackgroundTransparency = 1
+					label.Font = Enum.Font.GothamMedium
+					label.TextSize = 13
+					label.TextColor3 = Color3.new(1, 1, 1)
+					label.TextXAlignment = Enum.TextXAlignment.Left
+					label.Parent = frame
+
+					row = { frame = frame, label = label }
+					rows[effectId] = row
+				end
+				row.label.Text = string.format("%s  %.0fs", def.name, value - now)
+			end
+		end
+		for effectId, row in pairs(rows) do
+			if not seen[effectId] then
+				row.frame:Destroy()
+				rows[effectId] = nil
+			end
+		end
+	end
+
+	player.AttributeChanged:Connect(function(name)
+		if Effects.idFromAttribute(name) then
+			refresh()
+		end
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			refresh() -- also ticks the countdown text down even with no attribute change
+		end
+	end)
 end
 
 -- Builds one hotbar socket (a button). Returns { set, setEquipped }.
@@ -256,6 +350,51 @@ local function findTool(itemId)
 	return nil
 end
 
+-- A thin XP progress bar (no text) — the caller positions/sizes it. Reads
+-- the Xp/XpToNext player attributes set by PlayerService (mirrors how the
+-- mana orb reads Mana/MaxMana). The level itself is shown elsewhere now
+-- (the inventory panel, next to the character), not in the HUD.
+local function makeXpBar(parent, width, position, anchorPoint)
+	local barBg = Instance.new("Frame")
+	barBg.Size = UDim2.new(0, width, 0, 8)
+	barBg.Position = position
+	barBg.AnchorPoint = anchorPoint
+	barBg.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+	barBg.BorderSizePixel = 0
+	barBg.Parent = parent
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0.5, 0)
+	barCorner.Parent = barBg
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 1
+	stroke.Color = Color3.fromRGB(70, 70, 85)
+	stroke.Transparency = 0.3
+	stroke.Parent = barBg
+
+	local barFill = Instance.new("Frame")
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = Color3.fromRGB(255, 221, 51)
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barBg
+
+	local barFillCorner = Instance.new("UICorner")
+	barFillCorner.CornerRadius = UDim.new(0.5, 0)
+	barFillCorner.Parent = barFill
+
+	local function refresh()
+		local xp = player:GetAttribute("Xp") or 0
+		local xpToNext = player:GetAttribute("XpToNext") or 1
+		local frac = math.clamp(xp / math.max(xpToNext, 1), 0, 1)
+		TweenService:Create(barFill, TweenInfo.new(0.25), { Size = UDim2.new(frac, 0, 1, 0) }):Play()
+	end
+
+	player:GetAttributeChangedSignal("Xp"):Connect(refresh)
+	player:GetAttributeChangedSignal("XpToNext"):Connect(refresh)
+	refresh()
+end
+
 function HudUI.start()
 	-- Hide Roblox's default backpack toolbar; our hotbar replaces it.
 	pcall(function()
@@ -271,6 +410,9 @@ function HudUI.start()
 	-- ---- orbs ----
 	local setHealth = makeOrb(gui, "left", Color3.fromRGB(190, 45, 45), Color3.fromRGB(120, 20, 20))
 	local setMana = makeOrb(gui, "right", Color3.fromRGB(50, 110, 220), Color3.fromRGB(25, 55, 130))
+
+	-- ---- active effects (buffs/debuffs) ----
+	makeEffectsPanel(gui)
 
 	-- ---- hotbar ----
 	local hotbarSize = HOTBAR_SIZE
@@ -288,6 +430,9 @@ function HudUI.start()
 	layout.Padding = UDim.new(0, SLOT_PAD)
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 	layout.Parent = bar
+
+	-- XP bar: centered, same width as the hotbar, sitting just above it.
+	makeXpBar(gui, barWidth, UDim2.new(0.5, 0, 1, -(16 + SLOT + 8)), Vector2.new(0.5, 1))
 
 	local slotItem = {} -- [i] = itemId currently shown in slot i (or nil)
 

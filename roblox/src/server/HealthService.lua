@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Classes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Classes"))
 local PlayerService = require(script.Parent.PlayerService)
 
 local HealthService = {}
@@ -22,7 +23,10 @@ local function onCharacterAdded(player, character)
 	local humanoid = character:WaitForChild("Humanoid")
 	local profile = PlayerService.get(player)
 
-	local maxHealth = (profile and profile.maxHealth) or Config.HP.max
+	-- Base max HP scaled by the player's current class (Caballero/Arquero/
+	-- Mago/Invocador each have a different hpMult; see shared/Classes.lua).
+	local classDef = Classes.get(profile and profile.currentClass)
+	local maxHealth = math.floor(Config.HP.max * classDef.hpMult + 0.5)
 	humanoid.MaxHealth = maxHealth
 
 	-- Restore saved HP; a dead-saved value or missing value comes back full.

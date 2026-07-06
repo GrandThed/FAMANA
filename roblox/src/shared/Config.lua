@@ -32,4 +32,30 @@ return {
 
 	-- How often the server persists HP/position to the backend.
 	autosaveInterval = 60,
+
+	-- Combat feel: chance for a weapon swing to land as a critical hit, and
+	-- the damage multiplier applied when it does. Read by EnemyService.
+	Combat = {
+		critChance = 0.15, -- 15% of hits crit
+		critMultiplier = 2, -- crits deal 2x damage
+
+		-- Mob levels: each spawn rolls a random level in its def's
+		-- [minLevel, maxLevel] range. Every level above 1 scales the mob's
+		-- base hp/damage/xp reward by these fractions (linear, not compounding).
+		mobLevel = {
+			hpPerLevel = 0.15, -- +15% hp per level above 1
+			damagePerLevel = 0.10, -- +10% damage per level above 1
+			xpPerLevel = 0.20, -- +20% xp reward per level above 1
+		},
+	},
+
+	-- Player leveling curve. xpToNext(level) = baseXp + (level-1)*xpPerLevel.
+	-- Purely cosmetic for now (level + progress bar) — no stat bonuses yet.
+	-- The class system (Archer/Berserker/Knight) will read `level` later to
+	-- apply its own per-class bonuses on top of this.
+	PlayerLeveling = {
+		baseXp = 50, -- xp needed to go from level 1 -> 2
+		xpPerLevel = 25, -- extra xp required per level after that
+		maxLevel = 60, -- soft cap; xp stops accruing once reached
+	},
 }

@@ -26,6 +26,7 @@ local STAND_DEFS = {
 	{ itemId = "sword_basic", position = Vector3.new(2, 0, -34) },
 	{ itemId = "sword_iron", position = Vector3.new(7, 0, -34) },
 	{ itemId = "staff_basic", position = Vector3.new(12, 0, -34) },
+	{ itemId = "bow_basic", position = Vector3.new(17, 0, -34) },
 	{ itemId = "axe_basic", position = Vector3.new(-3, 0, -34) },
 	{ itemId = "pickaxe_basic", position = Vector3.new(-8, 0, -34) },
 }

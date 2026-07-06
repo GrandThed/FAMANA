@@ -5,6 +5,7 @@
       "name": "Basic Sword",
       "type": "weapon",
       "weaponType": "melee",
+      "damageKind": "melee",
       "stackable": false,
       "maxStack": 1,
       "damage": 10,
@@ -47,6 +48,7 @@
       "name": "Iron Sword",
       "type": "weapon",
       "weaponType": "melee",
+      "damageKind": "melee",
       "stackable": false,
       "maxStack": 1,
       "damage": 20,
@@ -61,11 +63,27 @@
       "name": "Magic Staff",
       "type": "weapon",
       "weaponType": "ranged",
+      "damageKind": "magic",
       "stackable": false,
       "maxStack": 1,
       "damage": 15,
       "reach": 60,
       "manaCost": 25,
+      "size": [
+        1,
+        4
+      ]
+    },
+    "bow_basic": {
+      "id": "bow_basic",
+      "name": "Basic Bow",
+      "type": "weapon",
+      "weaponType": "ranged",
+      "damageKind": "physical",
+      "stackable": false,
+      "maxStack": 1,
+      "damage": 12,
+      "reach": 55,
       "size": [
         1,
         4
@@ -207,6 +225,10 @@
     },
     {
       "itemId": "staff_basic",
+      "quantity": 1
+    },
+    {
+      "itemId": "bow_basic",
       "quantity": 1
     },
     {

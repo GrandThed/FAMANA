@@ -30,6 +30,7 @@ local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Config = require(Shared:WaitForChild("Config"))
 local Effects = require(Shared:WaitForChild("Effects"))
+local Classes = require(Shared:WaitForChild("Classes"))
 local ClientState = require(script.Parent.ClientState)
 local HotbarBinds = require(script.Parent.HotbarBinds)
 
@@ -44,6 +45,9 @@ local GRID_H = Config.inventoryGrid.height
 local VISIBLE_ROWS = 11 -- grid rows shown before scrolling
 local EQUIP_SLOT = 54 -- px, paper-doll slot size
 local EQUIP_GAP = 12 -- px between slot rows (lets the character show through)
+local CLASS_LABEL_H = 24 -- height reserved for the "<Class> Lvl. <N>" header
+local CLASS_SWITCH_H = 20 -- height reserved for the "Cambiar clase" button below it
+local HEADER_H = CLASS_LABEL_H + CLASS_SWITCH_H
 local TOPBAR = 36
 
 local COLORS = {
@@ -139,6 +143,7 @@ function InventoryUI.start()
 	local leftW = 2 * EQUIP_SLOT + 170 -- slot columns at the edges, character between
 	local panelW = leftW + rightW + 36
 	local panelH = TOPBAR + VISIBLE_ROWS * CELL + 88
+	InventoryUI.panelWidth = panelW -- read by NotificationUI so toasts can dodge the open panel
 
 	-- The panel stays Visible and slides in/out instead of toggling Visible:
 	-- its ViewportFrames keep their last paint, so opening doesn't flash
@@ -183,13 +188,52 @@ function InventoryUI.start()
 
 	local equipTitle = makeLabel(leftCol, "EQUIPMENT", 12, COLORS.textDim)
 	equipTitle.Size = UDim2.new(1, 0, 0, 22)
+	equipTitle.Position = UDim2.new(0, 0, 0, HEADER_H)
+
+	-- "<Class> Lvl. <N>" above the character, e.g. "Caballero Lvl. 5", read
+	-- from the server-set "Class"/"Level" attributes.
+	local classLabel = makeLabel(leftCol, "", 15, Color3.fromRGB(255, 221, 51))
+	classLabel.Size = UDim2.new(1, 0, 0, CLASS_LABEL_H)
+	classLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+	local classLabelStroke = Instance.new("UIStroke")
+	classLabelStroke.Thickness = 1.5
+	classLabelStroke.Color = Color3.fromRGB(0, 0, 0)
+	classLabelStroke.Transparency = 0.4
+	classLabelStroke.Parent = classLabel
+
+	local function refreshClassLabel()
+		local level = player:GetAttribute("Level") or 1
+		local classDef = Classes.get(player:GetAttribute("Class"))
+		classLabel.Text = string.format("%s Lvl. %d", classDef.name, level)
+	end
+	player:GetAttributeChangedSignal("Level"):Connect(refreshClassLabel)
+	player:GetAttributeChangedSignal("Class"):Connect(refreshClassLabel)
+	refreshClassLabel()
+
+	-- "Cambiar clase" opens the picker modal (defined further below, once
+	-- the top-level `gui` it lives in and the switch remote are in scope).
+	local switchClassBtn = Instance.new("TextButton")
+	switchClassBtn.Size = UDim2.new(1, -16, 0, CLASS_SWITCH_H - 4)
+	switchClassBtn.Position = UDim2.new(0, 8, 0, CLASS_LABEL_H)
+	switchClassBtn.BackgroundColor3 = COLORS.tile
+	switchClassBtn.BorderSizePixel = 0
+	switchClassBtn.Font = Enum.Font.GothamBold
+	switchClassBtn.TextSize = 12
+	switchClassBtn.TextColor3 = COLORS.textDim
+	switchClassBtn.Text = "Cambiar clase"
+	switchClassBtn.Parent = leftCol
+
+	local switchClassBtnCorner = Instance.new("UICorner")
+	switchClassBtnCorner.CornerRadius = UDim.new(0, 4)
+	switchClassBtnCorner.Parent = switchClassBtn
 
 	local equipAreaH = 6 * (EQUIP_SLOT + EQUIP_GAP)
 
 	-- The player's character rendered behind the slots (refreshed on open).
 	local dollViewport = Instance.new("ViewportFrame")
 	dollViewport.Size = UDim2.new(1, -8, 0, equipAreaH)
-	dollViewport.Position = UDim2.new(0, 4, 0, 26)
+	dollViewport.Position = UDim2.new(0, 4, 0, 26 + HEADER_H)
 	dollViewport.BackgroundTransparency = 1
 	dollViewport.Ambient = Color3.fromRGB(160, 160, 170)
 	dollViewport.LightColor = Color3.new(1, 1, 1)
@@ -241,7 +285,7 @@ function InventoryUI.start()
 	for slotName, pos in pairs(SLOT_POS) do
 		local frame = Instance.new("Frame")
 		frame.Size = UDim2.new(0, EQUIP_SLOT, 0, EQUIP_SLOT)
-		frame.Position = UDim2.new(0, colX[pos[1]], 0, 26 + pos[2] * (EQUIP_SLOT + EQUIP_GAP))
+		frame.Position = UDim2.new(0, colX[pos[1]], 0, 26 + HEADER_H + pos[2] * (EQUIP_SLOT + EQUIP_GAP))
 		frame.BackgroundColor3 = COLORS.panel
 		frame.BackgroundTransparency = 0.25 -- the character shows through a bit
 		frame.BorderSizePixel = 0
@@ -271,7 +315,7 @@ function InventoryUI.start()
 		}
 	end
 
-	local effectsY = 26 + equipAreaH + 10
+	local effectsY = 26 + HEADER_H + equipAreaH + 10
 	local effectsTitle = makeLabel(leftCol, "EFFECTS", 12, COLORS.textDim)
 	effectsTitle.Size = UDim2.new(1, 0, 0, 22)
 	effectsTitle.Position = UDim2.new(0, 0, 0, effectsY)
@@ -1063,6 +1107,130 @@ function InventoryUI.start()
 	end
 	player:GetAttributeChangedSignal("Gold"):Connect(updateGold)
 	updateGold()
+
+	-- ---- class picker ----------------------------------------------------
+	local switchClassRemote = Remotes.getFunction("SwitchClass")
+	local classLevelsRemote = Remotes.getFunction("RequestClassLevels")
+
+	local classModal = Instance.new("Frame")
+	classModal.Size = UDim2.new(0, 380, 0, 330)
+	classModal.Position = UDim2.new(0.5, 0, 0.5, 0)
+	classModal.AnchorPoint = Vector2.new(0.5, 0.5)
+	classModal.BackgroundColor3 = COLORS.panel
+	classModal.BorderSizePixel = 0
+	classModal.Visible = false
+	classModal.ZIndex = 20
+	classModal.Parent = gui
+
+	local classModalCorner = Instance.new("UICorner")
+	classModalCorner.CornerRadius = UDim.new(0, 8)
+	classModalCorner.Parent = classModal
+
+	local classModalTitle = makeLabel(classModal, "Elegí tu clase", 18)
+	classModalTitle.Size = UDim2.new(1, -16, 0, 30)
+	classModalTitle.Position = UDim2.new(0, 8, 0, 8)
+	classModalTitle.ZIndex = 20
+
+	local classModalClose = Instance.new("TextButton")
+	classModalClose.Size = UDim2.new(0, 26, 0, 26)
+	classModalClose.Position = UDim2.new(1, -6, 0, 6)
+	classModalClose.AnchorPoint = Vector2.new(1, 0)
+	classModalClose.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+	classModalClose.BorderSizePixel = 0
+	classModalClose.Font = Enum.Font.GothamBold
+	classModalClose.TextSize = 14
+	classModalClose.TextColor3 = Color3.new(1, 1, 1)
+	classModalClose.Text = "X"
+	classModalClose.ZIndex = 21
+	classModalClose.Parent = classModal
+
+	local CARD_H = 62
+	local classCards = {}
+	for i, classId in ipairs(Classes.order) do
+		local def = Classes.get(classId)
+
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, -16, 0, CARD_H)
+		card.Position = UDim2.new(0, 8, 0, 44 + (i - 1) * (CARD_H + 8))
+		card.BackgroundColor3 = COLORS.section
+		card.BorderSizePixel = 0
+		card.ZIndex = 20
+		card.Parent = classModal
+
+		local cardCorner = Instance.new("UICorner")
+		cardCorner.CornerRadius = UDim.new(0, 6)
+		cardCorner.Parent = card
+
+		local nameLabel = makeLabel(card, def.name, 15, Color3.fromRGB(255, 221, 51))
+		nameLabel.Size = UDim2.new(1, -90, 0, 20)
+		nameLabel.Position = UDim2.new(0, 10, 0, 6)
+		nameLabel.ZIndex = 20
+
+		local descLabel = makeLabel(card, def.description, 11, COLORS.textDim)
+		descLabel.Size = UDim2.new(1, -20, 0, 30)
+		descLabel.Position = UDim2.new(0, 10, 0, 26)
+		descLabel.TextWrapped = true
+		descLabel.ZIndex = 20
+
+		local useBtn = Instance.new("TextButton")
+		useBtn.Size = UDim2.new(0, 74, 0, 26)
+		useBtn.Position = UDim2.new(1, -10, 0, 8)
+		useBtn.AnchorPoint = Vector2.new(1, 0)
+		useBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 90)
+		useBtn.BorderSizePixel = 0
+		useBtn.Font = Enum.Font.GothamBold
+		useBtn.TextSize = 12
+		useBtn.TextColor3 = Color3.new(1, 1, 1)
+		useBtn.Text = "Usar"
+		useBtn.ZIndex = 21
+		useBtn.Parent = card
+
+		local useBtnCorner = Instance.new("UICorner")
+		useBtnCorner.CornerRadius = UDim.new(0, 4)
+		useBtnCorner.Parent = useBtn
+
+		useBtn.Activated:Connect(function()
+			useBtn.Text = "..."
+			task.spawn(function()
+				local ok, result = pcall(function()
+					return switchClassRemote:InvokeServer(classId)
+				end)
+				useBtn.Text = "Usar"
+				if ok and result and result.ok then
+					classModal.Visible = false
+				end
+			end)
+		end)
+
+		classCards[classId] = { card = card, nameLabel = nameLabel, useBtn = useBtn }
+	end
+
+	-- Fetches every class's level (so the picker can show "Mago Lvl. 3" even
+	-- for classes you're not currently playing) and highlights the active one.
+	local function openClassPicker()
+		classModal.Visible = true
+		task.spawn(function()
+			local ok, levels = pcall(function()
+				return classLevelsRemote:InvokeServer()
+			end)
+			local activeClass = player:GetAttribute("Class")
+			for classId, widgets in pairs(classCards) do
+				local def = Classes.get(classId)
+				local lv = ok and levels and levels[classId]
+				local levelText = lv and string.format(" — Lvl. %d", lv.level) or ""
+				widgets.nameLabel.Text = def.name .. levelText
+				local isActive = classId == activeClass
+				widgets.card.BackgroundColor3 = isActive and Color3.fromRGB(45, 55, 42) or COLORS.section
+				widgets.useBtn.Text = isActive and "Actual" or "Usar"
+				widgets.useBtn.AutoButtonColor = not isActive
+			end
+		end)
+	end
+
+	switchClassBtn.Activated:Connect(openClassPicker)
+	classModalClose.Activated:Connect(function()
+		classModal.Visible = false
+	end)
 
 	-- ---- toggling ------------------------------------------------------------
 	local function toggle()

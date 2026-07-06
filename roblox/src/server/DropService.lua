@@ -159,6 +159,20 @@ local function nearestEligiblePlayer(part)
 	return best, bestRoot, bestDist
 end
 
+-- +1 loot de los drops, lo maneja NotificationUI
+local function notifyPickup(player, itemId, added)
+	local def = Items.get(itemId)
+	local total = PlayerService.getItemCount(player, itemId)
+	Remotes.get("Notify"):FireClient(player, string.format("+%d %s (%d)", added, def and def.name or itemId, total))
+end
+
+-- -1 al tirar un ítem al piso, mismo estilo que notifyPickup pero restando.
+local function notifyDrop(player, itemId, quantity)
+	local def = Items.get(itemId)
+	local total = PlayerService.getItemCount(player, itemId)
+	Remotes.get("Notify"):FireClient(player, string.format("-%d %s (%d)", quantity, def and def.name or itemId, total))
+end
+
 local function releaseClaimLater(part)
 	-- Inventory full or backend error: release the claim after a beat so the
 	-- player can grab it again once they've made room.
@@ -187,6 +201,7 @@ local function tryPickup(player, part)
 	local ok, added = PlayerService.addItem(player, itemId, quantity, stackable)
 	if ok and added >= quantity then
 		part:Destroy()
+		notifyPickup(player, itemId, added)
 	elseif ok and added > 0 then
 		local left = quantity - added
 		part:SetAttribute("quantity", left)
@@ -195,6 +210,7 @@ local function tryPickup(player, part)
 		if label then
 			label.Text = (def and def.name or itemId) .. (left > 1 and (" x" .. left) or "")
 		end
+		notifyPickup(player, itemId, added)
 		releaseClaimLater(part)
 	else
 		releaseClaimLater(part)
@@ -306,6 +322,7 @@ function DropService.start()
 		if not ok then
 			return { ok = false }
 		end
+		notifyDrop(player, itemId, quantity)
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local position = root and (root.Position + root.CFrame.LookVector * 5 - Vector3.new(0, 2, 0))

@@ -53,6 +53,15 @@ ItemModels.defs = {
 		{ name = "Orb", shape = "Ball", size = V(0.85, 0.85, 0.85), offset = V(0, 2.8, 0), color = "magic", material = Enum.Material.Neon },
 	},
 
+	bow_basic = {
+		{ name = "Grip", size = V(0.3, 1.0, 0.34), color = "trunkDark" },
+		{ name = "LimbLower", size = V(0.22, 1.7, 0.22), offset = V(0, -1.35, 0), rot = V(0, 0, 12), color = "trunk" },
+		{ name = "LimbUpper", size = V(0.22, 1.7, 0.22), offset = V(0, 1.35, 0), rot = V(0, 0, -12), color = "trunk" },
+		{ name = "TipLower", size = V(0.16, 0.3, 0.16), offset = V(-0.36, -2.15, 0), color = "steelDark" },
+		{ name = "TipUpper", size = V(0.16, 0.3, 0.16), offset = V(-0.36, 2.15, 0), color = "steelDark" },
+		{ name = "String", size = V(0.05, 4.3, 0.05), offset = V(-0.36, 0, 0), color = "steel" },
+	},
+
 	-- ---- tools -------------------------------------------------------------
 
 	axe_basic = {

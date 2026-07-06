@@ -14,6 +14,8 @@ local HealthService = require(script.Parent.HealthService)
 local ManaService = require(script.Parent.ManaService)
 local ToolService = require(script.Parent.ToolService)
 local TargetService = require(script.Parent.TargetService)
+local PlayerService = require(script.Parent.PlayerService)
+local ClassService = require(script.Parent.ClassService)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -25,6 +27,31 @@ local EnemyService = {}
 
 local DEFAULT_REACH = Config.defaultReach -- fallback when a weapon def omits `reach`
 local MISSILE_SPEED = 90 -- studs/second the magic missile travels
+local CRIT_CHANCE = Config.Combat.critChance
+local CRIT_MULTIPLIER = Config.Combat.critMultiplier
+local HP_PER_LEVEL = Config.Combat.mobLevel.hpPerLevel
+local DAMAGE_PER_LEVEL = Config.Combat.mobLevel.damagePerLevel
+local XP_PER_LEVEL = Config.Combat.mobLevel.xpPerLevel
+
+-- Level label color bands: low levels are calm white, higher levels ramp
+-- through yellow into a dangerous red so players can eyeball threat at a
+-- glance.
+local LEVEL_COLOR_BANDS = {
+	{ maxLevel = 2, color = Color3.fromRGB(235, 235, 235) },
+	{ maxLevel = 4, color = Color3.fromRGB(255, 221, 51) },
+	{ maxLevel = math.huge, color = Color3.fromRGB(255, 90, 60) },
+}
+
+local function levelColor(level)
+	for _, band in ipairs(LEVEL_COLOR_BANDS) do
+		if level <= band.maxLevel then
+			return band.color
+		end
+	end
+	return LEVEL_COLOR_BANDS[#LEVEL_COLOR_BANDS].color
+end
+
+local damageIndicatorRemote -- RemoteEvent, resolved in start()
 
 local notifyRemote -- RemoteEvent, resolved in start()
 
@@ -38,6 +65,9 @@ local ENEMY_DEFS = {
 		name = "Slime",
 		hp = 30,
 		damage = 5,
+		minLevel = 1,
+		maxLevel = 3,
+		xpReward = 15,
 		attackCooldown = 1.5,
 		aggroRange = 30,
 		attackRange = 6,
@@ -67,6 +97,9 @@ local ENEMY_DEFS = {
 		name = "Goblin",
 		hp = 60,
 		damage = 10,
+		minLevel = 2,
+		maxLevel = 5,
+		xpReward = 35,
 		attackCooldown = 1.2,
 		walkSpeed = 12,
 		aggroRange = 35,
@@ -118,11 +151,15 @@ local function groundY(x, z)
 end
 
 local function updateHealthBar(enemy)
-	enemy.fill.Size = UDim2.new(math.clamp(enemy.hp / enemy.def.hp, 0, 1), 0, 1, 0)
+	enemy.fill.Size = UDim2.new(math.clamp(enemy.hp / enemy.maxHp, 0, 1), 0, 1, 0)
 end
 
 local function buildEnemy(pos, def)
 	local y = groundY(pos.X, pos.Z)
+
+	local level = math.random(def.minLevel or 1, def.maxLevel or 1)
+	local maxHp = math.floor(def.hp * (1 + (level - 1) * HP_PER_LEVEL) + 0.5)
+	local damage = math.floor(def.damage * (1 + (level - 1) * DAMAGE_PER_LEVEL) + 0.5)
 
 	local part = Instance.new("Part")
 	part.Name = def.name
@@ -132,11 +169,51 @@ local function buildEnemy(pos, def)
 	part.Material = def.material
 	part.Transparency = def.transparency or 0
 	part.Position = Vector3.new(pos.X, y + def.size.Y / 2, pos.Z)
+	-- Exposed so clients can color the level label relative to their OWN
+	-- level (see client/EnemyLevelUI.lua), instead of everyone seeing the
+	-- same absolute-level color this file paints below as a placeholder.
+	part:SetAttribute("Level", level)
 
 	-- Face/body details ride along with the body via welds.
 	if def.details then
 		ArtKit.weld(part, def.details)
 	end
+
+	-- Name + level label, sits just above the health bar.
+	local nameTag = Instance.new("BillboardGui")
+	nameTag.Name = "NameTag"
+	nameTag.Size = UDim2.new(0, 140, 0, 20)
+	nameTag.StudsOffsetWorldSpace = Vector3.new(0, def.size.Y / 2 + 1.9, 0)
+	nameTag.AlwaysOnTop = true
+	nameTag.Parent = part
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, 0, 1, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 15
+	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameLabel.TextStrokeTransparency = 0.4
+	nameLabel.Text = def.name
+	nameLabel.Parent = nameTag
+
+	local levelLabel = Instance.new("TextLabel")
+	levelLabel.Name = "LevelLabel"
+	levelLabel.Size = UDim2.new(1, 0, 1, 0)
+	levelLabel.BackgroundTransparency = 1
+	levelLabel.Font = Enum.Font.GothamBlack
+	levelLabel.TextSize = 15
+	levelLabel.TextColor3 = levelColor(level)
+	levelLabel.TextStrokeTransparency = 0.2
+	levelLabel.Text = string.format("Lv.%d", level)
+	levelLabel.Parent = nameTag
+
+	-- Name on the left half, level on the right half of the same tag.
+	nameLabel.Size = UDim2.new(0.62, 0, 1, 0)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Right
+	levelLabel.Size = UDim2.new(0.38, 0, 1, 0)
+	levelLabel.Position = UDim2.new(0.62, 4, 0, 0)
+	levelLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "HealthBar"
@@ -160,7 +237,17 @@ local function buildEnemy(pos, def)
 
 	part.Parent = enemyFolder
 
-	return { part = part, fill = fill, hp = def.hp, lastAttack = 0, dead = false, def = def }
+	return {
+		part = part,
+		fill = fill,
+		hp = maxHp,
+		maxHp = maxHp,
+		damage = damage,
+		level = level,
+		lastAttack = 0,
+		dead = false,
+		def = def,
+	}
 end
 
 local function spawnAt(entry)
@@ -281,7 +368,7 @@ local function updateEnemy(enemy, dt)
 			enemy.lastAttack = now
 			local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
-				humanoid:TakeDamage(def.damage)
+				humanoid:TakeDamage(enemy.damage * ClassService.getDamageTakenMult(target))
 				HealthService.registerDamage(target) -- pause the player's regen
 				for _, fn in ipairs(EnemyService.playerHitHandlers) do
 					task.spawn(fn, def.lootSource, target)
@@ -299,11 +386,20 @@ local function killEnemy(entry, enemy, killer)
 	local position = enemy.part.Position
 	local lootSource = enemy.def.lootSource
 	local respawn = enemy.def.respawn
+	local level = enemy.level
 	enemy.part:Destroy()
 	entry.enemy = nil
 
+	if killer and enemy.def.xpReward then
+		local xp = math.floor(enemy.def.xpReward * (1 + (level - 1) * XP_PER_LEVEL) + 0.5)
+		PlayerService.addXp(killer, xp)
+	end
+
+	-- lootSource/position/killer stay first for backward compatibility;
+	-- level is appended for handlers that want to scale on it (e.g. future
+	-- quest tracking) — existing handlers can simply ignore the extra arg.
 	for _, fn in ipairs(EnemyService.killedHandlers) do
-		task.spawn(fn, lootSource, position, killer)
+		task.spawn(fn, lootSource, position, killer, level)
 	end
 
 	task.delay(respawn, function()
@@ -342,12 +438,15 @@ local function targetFor(player, root, reach)
 	return hitEntry, hitEnemy
 end
 
-local function dealDamage(entry, enemy, damage, killer)
+local function dealDamage(entry, enemy, damage, killer, isCrit)
 	if not enemy or enemy.dead then
 		return
 	end
 	enemy.hp -= damage
 	updateHealthBar(enemy)
+	if killer and damageIndicatorRemote then
+		damageIndicatorRemote:FireClient(killer, damage, isCrit, enemy.part.Position)
+	end
 	if enemy.hp <= 0 then
 		killEnemy(entry, enemy, killer)
 	end
@@ -356,23 +455,34 @@ end
 -- Spawns a glowing magic missile that flies from `fromPos` to the target part,
 -- then runs `onArrive`. Anchored + non-colliding so it just replicates as a
 -- cosmetic projectile to every client.
-local function fireMissile(fromPos, targetPart, onArrive)
+-- Visuals per damage kind: magic keeps the glowing orb, a physical bow shot
+-- reads as a plain wooden arrow instead.
+local PROJECTILE_VISUALS = {
+	magic = { name = "MagicMissile", shape = Enum.PartType.Ball, size = Vector3.new(1.2, 1.2, 1.2), color = Color3.fromRGB(150, 90, 255), material = Enum.Material.Neon, glow = true },
+	physical = { name = "Arrow", shape = Enum.PartType.Cylinder, size = Vector3.new(0.15, 0.15, 3), color = Color3.fromRGB(120, 85, 45), material = Enum.Material.Wood, glow = false },
+}
+
+local function fireMissile(fromPos, targetPart, onArrive, damageKind)
+	local visual = PROJECTILE_VISUALS[damageKind] or PROJECTILE_VISUALS.magic
+
 	local missile = Instance.new("Part")
-	missile.Name = "MagicMissile"
-	missile.Shape = Enum.PartType.Ball
-	missile.Size = Vector3.new(1.2, 1.2, 1.2)
-	missile.Color = Color3.fromRGB(150, 90, 255)
-	missile.Material = Enum.Material.Neon
+	missile.Name = visual.name
+	missile.Shape = visual.shape
+	missile.Size = visual.size
+	missile.Color = visual.color
+	missile.Material = visual.material
 	missile.Anchored = true
 	missile.CanCollide = false
 	missile.CanQuery = false
 	missile.Position = fromPos
 
-	local light = Instance.new("PointLight")
-	light.Color = missile.Color
-	light.Range = 8
-	light.Brightness = 3
-	light.Parent = missile
+	if visual.glow then
+		local light = Instance.new("PointLight")
+		light.Color = missile.Color
+		light.Range = 8
+		light.Brightness = 3
+		light.Parent = missile
+	end
 
 	-- NOT in enemyFolder: the client targets every part in there, and a
 	-- projectile must never steal focus from the enemy it flies at.
@@ -418,7 +528,17 @@ local function onWeaponSwing(player, tool, def)
 		return
 	end
 
+	local damageKind = def.damageKind or (ranged and "physical" or "melee")
+
 	local damage = def.damage or 10
+	damage = math.floor(damage * ClassService.getDamageMult(player, damageKind) + 0.5)
+
+	local critChance = CRIT_CHANCE + ClassService.getCritBonus(player)
+	local isCrit = math.random() < critChance
+	if isCrit then
+		damage = math.floor(damage * CRIT_MULTIPLIER + 0.5)
+	end
+
 	if ranged then
 		-- Ranged magic costs mana; block the cast (and warn) when too low. Only
 		-- charged here, once we know there's a valid target to fire at.
@@ -432,15 +552,16 @@ local function onWeaponSwing(player, tool, def)
 			return
 		end
 		fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
-			dealDamage(hitEntry, hitEnemy, damage, player)
-		end)
+			dealDamage(hitEntry, hitEnemy, damage, player, isCrit)
+		end, damageKind)
 	else
-		dealDamage(hitEntry, hitEnemy, damage, player)
+		dealDamage(hitEntry, hitEnemy, damage, player, isCrit)
 	end
 end
 
 function EnemyService.start()
 	notifyRemote = Remotes.get("Notify")
+	damageIndicatorRemote = Remotes.get("DamageIndicator")
 
 	Players.PlayerRemoving:Connect(function(player)
 		lastManaWarn[player.UserId] = nil

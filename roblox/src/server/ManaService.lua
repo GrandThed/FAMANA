@@ -56,8 +56,10 @@ function ManaService.start()
 		for _, player in ipairs(Players:GetPlayers()) do
 			local current = player:GetAttribute("Mana")
 			local max = player:GetAttribute("MaxMana") or Config.Mana.max
+			-- ClassService overrides this per-class (Mago regens faster, etc).
+			local regenAmount = player:GetAttribute("ManaRegenAmount") or Config.Mana.regenAmount
 			if current and current < max then
-				player:SetAttribute("Mana", math.min(max, current + Config.Mana.regenAmount))
+				player:SetAttribute("Mana", math.min(max, current + regenAmount))
 			end
 		end
 	end)

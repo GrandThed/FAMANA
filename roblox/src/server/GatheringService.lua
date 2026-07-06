@@ -12,6 +12,8 @@ local ToolService = require(script.Parent.ToolService)
 local TargetService = require(script.Parent.TargetService)
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
+local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Items"))
+local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local GatheringService = {}
 
@@ -261,14 +263,26 @@ local function onToolSwing(player, tool, def)
 	lastGather[player.UserId] = now
 
 	local amount = math.min(def.gatherPower or 1, node.amount)
+
+	-- eto hace que suene cuando le pegas a la piedra o al rbol
+	Remotes.get("GatherFeedback"):FireClient(player, node.def.yield, amount, node.anchor.Position)
+	burstParticles(node)
+
 	local ok = PlayerService.addItem(player, node.def.yield, amount)
 	if not ok then
 		return -- inventory full or backend error; leave the node alone
 	end
 
-	-- The harvest lands immediately (backend above); everything below is the
-	-- show: a themed particle burst and the resource flying to the player.
-	burstParticles(node)
+	-- The item landed in the backend; the loot toast needs the real running
+	-- total, so it's fine for this one to lag a beat behind the swing.
+	do
+		local itemDef = Items.get(node.def.yield)
+		local total = PlayerService.getItemCount(player, node.def.yield)
+		Remotes.get("Notify"):FireClient(
+			player,
+			string.format("+%d %s (%d)", amount, itemDef and itemDef.name or node.def.yield, total)
+		)
+	end
 	for _, fn in ipairs(GatheringService.gatheredHandlers) do
 		task.spawn(fn, player, node.def.yield, amount, node.anchor.Position)
 	end

@@ -3,6 +3,7 @@
 import { withTransaction, query } from "./db.js";
 import { getInventory, addItem } from "./inventory.js";
 import { STARTER_ITEMS, STARTER_EQUIPPABLES } from "./items.js";
+import { isValidClass, defaultClassLevels, DEFAULT_CLASS } from "./classes.js";
 
 // Grants any missing starter tools/weapons (idempotent). Lets existing players
 // pick up newly-added starter gear without wiping their profile.
@@ -19,12 +20,26 @@ async function ensureStarterEquippables(client, playerId, inventory) {
 }
 
 function rowToPlayer(row, inventory) {
+  const currentClass = isValidClass(row.current_class) ? row.current_class : DEFAULT_CLASS;
+
+  // Profiles saved before the class system existed come back with an empty
+  // class_levels blob. Migrate: seed the active class's track from the old
+  // flat level/xp columns so nobody loses progress; every other class
+  // starts fresh at level 1. (Mirrors the same migration in PlayerService.lua.)
+  const classLevels = row.class_levels && Object.keys(row.class_levels).length > 0
+    ? row.class_levels
+    : { ...defaultClassLevels(), [currentClass]: { level: row.level, xp: Number(row.xp) } };
+
   return {
     id: String(row.id),
     username: row.username,
     health: row.health,
     maxHealth: row.max_health,
     gold: Number(row.gold), // BIGINT arrives as a string from pg
+    level: row.level,
+    xp: Number(row.xp), // BIGINT arrives as a string from pg
+    currentClass,
+    classLevels,
     hotbarBinds: row.hotbar_binds || {},
 
     cell: row.cell,
@@ -57,8 +72,9 @@ export async function createPlayer(playerId, username) {
     }
 
     const { rows } = await client.query(
-      `INSERT INTO players (id, username) VALUES ($1, $2) RETURNING *`,
-      [playerId, username]
+      `INSERT INTO players (id, username, current_class, class_levels)
+       VALUES ($1, $2, $3, $4::jsonb) RETURNING *`,
+      [playerId, username, DEFAULT_CLASS, JSON.stringify(defaultClassLevels())]
     );
     for (const item of STARTER_ITEMS) {
       await addItem(client, playerId, item.itemId, item.quantity);
@@ -70,13 +86,25 @@ export async function createPlayer(playerId, username) {
 
 // Saves the coarse mutable fields. Only provided fields are updated.
 // Returns false if the player doesn't exist.
-export async function savePlayer(playerId, { health, gold, hotbarBinds, cell, position }) {
+export async function savePlayer(playerId, { health, gold, level, xp, currentClass, classLevels, hotbarBinds, cell, position }) {
   const sets = [];
   const params = [];
   let i = 1;
 
   if (health !== undefined) { sets.push(`health = $${i++}`); params.push(health); }
   if (gold !== undefined) { sets.push(`gold = $${i++}`); params.push(gold); }
+  if (level !== undefined) { sets.push(`level = $${i++}`); params.push(level); }
+  if (xp !== undefined) { sets.push(`xp = $${i++}`); params.push(xp); }
+  if (currentClass !== undefined && isValidClass(currentClass)) {
+    sets.push(`current_class = $${i++}`);
+    params.push(currentClass);
+  }
+  if (classLevels !== undefined) {
+    // Same JSONB-stringify caveat as hotbarBinds: an empty Luau table
+    // arrives as [], which node-pg would otherwise send as a Postgres array.
+    sets.push(`class_levels = $${i++}::jsonb`);
+    params.push(JSON.stringify(classLevels ?? {}));
+  }
   if (hotbarBinds !== undefined) {
     // Stringify explicitly: an empty Luau table arrives as [] and node-pg
     // would otherwise send arrays in Postgres array syntax, not JSON.
