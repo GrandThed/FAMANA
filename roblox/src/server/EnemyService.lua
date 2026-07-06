@@ -343,7 +343,8 @@ local HOP_SQUASH_TIME = 0.12 -- how long the landing squash holds
 
 -- Hop locomotion: parabolic jumps toward the player with squash & stretch.
 -- A hop in flight always finishes, even if the target left aggro range.
-local function updateHop(enemy, dt, root, def)
+-- `speedMult` < 1 (slow debuff) stretches the pause between hops.
+local function updateHop(enemy, dt, root, def, speedMult)
 	local hop = def.hop
 	local part = enemy.part
 	enemy.hopT = (enemy.hopT or 0) + dt
@@ -379,13 +380,55 @@ local function updateHop(enemy, dt, root, def)
 		if planarDist > 0.05 then
 			part.CFrame = CFrame.lookAt(from, flatTarget)
 		end
-		if planarDist > def.attackRange and enemy.hopT >= hop.pause then
+		if planarDist > def.attackRange and enemy.hopT >= hop.pause / (speedMult or 1) then
 			local to = from + toTarget.Unit * math.min(hop.distance, planarDist)
 			enemy.hopFrom = from
 			enemy.hopTo = Vector3.new(to.X, groundY(to.X, to.Z) + def.size.Y / 2, to.Z)
 			enemy.hopState = "air"
 			enemy.hopT = 0
 		end
+	end
+end
+
+-- Floating status marks over an enemy (stun stars, slow snail) so CC reads at
+-- a glance. Server-side BillboardGuis, same as the name tag / health bar.
+local STATUS_MARKS = {
+	stun = { text = "💫", offsetX = -0.9, spin = true },
+	slow = { text = "🐌", offsetX = 0.9, spin = false },
+}
+
+local function setStatusMark(enemy, kind, active)
+	enemy.marks = enemy.marks or {}
+	local existing = enemy.marks[kind]
+	if active and not existing then
+		local look = STATUS_MARKS[kind]
+		local gui = Instance.new("BillboardGui")
+		gui.Name = "Mark_" .. kind
+		gui.Size = UDim2.new(0, 26, 0, 26)
+		gui.StudsOffsetWorldSpace = Vector3.new(look.offsetX, enemy.def.size.Y / 2 + 3, 0)
+		gui.AlwaysOnTop = true
+		gui.Parent = enemy.part
+
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(1, 0, 1, 0)
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 20
+		label.Text = look.text
+		label.Parent = gui
+
+		if look.spin then
+			local spin = TweenService:Create(
+				label,
+				TweenInfo.new(1.2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+				{ Rotation = 360 }
+			)
+			spin:Play()
+		end
+		enemy.marks[kind] = gui
+	elseif not active and existing then
+		existing:Destroy()
+		enemy.marks[kind] = nil
 	end
 end
 
@@ -427,17 +470,30 @@ local function updateEnemy(enemy, dt)
 		root = target.Character:FindFirstChild("HumanoidRootPart")
 	end
 
+	-- CC state: expire + surface both as floating marks.
+	local stunned = enemy.stunnedUntil ~= nil and now < enemy.stunnedUntil
+	if not stunned then
+		enemy.stunnedUntil = nil
+	end
+	local slowed = enemy.slowedUntil ~= nil and now < enemy.slowedUntil
+	if not slowed then
+		enemy.slowedUntil, enemy.slowMult = nil, nil
+	end
+	setStatusMark(enemy, "stun", stunned)
+	setStatusMark(enemy, "slow", slowed)
+	local speedMult = slowed and (enemy.slowMult or 0.5) or 1
+
 	-- Stunned: no chasing, no winding up new hops, no attacking. A hop already
 	-- in flight still lands (freezing mid-air reads as a bug, not a stun).
-	if enemy.stunnedUntil and now < enemy.stunnedUntil then
+	if stunned then
 		if def.movement == "hop" then
-			updateHop(enemy, dt, nil, def)
+			updateHop(enemy, dt, nil, def, speedMult)
 		end
 		return
 	end
 
 	if def.movement == "hop" then
-		updateHop(enemy, dt, root, def)
+		updateHop(enemy, dt, root, def, speedMult)
 	elseif root then
 		-- Walk toward the player along the ground plane, facing the way we move.
 		local from = enemy.part.Position
@@ -445,7 +501,7 @@ local function updateEnemy(enemy, dt)
 		local toTarget = flatTarget - from
 		local planarDist = toTarget.Magnitude
 		if planarDist > def.attackRange then
-			local pos = from + toTarget.Unit * math.min(def.walkSpeed * dt, planarDist)
+			local pos = from + toTarget.Unit * math.min(def.walkSpeed * speedMult * dt, planarDist)
 			enemy.part.CFrame = CFrame.lookAt(pos, Vector3.new(flatTarget.X, pos.Y, flatTarget.Z))
 		elseif planarDist > 0.05 then
 			enemy.part.CFrame = CFrame.lookAt(from, flatTarget)
@@ -605,6 +661,16 @@ end
 function EnemyService.stun(ref, duration)
 	if ref and ref.enemy and not ref.enemy.dead then
 		ref.enemy.stunnedUntil = math.max(ref.enemy.stunnedUntil or 0, os.clock() + duration)
+	end
+end
+
+-- Slows the enemy's movement to `mult` (default 0.5) for `duration` seconds.
+-- Reapplying refreshes the timer; the strongest (lowest) mult wins.
+function EnemyService.slow(ref, duration, mult)
+	if ref and ref.enemy and not ref.enemy.dead then
+		local enemy = ref.enemy
+		enemy.slowedUntil = math.max(enemy.slowedUntil or 0, os.clock() + duration)
+		enemy.slowMult = math.min(enemy.slowMult or 1, mult or 0.5)
 	end
 end
 

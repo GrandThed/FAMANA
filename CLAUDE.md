@@ -116,7 +116,8 @@ expiry; slimes inflict `slow` on hit via `EnemyService.onPlayerHit`) ·
 `SpellService` (subclass spells from `shared/Spells`: validates casts behind
 the `CastSpell` remote — known → target → mana → cooldown, nothing charged on
 a whiff — with behaviors projectile/zone/strike/aoe/buff/taunt/summon
-(familiars orbit + auto-attack); cooldowns replicate as `SpellCd_<id>`
+(familiars orbit + auto-attack; zones tick damage and/or slows — Snare Trap
+is a pure-slow zone); cooldowns replicate as `SpellCd_<id>`
 attributes; recomputes known spells on the Level/Class attributes and pushes
 `SpellsChanged` (known + newlyUnlocked + recommended); school passives ride
 the damage hooks. See [`docs/TRAITS_AND_SPELLS.md`](docs/TRAITS_AND_SPELLS.md)) ·
@@ -132,8 +133,10 @@ locomotion with squash & stretch, and per-def `details` welded via
 class damage multipliers by the item's `damageKind`, bow shots fly as
 arrows instead of magic orbs; public combat API for spells —
 `computePlayerDamage`, `enemiesNear`/`focusedTarget`/`nearestTarget`,
-`dealSpellDamage`, `stun`, `taunt` — plus `registerDamageMult`/
-`registerDamageTakenMult` hooks used by effects and subclass passives) ·
+`dealSpellDamage`, `stun`, `slow`, `taunt` — plus `registerDamageMult`/
+`registerDamageTakenMult` hooks used by effects and subclass passives;
+stunned/slowed enemies show 💫/🐌 billboard marks, slows scale walk speed
+and hop cadence) ·
 `DropService` (loot tables → ground drops + public
 `spawn(itemId, qty, pos, opts?)` + the `DropItem` remote for
 drag-out-of-inventory throws; drops are magnetic — they fly to the nearest
@@ -158,18 +161,27 @@ XP bar over the hotbar, an active-effects strip, and a
 10-slot hotbar: keys 1/2 mirror the paper doll's weapon/offhand, keys 3–0 are
 quick binds from `HotbarBinds` — item binds equip Tools, spell binds
 (`spell:<id>`) cast via `CastSpell` and render a school-colored icon with a
-cooldown veil from the `SpellCd_<id>` attributes), `SpellsClient` (known-spell
+cooldown veil from the `SpellCd_<id>` attributes (grayed when the active
+class doesn't know the spell); clicking an empty bind slot opens a pick-list
+of known spells, and the button at the bar's right end cycles the three
+bind pages), `SpellTrackerUI` (TFT-style subclass tracker on the left edge:
+one entry per school of the active class with level vs next threshold;
+hover → tooltip with the school's level timeline + spell rows — hover a row
+and press 3–0 to bind it; sets `ClientState.spellHover` so the keypress
+doesn't also cast), `SpellsClient` (known-spell
 registry from `SpellsChanged`/`RequestSpells`; auto-places newly unlocked
-spells in the next free hotbar slot and seeds the recommended loadout on
-fresh profiles — waits on `HotbarBinds.waitReady` so it never races the
-persisted binds), `InventoryUI` (grid inventory screen, `B`
+spells in the next free hotbar slot (page 1 first) and seeds the recommended
+loadout on fresh profiles — waits on `HotbarBinds.waitReady` so it never
+races the persisted binds), `InventoryUI` (grid inventory screen, `B`
 key: equipment paper doll + effects panel on the left, Sort/gold utilities
 bar over the scrollable 10×30 drag & drop grid on the right; R rotates while
 dragging, drop previews green/red, hover + 3–0 quick-binds tools/consumables,
 hover + 1/2 equips a weapon/tool into weapon/offhand with the occupant
 swapped back to the first free grid spot),
-`HotbarBinds` (bind registry shared by the UIs; persisted with the profile,
-seeded server-side with axe/pickaxe on keys 3/4 for fresh profiles),
+`HotbarBinds` (bind registry shared by the UIs, in THREE swappable pages
+({ active, pages } persisted with the profile — legacy flat maps migrate to
+page 1 on load); fresh profiles get axe/pickaxe seeded on keys 3/4 of
+page 1),
 `StoreUI` (vendor trade panel from the `OpenStore` remote: Buy/Sell tabs,
 owned counts, shift-click ×5, live gold; server errors map to a status
 line), `LevelUpUI` (celebration on the `LevelUp` remote), `DamageIndicatorUI`

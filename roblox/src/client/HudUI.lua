@@ -382,8 +382,10 @@ local function makeSlot(parent, order, reserved, onActivated)
 		spellIcon.Text = def.icon or "✦"
 		spellIcon.TextTransparency = spellDimmed and 0.6 or 0
 		slot.BackgroundTransparency = 0.1
+		-- Unknown spells (bound while playing another class) read as gray.
 		local school = Spells.getSchool(def.school)
-		stroke.Color = school and school.color or Color3.fromRGB(150, 90, 255)
+		local schoolColor = school and school.color or Color3.fromRGB(150, 90, 255)
+		stroke.Color = spellDimmed and Color3.fromRGB(105, 105, 115) or schoolColor
 		stroke.Thickness = 1.5
 	end
 
@@ -420,7 +422,7 @@ local function makeSlot(parent, order, reserved, onActivated)
 		end
 	end
 
-	return { set = set, setSpell = setSpell, setCooldown = setCooldown, setEquipped = setEquipped }
+	return { set = set, setSpell = setSpell, setCooldown = setCooldown, setEquipped = setEquipped, button = slot }
 end
 
 -- Finds the Tool for an item in the local player's Backpack/Character.
@@ -511,7 +513,8 @@ function HudUI.start()
 
 	-- ---- hotbar ----
 	local hotbarSize = HOTBAR_SIZE
-	local barWidth = hotbarSize * SLOT + (hotbarSize - 1) * SLOT_PAD
+	local PAGE_BTN_W = 26 -- page switcher at the right end of the bar
+	local barWidth = hotbarSize * SLOT + (hotbarSize - 1) * SLOT_PAD + SLOT_PAD + PAGE_BTN_W
 	local bar = Instance.new("Frame")
 	bar.Size = UDim2.new(0, barWidth, 0, SLOT)
 	bar.AnchorPoint = Vector2.new(0.5, 1)
@@ -532,14 +535,19 @@ function HudUI.start()
 	local slotItem = {} -- [i] = itemId or "spell:<id>" currently shown in slot i (or nil)
 
 	local castSpellRemote -- resolved async in the remotes block below
+	local closePicker, togglePicker -- forward-declared: built after the slots exist
 
-	-- Activate hotbar slot i: cast the spell, or equip/unequip the item's
-	-- Tool (no-op for non-equippables).
+	-- Activate hotbar slot i: empty bind slots open the spell picker, spell
+	-- binds cast, item binds equip/unequip their Tool (no-op otherwise).
 	local function activateSlot(i)
 		local value = slotItem[i]
 		if not value then
+			if i >= WEAPON_SLOTS then
+				togglePicker(i)
+			end
 			return
 		end
+		closePicker()
 		local spellId = Spells.fromBind(value)
 		if spellId then
 			if castSpellRemote then
@@ -568,6 +576,147 @@ function HudUI.start()
 		slots[i] = makeSlot(bar, i, i < WEAPON_SLOTS, function()
 			activateSlot(i)
 		end)
+	end
+
+	-- ---- page switcher (three saved hotbar pages, cycled by clicking) ----
+	local pageBtn = Instance.new("TextButton")
+	pageBtn.Size = UDim2.new(0, PAGE_BTN_W, 0, SLOT)
+	pageBtn.LayoutOrder = hotbarSize
+	pageBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+	pageBtn.BackgroundTransparency = 0.25
+	pageBtn.BorderSizePixel = 0
+	pageBtn.Font = Enum.Font.GothamBold
+	pageBtn.TextSize = 18
+	pageBtn.TextColor3 = Color3.fromRGB(255, 220, 120)
+	pageBtn.Text = "1"
+	pageBtn.Parent = bar
+
+	local pageBtnCorner = Instance.new("UICorner")
+	pageBtnCorner.CornerRadius = UDim.new(0, 6)
+	pageBtnCorner.Parent = pageBtn
+
+	local pageBtnStroke = Instance.new("UIStroke")
+	pageBtnStroke.Thickness = 1.5
+	pageBtnStroke.Color = Color3.fromRGB(70, 70, 85)
+	pageBtnStroke.Transparency = 0.2
+	pageBtnStroke.Parent = pageBtn
+
+	local pageDots = {}
+	for p = 1, HotbarBinds.pageCount do
+		local dot = Instance.new("Frame")
+		dot.Size = UDim2.new(0, 5, 0, 5)
+		dot.AnchorPoint = Vector2.new(0.5, 1)
+		dot.Position = UDim2.new(0.5, (p - 2) * 8, 1, -5)
+		dot.BorderSizePixel = 0
+		dot.Parent = pageBtn
+		local dotCorner = Instance.new("UICorner")
+		dotCorner.CornerRadius = UDim.new(1, 0)
+		dotCorner.Parent = dot
+		pageDots[p] = dot
+	end
+
+	local function refreshPageBtn()
+		local page = HotbarBinds.activePage()
+		pageBtn.Text = tostring(page)
+		for p, dot in ipairs(pageDots) do
+			dot.BackgroundColor3 = p == page and Color3.fromRGB(255, 220, 120) or Color3.fromRGB(90, 90, 105)
+		end
+	end
+
+	pageBtn.Activated:Connect(function()
+		HotbarBinds.cyclePage() -- fires changed → renderHotbar refreshes everything
+	end)
+
+	-- ---- empty-slot spell picker ----
+	-- Clicking an empty bind slot lists the known spells in a panel growing
+	-- upward from that slot; clicking a row binds it there.
+	local pickerFrame, pickerSlot
+	local PICKER_ROW = 30
+	local PICKER_W = 190
+
+	closePicker = function()
+		if pickerFrame then
+			pickerFrame:Destroy()
+			pickerFrame, pickerSlot = nil, nil
+		end
+	end
+
+	togglePicker = function(i)
+		if pickerSlot == i then
+			closePicker()
+			return
+		end
+		closePicker()
+		local ids = SpellsClient.list()
+		if #ids == 0 then
+			return
+		end
+		local anchor = slots[i].button
+
+		local frame = Instance.new("Frame")
+		frame.AnchorPoint = Vector2.new(0, 1)
+		frame.Position = UDim2.new(0, anchor.AbsolutePosition.X, 0, anchor.AbsolutePosition.Y - 8)
+		frame.Size = UDim2.new(0, PICKER_W, 0, #ids * PICKER_ROW + 26)
+		frame.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+		frame.BackgroundTransparency = 0.06
+		frame.BorderSizePixel = 0
+		frame.Parent = gui
+
+		local frameCorner = Instance.new("UICorner")
+		frameCorner.CornerRadius = UDim.new(0, 6)
+		frameCorner.Parent = frame
+
+		local frameStroke = Instance.new("UIStroke")
+		frameStroke.Thickness = 1.5
+		frameStroke.Color = Color3.fromRGB(90, 90, 105)
+		frameStroke.Parent = frame
+
+		local header = Instance.new("TextLabel")
+		header.Size = UDim2.new(1, -12, 0, 22)
+		header.Position = UDim2.new(0, 8, 0, 2)
+		header.BackgroundTransparency = 1
+		header.Font = Enum.Font.GothamBold
+		header.TextSize = 11
+		header.TextColor3 = Color3.fromRGB(150, 150, 160)
+		header.TextXAlignment = Enum.TextXAlignment.Left
+		header.Text = "BIND TO KEY " .. keyLabelFor(i)
+		header.Parent = frame
+
+		for index, spellId in ipairs(ids) do
+			local def = Spells.get(spellId)
+			local school = def and Spells.getSchool(def.school)
+
+			local row = Instance.new("TextButton")
+			row.Size = UDim2.new(1, -8, 0, PICKER_ROW - 4)
+			row.Position = UDim2.new(0, 4, 0, 24 + (index - 1) * PICKER_ROW)
+			row.BackgroundColor3 = Color3.fromRGB(35, 35, 44)
+			row.AutoButtonColor = true
+			row.BorderSizePixel = 0
+			row.Font = Enum.Font.GothamMedium
+			row.TextSize = 13
+			row.TextColor3 = Color3.new(1, 1, 1)
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.Text = ("    %s  %s"):format(def.icon or "✦", def.name)
+			row.Parent = frame
+
+			local rowCorner = Instance.new("UICorner")
+			rowCorner.CornerRadius = UDim.new(0, 4)
+			rowCorner.Parent = row
+
+			local accent = Instance.new("Frame")
+			accent.Size = UDim2.new(0, 3, 1, -8)
+			accent.Position = UDim2.new(0, 3, 0, 4)
+			accent.BackgroundColor3 = school and school.color or Color3.fromRGB(150, 90, 255)
+			accent.BorderSizePixel = 0
+			accent.Parent = row
+
+			row.Activated:Connect(function()
+				HotbarBinds.set(i, Spells.toBind(spellId))
+				closePicker()
+			end)
+		end
+
+		pickerFrame, pickerSlot = frame, i
 	end
 
 	-- Highlight the slot whose item is currently equipped.
@@ -639,6 +788,8 @@ function HudUI.start()
 			end
 		end
 		refreshEquipped()
+		refreshPageBtn()
+		closePicker() -- the world changed under the picker; drop it
 	end
 
 	renderHotbar(nil) -- start as empty sockets
@@ -676,12 +827,15 @@ function HudUI.start()
 	end)
 
 	-- Number keys 1..9,0 equip/unequip the matching slot. While the inventory
-	-- panel is open the keys belong to it (3–0 assign quick binds there).
+	-- panel is open the keys belong to it (3–0 assign quick binds there), and
+	-- while hovering a tracker spell row they bind instead (SpellTrackerUI).
 	for i = 0, hotbarSize - 1 do
 		local keyCode = NUMBER_KEYS[i + 1]
 		if keyCode then
 			ContextActionService:BindAction("Hotbar" .. i, function(_, inputState)
-				if inputState == Enum.UserInputState.Begin and not ClientState.inventoryOpen then
+				if inputState == Enum.UserInputState.Begin
+					and not ClientState.inventoryOpen
+					and not ClientState.spellHover then
 					activateSlot(i)
 				end
 				return Enum.ContextActionResult.Pass

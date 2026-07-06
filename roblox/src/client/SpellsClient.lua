@@ -31,33 +31,46 @@ end
 
 local FIRST_BIND_SLOT, LAST_BIND_SLOT = 2, 9
 
-local function slotOfBind(bindValue)
-	for slot = FIRST_BIND_SLOT, LAST_BIND_SLOT do
-		if HotbarBinds.get(slot) == bindValue then
-			return slot
-		end
-	end
-	return nil
-end
-
-local function anySpellBound()
-	for slot = FIRST_BIND_SLOT, LAST_BIND_SLOT do
-		if Spells.fromBind(HotbarBinds.get(slot)) then
-			return true
+-- Whether the bind value already sits somewhere, on ANY page.
+local function isBoundAnywhere(bindValue)
+	for page = 1, HotbarBinds.pageCount do
+		for slot = FIRST_BIND_SLOT, LAST_BIND_SLOT do
+			if HotbarBinds.get(slot, page) == bindValue then
+				return true
+			end
 		end
 	end
 	return false
 end
 
--- Places each spell in the first free slot (skipping ones already bound).
--- Full hotbar = the spell just isn't placed; no replacement in v1.
+local function anySpellBound()
+	for page = 1, HotbarBinds.pageCount do
+		for slot = FIRST_BIND_SLOT, LAST_BIND_SLOT do
+			if Spells.fromBind(HotbarBinds.get(slot, page)) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Places each spell in the first free slot, filling page 1 first (the
+-- defaults page), then 2, then 3. Everything full = the spell just isn't
+-- placed; no replacement in v1.
 local function autoPlace(spellIds)
 	for _, spellId in ipairs(spellIds) do
 		local bindValue = Spells.toBind(spellId)
-		if not slotOfBind(bindValue) then
-			for slot = FIRST_BIND_SLOT, LAST_BIND_SLOT do
-				if HotbarBinds.get(slot) == nil then
-					HotbarBinds.set(slot, bindValue)
+		if not isBoundAnywhere(bindValue) then
+			local placed = false
+			for page = 1, HotbarBinds.pageCount do
+				for slot = FIRST_BIND_SLOT, LAST_BIND_SLOT do
+					if HotbarBinds.get(slot, page) == nil then
+						HotbarBinds.set(slot, bindValue, page)
+						placed = true
+						break
+					end
+				end
+				if placed then
 					break
 				end
 			end

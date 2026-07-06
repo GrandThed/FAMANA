@@ -64,9 +64,21 @@ Two halves:
 - ¿Se pueden combinar subclases? (spell side — today: test mode grants ALL
   schools of your class; see Part 2)
 - ¿Intentamos que cada clase tenga 1 subclase ofensiva, 1 defensiva, 1 más
-  balanceada? (Centinela is already the knight's defensive one; mage has three
-  offensive ones — Invocador could lean defensive/utility.)
+  balanceada? (Sentinel is already the knight's defensive one; mage has three
+  offensive ones — Invoker could lean defensive/utility.)
 - ¿Subclases prismáticas? (rare/special subclasses à la TFT prismatic traits?)
+- **Decided:** wielding a weapon is NOT required to cast its school's spells,
+  but equipment will contribute trait/school **points** (see the next
+  question).
+
+**Equipment → school points (new, from the "wielding gives points" decision)**
+- Equipment contributing points to schools means a school's effective level =
+  class level + item points? Or two separate ladders (class level unlocks
+  spells, item points only push trait thresholds)? This is THE bridge between
+  the trait system and the spell system — needs a formula before Phase B.
+- Does "wielding" mean equipped in the paper doll, or the Tool actually held
+  in hand right now? (Recommend: paper doll, so points don't flicker while
+  switching tools to gather.)
 
 **Roll rules (needed before implementing the generator)**
 - How many traits can one item roll? Suggestion: 1–2 for levels 1–6, 2–3
@@ -171,26 +183,29 @@ Everything below is live in the codebase as of this pass.
 
 ### The spells
 
-Unlocks follow the board: base at class level 1, second active at 10,
-ultimate at 20. Passives (the board's +X% lines) apply automatically at
-1/5/10/15/20 and boost **both spells and weapon swings**. All numbers are
-first-pass and live in [`roblox/src/shared/Spells.lua`](../roblox/src/shared/Spells.lua).
+Everything is in **English** now (game language decision); the board's
+Spanish names are kept in parentheses for mapping. Unlocks follow the board:
+base at class level 1, second active at 10, ultimate at 20. Passives (the
+board's +X% lines) apply automatically at 1/5/10/15/20 and boost **both
+spells and weapon swings**. All numbers are first-pass and live in
+[`roblox/src/shared/Spells.lua`](../roblox/src/shared/Spells.lua).
 
 | School (class) | Lvl 1 | Lvl 10 | Lvl 20 | Passive |
 |---|---|---|---|---|
-| Piromante (mago) | Bola de Fuego — projectile + splash | Muro de Llamas — flame wall zone | SuperNova — huge self AoE | +10…55% d.mágico |
-| Arcano (mago) | Proyectil Arcano — fast/cheap bolt | Lluvia Arcana — zone on target | Tormenta Arcana — big zone | +10…50% d.mágico |
-| Invocador (mago/invocador) | Invocar Familiar — pet that orbits + shoots | 2nd familiar (passive) · Lluvia Arcana at 15 | Gran Familiar — big angry pet | +6…35% d.mágico |
-| Berserker (caballero) | Grito de Batalla — +daño físico buff | Golpe Salvaje — heavy strike | Frenesí — big damage + speed buff | +10…50% d.físico |
-| Centinela (caballero) | Provocar — taunt + guard buff | Lealtad de Acero — armor buff (allies too) | Baluarte — 50% damage taken, allies too | +8…42 armadura |
-| Justiciero (caballero) | Golpe Aturdidor — strike + stun | Juicio — AoE + mini-stun | Veredicto — huge strike + long stun | +10…35% d.físico |
-| Francotirador (ranger) | Disparo Certero — precision shot (needs focus) | — | — | — |
-| Trampero (ranger) | Trampa — **placeholder, not castable** | — | — | — |
-| Explorador (ranger) | Sprint — speed buff | — | — | — |
+| Pyromancer / Piromante (mage) | Fireball — projectile + splash | Flame Wall — burning wall zone | SuperNova — huge self AoE | +10…55% magic dmg |
+| Arcanist / Arcano (mage) | Arcane Missile — fast/cheap bolt | Arcane Rain — zone on target | Arcane Storm — big zone | +10…50% magic dmg |
+| Invoker / Invocador (mage/summoner) | Summon Familiar — pet that orbits + shoots | 2nd familiar (passive) · Arcane Rain at 15 | Grand Familiar — big angry pet | +6…35% magic dmg |
+| Berserker (knight) | Battle Cry — +physical dmg buff | Savage Strike — heavy strike | Frenzy — big damage + speed buff | +10…50% physical dmg |
+| Sentinel / Centinela (knight) | Provoke — taunt + guard buff | Steel Loyalty — armor buff (allies too) | Bulwark — 50% damage taken, allies too | +8…42 armor |
+| Justicar / Justiciero (knight) | Stunning Strike — strike + stun | Judgment — AoE + mini-stun | Verdict — huge strike + long stun | +10…35% physical dmg |
+| Sniper / Francotirador (ranger) | Deadeye Shot — precision shot (needs focus) | — | — | — |
+| Trapper / Trampero (ranger) | Snare Trap — slow zone in front of you | — | — | — |
+| Scout / Explorador (ranger) | Sprint — speed buff | — | — | — |
 
 The three ranger spells are **proposals** (the board only says
 burst/CC/movement) — rename/redesign freely. Ultimates without board names
-got working titles: Tormenta Arcana, Gran Familiar, Baluarte, Veredicto.
+got working titles: Arcane Storm, Grand Familiar, Bulwark, Verdict.
+**Decided:** ultimates are separate spells, they never replace the basic one.
 
 **Current unlock mode ("all schools"):** a player knows every spell of every
 school of their *active* class at their class level — no subclass picking yet
@@ -206,55 +221,86 @@ already take the max, not the sum, so test mode isn't overpowered.
   with zero extra wiring if it uses an existing behavior.
 - **`server/SpellService.lua`** — cast validation (known → target → mana →
   cooldown, nothing charged on a whiff), 7 behaviors (`projectile`, `zone`
-  box/disc with damage ticks, `strike` + stun, `aoe`, `buff` + ally radius,
-  `taunt`, `summon` familiars that orbit and auto-attack), cooldowns mirrored
-  as `SpellCd_<id>` attributes, unlock pushes on the Level/Class attributes
-  (so admin-panel level edits unlock spells live too).
+  box/disc with damage and/or slow ticks, `strike` + stun, `aoe`, `buff` +
+  ally radius, `taunt`, `summon` familiars that orbit and auto-attack),
+  cooldowns mirrored as `SpellCd_<id>` attributes, unlock pushes on the
+  Level/Class attributes (so admin-panel level edits unlock spells live too).
 - **`EnemyService`** grew a public combat API: `computePlayerDamage` (class ×
   effects × passives × crit), `enemiesNear` / `focusedTarget` /
-  `nearestTarget`, `dealSpellDamage`, `stun`, `taunt`, plus
-  `registerDamageMult` / `registerDamageTakenMult` hooks — the same hooks the
-  trait system should use for Ojo de Lince/Bastión (see Phase A).
+  `nearestTarget`, `dealSpellDamage`, `stun`, `slow` (strongest mult wins,
+  refreshes duration), `taunt`, plus `registerDamageMult` /
+  `registerDamageTakenMult` hooks — the same hooks the trait system should
+  use for Ojo de Lince/Bastión (see Phase A). Stunned enemies show spinning
+  💫 stars, slowed ones a 🐌 (server-side billboards, like their name tags);
+  slow scales walk speed and stretches the pause between slime hops.
 - **`EffectService`/`Effects.lua`** — effects can now carry `damageMults` and
-  `damageTakenMult` (Grito, Frenesí, Guardia, Lealtad, Baluarte, Sprint), and
-  effect walkspeed finally respects the class's own walkspeed.
+  `damageTakenMult` (Battle Cry, Frenzy, On Guard, Steel Loyalty, Bulwark,
+  Sprint), and effect walkspeed finally respects the class's own walkspeed.
 - **Hotbar (`HudUI` + `HotbarBinds` + `SpellsClient`)** — slots 3–0 accept
   spell binds; spell slots show the school-colored icon, a draining cooldown
-  veil with seconds, and dim when mana is short or the spell belongs to a
-  class you're not playing. Pressing the key (or clicking) casts.
+  veil with seconds, and dim when mana is short. A spell your current class
+  doesn't know stays bound but renders **gray** (icon faded, gray stroke) —
+  switch back to that class and it lights up again.
+- **Three hotbar pages** — the button at the right end of the bar cycles
+  pages 1→2→3 (number + dots show the active one). Only bind slots 3–0 swap;
+  keys 1/2 always mirror the paper doll. The whole structure ({ active,
+  pages }) persists with the profile (the backend's `hotbar_binds` JSONB
+  takes the new shape as-is; old flat saves migrate to page 1 on load).
+- **TFT-style subclass tracker (`SpellTrackerUI`)** — left screen edge, one
+  entry per school of your class with class level vs next threshold
+  ("7/10"). Hovering opens a tooltip with the full level timeline (reached
+  tiers bright, future gray) and the school's spells; hover a spell row and
+  press 3–0 to bind it to that key (works mid-play — the mouse is never
+  locked; `ClientState.spellHover` keeps the same keypress from also
+  casting). This doubles as the spellbook: descriptions per level live here.
+- **Empty-slot spell picker** — clicking an empty hotbar slot pops a list of
+  your known spells growing upward from that slot; clicking a row binds it
+  there. Together with the tracker this covers rearranging/rebinding spells.
 - **Auto-place on unlock** — a newly unlocked spell lands in the next free
-  hotbar slot; on a fresh profile the whole known list is seeded in
-  recommended order. Full hotbar = not placed (v1: no replacement).
+  hotbar slot (page 1 first, then 2, then 3); on a fresh profile the whole
+  known list is seeded in recommended order **into page 1**, right after the
+  default axe (key 3) and pickaxe (key 4).
 - **Recommendation system v1** — `hotbarPriority` on each def orders the
   loadout (bread-and-butter damage first, then AoE/buffs, utility, ultimates);
   the server sends the sorted list in every `SpellsChanged` push. v2 ideas:
   score by damage-per-mana and cooldown coverage, detect playstyle from the
   equipped weapon (melee vs bow vs staff), always keep 1 defensive; suggest
-  replacements when something strictly better unlocks ("¡Mejora encontrada!").
-- **Default binds** — fresh profiles start with the axe on key 3 and the
-  pickaxe on key 4 (seeded server-side in `PlayerService.loadProfile`).
+  replacements when something strictly better unlocks ("Upgrade found!").
 - **1/2 equips from the inventory** — hovering a weapon/tool in the grid and
   pressing 1 (weapon) or 2 (offhand) equips it; the current occupant swaps
   back to the first free grid spot (blocked with a message if the grid is
   full).
 
+### Decisions taken (2026-07-06 review)
+
+- Game language is **English** (spell/school/effect names, toasts). Class
+  names and the class picker UI are still Spanish — see open questions.
+- Ultimates are **separate spells**; they never replace the basic one.
+- No weapon requirement to cast; equipment will instead contribute
+  **points** to schools/traits (formula TBD, see Part 1).
+- Unknown-class spell binds stay on the hotbar, **grayed**.
+- **3 hotbar pages**, swapped from the right end of the bar, saved
+  server-side; all defaults land on page 1.
+- Enemy **stun and slow** are real primitives with on-enemy visuals; Snare
+  Trap ships as a visible slow zone (v1 of the Trapper's kit).
+
 ### Known gaps / open questions on the spell side
 
-- Spell binds can't be **rearranged or removed** yet (items rebind by
-  hovering; spells have no equivalent). Probably: drag between hotbar slots.
-- No **spellbook UI**: you can't read descriptions of spells in game (defs
-  have `description` ready). Natural home: the future trait/spell panel next
-  to the inventory.
-- Muro de Llamas is a straight wall **box zone**; Trampa needs a trap system
-  (placed trigger); no knockback primitive exists for SuperNova.
-- Stuns have no visual on the enemy (a `Stunned` attribute + client stars
-  would be cheap).
-- Should ultimates auto-replace the basic spell at 20 if the hotbar is full?
+- The tracker/picker need the cursor — fine (the mouse is never locked), but
+  binding mid-fight means mousing away from combat. Add a keyboard page-swap
+  shortcut (e.g. `X` or Shift+scroll) and maybe a "swap on class switch"
+  auto-page rule?
+- Should each hotbar page auto-associate with a class (switch class → its
+  page activates)?
+- Snare Trap is a **visible** slow zone; a real hidden, one-shot trigger trap
+  is still future work. No knockback primitive exists for SuperNova.
 - Mana costs assume the class's mana pool (knight max is 60 — his kit is
   priced cheap). Rebalance with real play.
-- Casting ignores the equipped weapon (a mage can fireball wielding a
-  pickaxe). Require a weapon type per school? (Disparo Certero probably wants
-  the bow.)
+- Rest of the game is still Spanish (class names Caballero/Arquero/Mago/
+  Invocador, class picker, some UI). Translate everything for consistency?
+- CC stacking rules: slow takes the strongest mult and refreshes duration;
+  no diminishing returns on stun/slow chains yet — fine for PvE testing,
+  revisit before PvP.
 
 ### Testing tips
 

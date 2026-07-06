@@ -99,7 +99,7 @@ local function pushSpells(player, quiet)
 	if previous and notifyRemote and not quiet then
 		for _, spellId in ipairs(newlyUnlocked) do
 			local def = Spells.get(spellId)
-			notifyRemote:FireClient(player, ("Nuevo hechizo: %s %s"):format(def.name, def.icon or ""))
+			notifyRemote:FireClient(player, ("New spell: %s %s"):format(def.name, def.icon or ""))
 		end
 	end
 end
@@ -214,7 +214,7 @@ local BEHAVIORS = {}
 function BEHAVIORS.projectile(player, root, def)
 	local ref = acquireTarget(player, root, def)
 	if not ref then
-		return nil, def.requiresFocus and "Necesitás un objetivo enfocado" or "No hay objetivo al alcance"
+		return nil, def.requiresFocus and "You need a focused target" or "No target in range"
 	end
 	return function()
 		local damage, isCrit = EnemyService.computePlayerDamage(player, def.damage, def.damageKind)
@@ -246,7 +246,7 @@ function BEHAVIORS.zone(player, root, def)
 	else -- "target"
 		local ref = acquireTarget(player, root, def)
 		if not ref then
-			return nil, "No hay objetivo al alcance"
+			return nil, "No target in range"
 		end
 		local pos = groundPosition(ref.part.Position)
 		centerCF = CFrame.new(pos)
@@ -280,14 +280,18 @@ function BEHAVIORS.zone(player, root, def)
 		light.Parent = visual
 		visual.Parent = Workspace
 
-		-- Enemies inside the shape take a (crit-less) tick every interval.
+		-- Enemies inside the shape take a (crit-less) tick every interval,
+		-- and/or get slowed (Snare Trap is a pure-slow zone: tickDamage 0).
 		local searchRadius = def.radius or math.max(def.box.width, def.box.depth)
 		task.spawn(function()
 			local elapsed = 0
 			while elapsed < def.duration do
 				task.wait(def.tickInterval)
 				elapsed += def.tickInterval
-				local tick = EnemyService.computePlayerDamage(player, def.tickDamage, def.damageKind, { noCrit = true })
+				local tick = 0
+				if (def.tickDamage or 0) > 0 then
+					tick = EnemyService.computePlayerDamage(player, def.tickDamage, def.damageKind, { noCrit = true })
+				end
 				for _, ref in ipairs(EnemyService.enemiesNear(centerCF.Position, searchRadius)) do
 					local inside = true
 					if def.box then
@@ -295,7 +299,12 @@ function BEHAVIORS.zone(player, root, def)
 						inside = math.abs(lp.X) <= def.box.width / 2 + 1 and math.abs(lp.Z) <= def.box.depth / 2 + 1
 					end
 					if inside then
-						EnemyService.dealSpellDamage(ref, tick, player, false)
+						if tick > 0 then
+							EnemyService.dealSpellDamage(ref, tick, player, false)
+						end
+						if def.slow then
+							EnemyService.slow(ref, def.slow.duration, def.slow.mult)
+						end
 					end
 				end
 			end
@@ -313,7 +322,7 @@ end
 function BEHAVIORS.strike(player, root, def)
 	local ref = acquireTarget(player, root, def)
 	if not ref then
-		return nil, "No hay objetivo al alcance"
+		return nil, "No target in range"
 	end
 	return function()
 		local damage, isCrit = EnemyService.computePlayerDamage(player, def.damage, def.damageKind)
@@ -331,7 +340,7 @@ end
 function BEHAVIORS.aoe(player, root, def)
 	local refs = EnemyService.enemiesNear(root.Position, def.radius)
 	if #refs == 0 then
-		return nil, "No hay enemigos cerca"
+		return nil, "No enemies nearby"
 	end
 	return function()
 		burst(root.Position, def.color or Color3.new(1, 1, 1), def.radius, 0.5)
@@ -510,7 +519,7 @@ local function tryCast(player, spellId)
 		return
 	end
 	if not SpellService.isKnown(player, spellId) then
-		warnPlayer(player, "Todavía no conocés ese hechizo")
+		warnPlayer(player, "You don't know that spell yet")
 		return
 	end
 
@@ -537,7 +546,7 @@ local function tryCast(player, spellId)
 	end
 	local fire, reason = behavior(player, root, def)
 	if not fire then
-		warnPlayer(player, reason or "No se pudo lanzar")
+		warnPlayer(player, reason or "Couldn't cast that")
 		return
 	end
 

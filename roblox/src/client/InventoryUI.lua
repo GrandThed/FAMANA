@@ -612,7 +612,7 @@ function InventoryUI.start()
 		if occupant then
 			local spot = findFreeSpotFor(occupant.itemId)
 			if not spot then
-				hoverLabel.Text = "No hay espacio para desequipar"
+				hoverLabel.Text = "No room to unequip"
 				return
 			end
 			local ok, result = pcall(function()

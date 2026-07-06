@@ -23,103 +23,112 @@ Spells.cdAttributePrefix = "SpellCd_"
 -- passive.stat: "magic" | "physical" (physical also boosts melee) | "armor".
 -- passive.thresholds: { {level, value} } — highest reached level applies.
 -- spells: { {id, level} } — actives granted at that class level.
--- familiars: invocador-only summon-count thresholds.
+-- familiars: invoker-only summon-count thresholds.
 
 Spells.schools = {
-	-- ---- Mago -------------------------------------------------------------
-	piromante = {
-		id = "piromante",
-		name = "Piromante",
+	-- ---- Mage ---------------------------------------------------------------
+	pyromancer = {
+		id = "pyromancer",
+		name = "Pyromancer",
 		classIds = { "mage" },
+		icon = "🔥",
 		color = Color3.fromRGB(255, 120, 50),
 		passive = {
 			stat = "magic",
 			thresholds = { { 1, 0.10 }, { 5, 0.20 }, { 10, 0.30 }, { 15, 0.42 }, { 20, 0.55 } },
 		},
-		spells = { { "bola_de_fuego", 1 }, { "muro_de_llamas", 10 }, { "supernova", 20 } },
+		spells = { { "fireball", 1 }, { "flame_wall", 10 }, { "supernova", 20 } },
 	},
-	arcano = {
-		id = "arcano",
-		name = "Arcano",
+	arcanist = {
+		id = "arcanist",
+		name = "Arcanist",
 		classIds = { "mage" },
+		icon = "🔮",
 		color = Color3.fromRGB(150, 90, 255),
 		passive = {
 			stat = "magic",
 			thresholds = { { 1, 0.10 }, { 5, 0.15 }, { 10, 0.25 }, { 15, 0.35 }, { 20, 0.50 } },
 		},
-		spells = { { "proyectil_arcano", 1 }, { "lluvia_arcana", 10 }, { "tormenta_arcana", 20 } },
+		spells = { { "arcane_missile", 1 }, { "arcane_rain", 10 }, { "arcane_storm", 20 } },
 	},
-	invocador = {
-		id = "invocador",
-		name = "Invocador",
-		-- The board makes Invocador a mage subclass; the standalone summoner
-		-- class shares it until that open question is settled.
+	invoker = {
+		id = "invoker",
+		name = "Invoker",
+		-- The board makes the summoner a mage subclass; the standalone
+		-- summoner class shares it until that open question is settled.
 		classIds = { "mage", "summoner" },
+		icon = "👻",
 		color = Color3.fromRGB(120, 220, 180),
 		passive = {
 			stat = "magic",
 			thresholds = { { 1, 0.06 }, { 5, 0.12 }, { 10, 0.18 }, { 15, 0.25 }, { 20, 0.35 } },
 		},
-		-- Level 10 is "otro familiar" (see familiars below), level 15 borrows
-		-- Lluvia Arcana per the board.
-		spells = { { "invocar_familiar", 1 }, { "lluvia_arcana", 15 }, { "gran_familiar", 20 } },
+		-- Level 10 is the second familiar (see familiars below), level 15
+		-- borrows Arcane Rain per the board.
+		spells = { { "summon_familiar", 1 }, { "arcane_rain", 15 }, { "grand_familiar", 20 } },
 		familiars = { { 1, 1 }, { 10, 2 } },
 	},
 
-	-- ---- Caballero ----------------------------------------------------------
+	-- ---- Knight --------------------------------------------------------------
 	berserker = {
 		id = "berserker",
 		name = "Berserker",
 		classIds = { "knight" },
+		icon = "🩸",
 		color = Color3.fromRGB(220, 80, 60),
 		passive = {
 			stat = "physical",
 			thresholds = { { 1, 0.10 }, { 5, 0.18 }, { 10, 0.28 }, { 15, 0.38 }, { 20, 0.50 } },
 		},
-		spells = { { "grito_de_batalla", 1 }, { "golpe_salvaje", 10 }, { "frenesi", 20 } },
+		spells = { { "battle_cry", 1 }, { "savage_strike", 10 }, { "frenzy", 20 } },
 	},
-	centinela = {
-		id = "centinela",
-		name = "Centinela",
+	sentinel = {
+		id = "sentinel",
+		name = "Sentinel",
 		classIds = { "knight" },
+		icon = "🛡️",
 		color = Color3.fromRGB(120, 150, 200),
 		passive = {
 			stat = "armor",
 			thresholds = { { 1, 8 }, { 5, 16 }, { 10, 24 }, { 15, 32 }, { 20, 42 } },
 		},
-		spells = { { "provocar", 1 }, { "lealtad_de_acero", 10 }, { "baluarte", 20 } },
+		spells = { { "provoke", 1 }, { "steel_loyalty", 10 }, { "bulwark", 20 } },
 	},
-	justiciero = {
-		id = "justiciero",
-		name = "Justiciero",
+	justicar = {
+		id = "justicar",
+		name = "Justicar",
 		classIds = { "knight" },
+		icon = "⚖️",
 		color = Color3.fromRGB(240, 200, 90),
 		passive = {
 			stat = "physical",
 			thresholds = { { 1, 0.10 }, { 5, 0.15 }, { 10, 0.25 }, { 15, 0.30 }, { 20, 0.35 } },
 		},
-		spells = { { "golpe_aturdidor", 1 }, { "juicio", 10 }, { "veredicto", 20 } },
+		spells = { { "stunning_strike", 1 }, { "judgment", 10 }, { "verdict", 20 } },
 	},
 
-	-- ---- Ranger (board is still sketchy: burst / CC / movement) -------------
-	francotirador = {
-		id = "francotirador",
-		name = "Francotirador",
+	-- ---- Ranger (board is still sketchy: burst / CC / movement) ---------------
+	sniper = {
+		id = "sniper",
+		name = "Sniper",
 		classIds = { "archer" },
+		icon = "🎯",
 		color = Color3.fromRGB(90, 200, 90),
-		spells = { { "disparo_certero", 1 } },
+		spells = { { "deadeye_shot", 1 } },
 	},
-	trampero = {
-		id = "trampero",
-		name = "Trampero",
+	trapper = {
+		id = "trapper",
+		name = "Trapper",
 		classIds = { "archer" },
+		icon = "🕸️",
 		color = Color3.fromRGB(160, 130, 80),
-		spells = { { "trampa", 1 } },
+		spells = { { "snare_trap", 1 } },
 	},
-	explorador = {
-		id = "explorador",
-		name = "Explorador",
+	scout = {
+		id = "scout",
+		name = "Scout",
 		classIds = { "archer" },
+		icon = "💨",
 		color = Color3.fromRGB(90, 210, 230),
 		spells = { { "sprint", 1 } },
 	},
@@ -127,9 +136,9 @@ Spells.schools = {
 
 -- Stable iteration/UI order.
 Spells.schoolOrder = {
-	"piromante", "arcano", "invocador",
-	"berserker", "centinela", "justiciero",
-	"francotirador", "trampero", "explorador",
+	"pyromancer", "arcanist", "invoker",
+	"berserker", "sentinel", "justicar",
+	"sniper", "trapper", "scout",
 }
 
 -- ---- spell defs ---------------------------------------------------------------
@@ -138,13 +147,13 @@ Spells.schoolOrder = {
 -- implemented = false marks board placeholders that can't be cast yet.
 
 Spells.defs = {
-	-- ---- Piromante ----------------------------------------------------------
-	bola_de_fuego = {
-		id = "bola_de_fuego",
-		name = "Bola de Fuego",
-		school = "piromante",
+	-- ---- Pyromancer -----------------------------------------------------------
+	fireball = {
+		id = "fireball",
+		name = "Fireball",
+		school = "pyromancer",
 		icon = "🔥",
-		description = "Lanza una bola de fuego que explota al impactar, salpicando a los enemigos cercanos.",
+		description = "Hurls a fireball that explodes on impact, splashing nearby enemies.",
 		behavior = "projectile",
 		damageKind = "magic",
 		manaCost = 30,
@@ -156,12 +165,12 @@ Spells.defs = {
 		missile = { size = 1.4, color = Color3.fromRGB(255, 120, 50), speed = 70 },
 		hotbarPriority = 10,
 	},
-	muro_de_llamas = {
-		id = "muro_de_llamas",
-		name = "Muro de Llamas",
-		school = "piromante",
+	flame_wall = {
+		id = "flame_wall",
+		name = "Flame Wall",
+		school = "pyromancer",
 		icon = "🌋",
-		description = "Levanta un muro de fuego frente a vos que quema a los enemigos que lo pisan.",
+		description = "Raises a wall of fire in front of you that burns enemies standing in it.",
 		behavior = "zone",
 		damageKind = "magic",
 		manaCost = 45,
@@ -178,9 +187,9 @@ Spells.defs = {
 	supernova = {
 		id = "supernova",
 		name = "SuperNova",
-		school = "piromante",
+		school = "pyromancer",
 		icon = "💥",
-		description = "Ultimate: una explosión masiva alrededor tuyo.",
+		description = "Ultimate: a massive explosion around you.",
 		behavior = "aoe",
 		damageKind = "magic",
 		manaCost = 80,
@@ -191,13 +200,13 @@ Spells.defs = {
 		hotbarPriority = 50,
 	},
 
-	-- ---- Arcano -------------------------------------------------------------
-	proyectil_arcano = {
-		id = "proyectil_arcano",
-		name = "Proyectil Arcano",
-		school = "arcano",
+	-- ---- Arcanist ---------------------------------------------------------------
+	arcane_missile = {
+		id = "arcane_missile",
+		name = "Arcane Missile",
+		school = "arcanist",
 		icon = "🔮",
-		description = "Un proyectil arcano rápido y barato. Spameable.",
+		description = "A fast, cheap arcane bolt. Spammable.",
 		behavior = "projectile",
 		damageKind = "magic",
 		manaCost = 14,
@@ -207,12 +216,12 @@ Spells.defs = {
 		missile = { size = 0.9, color = Color3.fromRGB(150, 90, 255), speed = 110 },
 		hotbarPriority = 20,
 	},
-	lluvia_arcana = {
-		id = "lluvia_arcana",
-		name = "Lluvia Arcana",
-		school = "arcano",
+	arcane_rain = {
+		id = "arcane_rain",
+		name = "Arcane Rain",
+		school = "arcanist",
 		icon = "🌠",
-		description = "Hace llover energía arcana sobre el objetivo durante unos segundos.",
+		description = "Rains arcane energy over the target area for a few seconds.",
 		behavior = "zone",
 		damageKind = "magic",
 		manaCost = 50,
@@ -226,12 +235,12 @@ Spells.defs = {
 		color = Color3.fromRGB(150, 90, 255),
 		hotbarPriority = 31,
 	},
-	tormenta_arcana = {
-		id = "tormenta_arcana",
-		name = "Tormenta Arcana",
-		school = "arcano",
+	arcane_storm = {
+		id = "arcane_storm",
+		name = "Arcane Storm",
+		school = "arcanist",
 		icon = "🌀",
-		description = "Ultimate: una tormenta arcana enorme sobre el objetivo.",
+		description = "Ultimate: an enormous arcane storm over the target.",
 		behavior = "zone",
 		damageKind = "magic",
 		manaCost = 80,
@@ -246,13 +255,13 @@ Spells.defs = {
 		hotbarPriority = 51,
 	},
 
-	-- ---- Invocador ------------------------------------------------------------
-	invocar_familiar = {
-		id = "invocar_familiar",
-		name = "Invocar Familiar",
-		school = "invocador",
+	-- ---- Invoker -----------------------------------------------------------------
+	summon_familiar = {
+		id = "summon_familiar",
+		name = "Summon Familiar",
+		school = "invoker",
 		icon = "👻",
-		description = "Invoca un familiar que te sigue y ataca a tus enemigos (dos a partir de nivel 10).",
+		description = "Summons a familiar that follows you and attacks your enemies (two from level 10).",
 		behavior = "summon",
 		damageKind = "magic",
 		manaCost = 40,
@@ -260,12 +269,12 @@ Spells.defs = {
 		summon = { variant = "familiar", duration = 60, damage = 6, shotEvery = 1.5, range = 30 },
 		hotbarPriority = 40,
 	},
-	gran_familiar = {
-		id = "gran_familiar",
-		name = "Gran Familiar",
-		school = "invocador",
+	grand_familiar = {
+		id = "grand_familiar",
+		name = "Grand Familiar",
+		school = "invoker",
 		icon = "😈",
-		description = "Ultimate: invoca un gran familiar mucho más agresivo por un rato.",
+		description = "Ultimate: summons a far more aggressive grand familiar for a while.",
 		behavior = "summon",
 		damageKind = "magic",
 		manaCost = 70,
@@ -275,24 +284,24 @@ Spells.defs = {
 	},
 
 	-- ---- Berserker ------------------------------------------------------------
-	grito_de_batalla = {
-		id = "grito_de_batalla",
-		name = "Grito de Batalla",
+	battle_cry = {
+		id = "battle_cry",
+		name = "Battle Cry",
 		school = "berserker",
 		icon = "📣",
-		description = "Grito que aumenta tu daño físico por unos segundos.",
+		description = "A war cry that raises your physical damage for a few seconds.",
 		behavior = "buff",
 		manaCost = 18,
 		cooldown = 15,
-		effectId = "grito_de_batalla",
+		effectId = "battle_cry",
 		hotbarPriority = 30,
 	},
-	golpe_salvaje = {
-		id = "golpe_salvaje",
-		name = "Golpe Salvaje",
+	savage_strike = {
+		id = "savage_strike",
+		name = "Savage Strike",
 		school = "berserker",
 		icon = "💢",
-		description = "Un golpe brutal cuerpo a cuerpo.",
+		description = "A brutal melee blow.",
 		behavior = "strike",
 		damageKind = "melee",
 		manaCost = 22,
@@ -301,68 +310,68 @@ Spells.defs = {
 		damage = 35,
 		hotbarPriority = 10,
 	},
-	frenesi = {
-		id = "frenesi",
-		name = "Frenesí",
+	frenzy = {
+		id = "frenzy",
+		name = "Frenzy",
 		school = "berserker",
 		icon = "🩸",
-		description = "Ultimate: entrás en frenesí — mucho más daño y velocidad.",
+		description = "Ultimate: you go berserk — much more damage and speed.",
 		behavior = "buff",
 		manaCost = 35,
 		cooldown = 60,
-		effectId = "frenesi",
+		effectId = "frenzy",
 		hotbarPriority = 50,
 	},
 
-	-- ---- Centinela ------------------------------------------------------------
-	provocar = {
-		id = "provocar",
-		name = "Provocar",
-		school = "centinela",
+	-- ---- Sentinel ---------------------------------------------------------------
+	provoke = {
+		id = "provoke",
+		name = "Provoke",
+		school = "sentinel",
 		icon = "😤",
-		description = "Provocás a los enemigos cercanos para que te ataquen a vos, y aguantás mejor el golpe.",
+		description = "Taunts nearby enemies into attacking you, and you brace for the hits.",
 		behavior = "taunt",
 		manaCost = 12,
 		cooldown = 10,
 		radius = 18,
 		tauntDuration = 6,
-		effectId = "guardia",
+		effectId = "on_guard",
 		hotbarPriority = 35,
 	},
-	lealtad_de_acero = {
-		id = "lealtad_de_acero",
-		name = "Lealtad de Acero",
-		school = "centinela",
+	steel_loyalty = {
+		id = "steel_loyalty",
+		name = "Steel Loyalty",
+		school = "sentinel",
 		icon = "🛡️",
-		description = "Defensa reforzada para vos y los aliados cercanos.",
+		description = "Reinforced defense for you and nearby allies.",
 		behavior = "buff",
 		manaCost = 25,
 		cooldown = 20,
-		effectId = "lealtad_de_acero",
+		effectId = "steel_loyalty",
 		allyRadius = 15,
 		hotbarPriority = 36,
 	},
-	baluarte = {
-		id = "baluarte",
-		name = "Baluarte",
-		school = "centinela",
+	bulwark = {
+		id = "bulwark",
+		name = "Bulwark",
+		school = "sentinel",
 		icon = "🏰",
-		description = "Ultimate: vos y tus aliados reciben la mitad de daño por unos segundos.",
+		description = "Ultimate: you and your allies take half damage for a few seconds.",
 		behavior = "buff",
 		manaCost = 35,
 		cooldown = 60,
-		effectId = "baluarte",
+		effectId = "bulwark",
 		allyRadius = 20,
 		hotbarPriority = 55,
 	},
 
-	-- ---- Justiciero -------------------------------------------------------------
-	golpe_aturdidor = {
-		id = "golpe_aturdidor",
-		name = "Golpe Aturdidor",
-		school = "justiciero",
+	-- ---- Justicar ------------------------------------------------------------------
+	stunning_strike = {
+		id = "stunning_strike",
+		name = "Stunning Strike",
+		school = "justicar",
 		icon = "💫",
-		description = "Un golpe que aturde al objetivo por un momento.",
+		description = "A blow that stuns the target for a moment.",
 		behavior = "strike",
 		damageKind = "melee",
 		manaCost = 18,
@@ -372,12 +381,12 @@ Spells.defs = {
 		stunDuration = 1.5,
 		hotbarPriority = 11,
 	},
-	juicio = {
-		id = "juicio",
-		name = "Juicio",
-		school = "justiciero",
+	judgment = {
+		id = "judgment",
+		name = "Judgment",
+		school = "justicar",
 		icon = "⚖️",
-		description = "Castiga a todos los enemigos alrededor tuyo y los aturde brevemente.",
+		description = "Punishes every enemy around you and briefly stuns them.",
 		behavior = "aoe",
 		damageKind = "physical",
 		manaCost = 30,
@@ -388,12 +397,12 @@ Spells.defs = {
 		color = Color3.fromRGB(240, 200, 90),
 		hotbarPriority = 32,
 	},
-	veredicto = {
-		id = "veredicto",
-		name = "Veredicto",
-		school = "justiciero",
+	verdict = {
+		id = "verdict",
+		name = "Verdict",
+		school = "justicar",
 		icon = "🔨",
-		description = "Ultimate: un golpe devastador que deja al objetivo fuera de combate.",
+		description = "Ultimate: a devastating blow that takes the target out of the fight.",
 		behavior = "strike",
 		damageKind = "physical",
 		manaCost = 45,
@@ -404,13 +413,13 @@ Spells.defs = {
 		hotbarPriority = 53,
 	},
 
-	-- ---- Ranger (proposals — the board only names the fantasy) -----------------
-	disparo_certero = {
-		id = "disparo_certero",
-		name = "Disparo Certero",
-		school = "francotirador",
+	-- ---- Ranger (proposals — the board only names the fantasy) --------------------
+	deadeye_shot = {
+		id = "deadeye_shot",
+		name = "Deadeye Shot",
+		school = "sniper",
 		icon = "🎯",
-		description = "Un disparo de precisión al objetivo fijado. Requiere un objetivo enfocado.",
+		description = "A precision shot at your locked target. Requires a focused target.",
 		behavior = "projectile",
 		damageKind = "physical",
 		manaCost = 15,
@@ -421,22 +430,32 @@ Spells.defs = {
 		missile = { size = 0.6, color = Color3.fromRGB(120, 85, 45), speed = 140 },
 		hotbarPriority = 10,
 	},
-	trampa = {
-		id = "trampa",
-		name = "Trampa",
-		school = "trampero",
+	snare_trap = {
+		id = "snare_trap",
+		name = "Snare Trap",
+		school = "trapper",
 		icon = "🕸️",
-		description = "Coloca una trampa que frena a los enemigos. (Todavía no implementada.)",
+		description = "Lays a snare zone in front of you that slows enemies crossing it.",
 		behavior = "zone",
-		implemented = false,
+		damageKind = "physical",
+		manaCost = 20,
+		cooldown = 12,
+		placement = "front",
+		frontDistance = 6,
+		radius = 4,
+		duration = 15,
+		tickInterval = 0.5,
+		tickDamage = 0,
+		slow = { mult = 0.45, duration = 1.5 },
+		color = Color3.fromRGB(160, 130, 80),
 		hotbarPriority = 30,
 	},
 	sprint = {
 		id = "sprint",
 		name = "Sprint",
-		school = "explorador",
+		school = "scout",
 		icon = "💨",
-		description = "Corrés mucho más rápido por unos segundos.",
+		description = "You run much faster for a few seconds.",
 		behavior = "buff",
 		manaCost = 12,
 		cooldown = 12,
@@ -520,7 +539,7 @@ end
 
 -- Aggregated school passives for a class at a level. While "all schools" test
 -- mode is on, same-stat passives take the BEST value, not the sum (so a mage
--- with Piromante+Arcano+Invocador doesn't triple-dip on +% magic damage).
+-- with Pyromancer+Arcanist+Invoker doesn't triple-dip on +% magic damage).
 -- Returns { magic = frac, physical = frac, melee = frac, armor = flat }.
 function Spells.passivesFor(classId, level)
 	local out = { magic = 0, physical = 0, melee = 0, armor = 0 }
@@ -551,6 +570,53 @@ function Spells.familiarCountFor(classId, level)
 		end
 	end
 	return count
+end
+
+-- Human-readable label for a school passive value ("+20% magic damage").
+function Spells.passiveLabel(stat, value)
+	if stat == "armor" then
+		return ("+%d armor"):format(value)
+	end
+	local kind = stat == "magic" and "magic damage" or "physical damage"
+	return ("+%d%% %s"):format(math.floor(value * 100 + 0.5), kind)
+end
+
+-- The school's unlock timeline: a sorted array of
+--   { level, passive?, spells = {spellId, ...}, familiars? }
+-- (one entry per threshold level; used by the tracker tooltip).
+function Spells.timelineFor(school)
+	local byLevel = {}
+	local function at(level)
+		local entry = byLevel[level]
+		if not entry then
+			entry = { level = level, spells = {} }
+			byLevel[level] = entry
+		end
+		return entry
+	end
+	if school.passive then
+		for _, th in ipairs(school.passive.thresholds) do
+			at(th[1]).passive = th[2]
+		end
+	end
+	for _, grant in ipairs(school.spells) do
+		table.insert(at(grant[2]).spells, grant[1])
+	end
+	if school.familiars then
+		for _, th in ipairs(school.familiars) do
+			if th[2] > 1 then
+				at(th[1]).familiars = th[2]
+			end
+		end
+	end
+	local timeline = {}
+	for _, entry in pairs(byLevel) do
+		table.insert(timeline, entry)
+	end
+	table.sort(timeline, function(a, b)
+		return a.level < b.level
+	end)
+	return timeline
 end
 
 -- ---- hotbar bind + attribute helpers ---------------------------------------------

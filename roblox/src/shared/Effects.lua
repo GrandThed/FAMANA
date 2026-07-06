@@ -24,42 +24,42 @@ Effects.defs = {
 	},
 
 	-- ---- spell buffs (see shared/Spells.lua) --------------------------------
-	grito_de_batalla = {
-		id = "grito_de_batalla",
-		name = "Grito de Batalla",
+	battle_cry = {
+		id = "battle_cry",
+		name = "Battle Cry",
 		kind = "buff",
 		duration = 10,
 		damageMults = { melee = 1.25, physical = 1.25 },
 		color = Color3.fromRGB(220, 80, 60),
 	},
-	frenesi = {
-		id = "frenesi",
-		name = "Frenesí",
+	frenzy = {
+		id = "frenzy",
+		name = "Frenzy",
 		kind = "buff",
 		duration = 8,
 		damageMults = { melee = 1.5, physical = 1.35 },
 		walkSpeedMult = 1.2,
 		color = Color3.fromRGB(170, 30, 30),
 	},
-	guardia = {
-		id = "guardia",
-		name = "En Guardia",
+	on_guard = {
+		id = "on_guard",
+		name = "On Guard",
 		kind = "buff",
 		duration = 6,
 		damageTakenMult = 0.85,
 		color = Color3.fromRGB(120, 150, 200),
 	},
-	lealtad_de_acero = {
-		id = "lealtad_de_acero",
-		name = "Lealtad de Acero",
+	steel_loyalty = {
+		id = "steel_loyalty",
+		name = "Steel Loyalty",
 		kind = "buff",
 		duration = 10,
 		damageTakenMult = 0.7,
 		color = Color3.fromRGB(150, 170, 210),
 	},
-	baluarte = {
-		id = "baluarte",
-		name = "Baluarte",
+	bulwark = {
+		id = "bulwark",
+		name = "Bulwark",
 		kind = "buff",
 		duration = 6,
 		damageTakenMult = 0.5,
