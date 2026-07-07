@@ -58,4 +58,11 @@ return {
 		xpPerLevel = 25, -- extra xp required per level after that
 		maxLevel = 60, -- soft cap; xp stops accruing once reached
 	},
+
+	-- Parties: solo en la memoría del sv, no en la base de datos
+	Party = {
+		maxSize = 6,
+		inviteTimeout = 30, -- las invitaciones sn validas por 30 segs
+		xpShareRadius = 60, -- radio para compartir xp entre miembros de party
+	},
 }
