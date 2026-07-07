@@ -16,6 +16,7 @@ local ToolService = require(script.Parent.ToolService)
 local TargetService = require(script.Parent.TargetService)
 local PlayerService = require(script.Parent.PlayerService)
 local ClassService = require(script.Parent.ClassService)
+local PartyService = require(script.Parent.PartyService)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -32,6 +33,7 @@ local CRIT_MULTIPLIER = Config.Combat.critMultiplier
 local HP_PER_LEVEL = Config.Combat.mobLevel.hpPerLevel
 local DAMAGE_PER_LEVEL = Config.Combat.mobLevel.damagePerLevel
 local XP_PER_LEVEL = Config.Combat.mobLevel.xpPerLevel
+local XP_SHARE_RADIUS = Config.Party.xpShareRadius
 
 -- Level label color bands: low levels are calm white, higher levels ramp
 -- through yellow into a dangerous red so players can eyeball threat at a
@@ -640,6 +642,11 @@ local function killEnemy(entry, enemy, killer)
 	if killer and enemy.def.xpReward then
 		local xp = math.floor(enemy.def.xpReward * (1 + (level - 1) * XP_PER_LEVEL) + 0.5)
 		PlayerService.addXp(killer, xp)
+		-- Nearby party members get the same full reward (not split) so
+		-- grouping up to fight never nets less xp per kill than soloing.
+		for _, member in ipairs(PartyService.getNearbyPartyMembers(killer, position, XP_SHARE_RADIUS)) do
+			PlayerService.addXp(member, xp)
+		end
 	end
 
 	-- lootSource/position/killer stay first for backward compatibility;
