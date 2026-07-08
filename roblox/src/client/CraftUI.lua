@@ -65,6 +65,11 @@ function CraftUI.start()
 	gui.Name = "CraftUI"
 	gui.ResetOnSpawn = false
 	gui.Enabled = true
+	-- Crafting deliberately COEXISTS with the vendor screen (buy materials,
+	-- craft on the spot): neither closes the other, and this panel must
+	-- reliably draw ABOVE the trade window — sibling ScreenGuis with equal
+	-- DisplayOrder stack by insertion order, which is accidental.
+	gui.DisplayOrder = 5
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	local panel = Instance.new("Frame")

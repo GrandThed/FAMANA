@@ -1,6 +1,7 @@
 -- Render-only item grid view (docs/VENDOR_UI.md §6): footprint-sized tiles
 -- in the InventoryUI recipe (viewport thumb, rarity stroke/glow, qty badge)
--- plus store extras — price/barter chip (bottom-left), lock badge, dimming.
+-- plus store extras — price/barter chip (top-left), lock badge (top-right),
+-- dimming.
 -- The store screen drives all three of its panes with this one module;
 -- InventoryUI's grid migrates onto it later (consolidation decided).
 --
@@ -308,21 +309,22 @@ function ItemGrid.create(parent, opts)
 		qty.ZIndex = baseZ + 2
 		record.qty = qty
 
-		-- Price/barter chip, bottom-left (qty keeps bottom-right).
+		-- Price/barter chip, top-left (qty keeps bottom-right).
 		local chip = makeLabel(tile, "", Theme.Text.Xs, Theme.Semantic.Currency)
 		chip.BackgroundTransparency = 0.2
 		chip.BackgroundColor3 = Theme.Color.Ink900
 		chip.AutomaticSize = Enum.AutomaticSize.X
 		chip.Size = UDim2.new(0, 0, 0, 14)
-		chip.Position = UDim2.new(0, 2, 1, -16)
+		chip.Position = UDim2.new(0, 2, 0, 2)
 		chip.Visible = false
 		chip.ZIndex = baseZ + 2
 		record.chip = chip
 
-		-- Lock badge (barter costs riding a "You get" item), top-left.
+		-- Lock badge (barter costs riding a "You get" item), top-right —
+		-- the chip owns the top-left corner.
 		local lock = makeLabel(tile, "🔒", 11, Theme.Semantic.TextMuted)
 		lock.Size = UDim2.new(0, 14, 0, 14)
-		lock.Position = UDim2.new(0, 2, 0, 2)
+		lock.Position = UDim2.new(1, -16, 0, 2)
 		lock.Visible = false
 		lock.ZIndex = baseZ + 2
 		record.lock = lock

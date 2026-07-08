@@ -51,8 +51,8 @@ local CELL = Theme.Size.Cell
 local STOCK_COLS = 8
 local PACK_COLS = Config.inventoryGrid.width
 local PACK_ROWS = Config.inventoryGrid.height
-local DEAL_COLS, DEAL_ROWS = 5, 4
-local VISIBLE_ROWS = 12
+local DEAL_COLS, DEAL_ROWS = 6, 6
+local VISIBLE_ROWS = 14
 local MAX_DEAL_LINES = 20 -- sendable lines; mirrors VendorService
 local CLOSE_DISTANCE = 20 -- studs; walk away → the panel closes itself
 
@@ -60,11 +60,11 @@ local CLOSE_DISTANCE = 20 -- studs; walk away → the panel closes itself
 local STOCK_X = 12
 local STOCK_W = STOCK_COLS * CELL + 8 -- + scrollbar
 local DEAL_X = STOCK_X + STOCK_W + 12
-local DEAL_COL_W = 230
+local DEAL_COL_W = DEAL_COLS * CELL + 24
 local DEAL_GRID_X = DEAL_X + (DEAL_COL_W - DEAL_COLS * CELL) / 2
 local PACK_X = DEAL_X + DEAL_COL_W + 12
 local PANEL_W = PACK_X + PACK_COLS * CELL + 8 + 12
-local PANEL_H = 620
+local PANEL_H = 714 -- two 6×6 deal grids + footer; stays inside the 720 design height
 local PANE_TOP = 76
 
 local function makeLabel(parent, text, size, color, font)
@@ -146,16 +146,16 @@ function StoreUI.start()
 	local dealBottom = PANE_TOP + DEAL_ROWS * CELL + 32 + DEAL_ROWS * CELL
 
 	local netLabel = makeLabel(panel, "", 14, Theme.Semantic.TextBody)
-	netLabel.Size = UDim2.new(0, DEAL_COL_W - 16, 0, 20)
-	netLabel.Position = UDim2.new(0, DEAL_X + 8, 0, dealBottom + 10)
+	netLabel.Size = UDim2.new(0, DEAL_COL_W - 16, 0, 18)
+	netLabel.Position = UDim2.new(0, DEAL_X + 8, 0, dealBottom + 6)
 
 	local dealBtn = UIKit.primaryButton(panel, "DEAL")
 	dealBtn.Size = UDim2.new(0, DEAL_COLS * CELL, 0, 36)
-	dealBtn.Position = UDim2.new(0, DEAL_GRID_X, 0, dealBottom + 36)
+	dealBtn.Position = UDim2.new(0, DEAL_GRID_X, 0, dealBottom + 28)
 
 	local statusLabel = makeLabel(panel, "", 12, Theme.Semantic.Danger)
-	statusLabel.Size = UDim2.new(0, DEAL_COL_W - 16, 0, 40)
-	statusLabel.Position = UDim2.new(0, DEAL_X + 8, 0, dealBottom + 78)
+	statusLabel.Size = UDim2.new(0, DEAL_COL_W - 16, 0, 30)
+	statusLabel.Position = UDim2.new(0, DEAL_X + 8, 0, dealBottom + 68)
 	statusLabel.TextWrapped = true
 	statusLabel.TextYAlignment = Enum.TextYAlignment.Top
 

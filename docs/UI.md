@@ -348,7 +348,7 @@ Positions are from the mocks in `ui_kits/*/index.html`; treat them as the spec.
 
 - **Inventory:** trait rail `x=16, y=26, w=210`; window `x=352, y=30, w=770, h=640`. Paperdoll column 308px on the left (avatar center as a `ViewportFrame` — see §10), 12 equipment slots around it; the 10-wide grid fills the right. Tooltip floats over the grid anchored to the hovered item.
 - **HUD:** compact rail top-left (`x=20,y=20`); target plate top-center; `Inventory [B]` button top-right; HP orb bottom-left, mana orb bottom-right; hotbar + XP bar bottom-center.
-- **Vendor:** window `x=170,y=66, 940×588`; title + Buy/Sell/Buyback tabs; stock grid (wrapping `UIGridLayout` of 64px tiles with a price tag) on the left, item-detail column 320px on the right with the buy button pinned bottom.
+- **Vendor:** Tarkov-style trade screen, spec'd in `VENDOR_UI.md` — window ~1100×714 centered; three panes: vendor stock grid (8 cols of 42px cells, price/barter chips top-left) left, deal zone center (two 6×6 "you give"/"you get" grids + net gold + DEAL button), the player's 10-wide main grid right. All three panes are `ItemGrid` views; tooltips are the §6.5 card via `ItemTooltip`. The crafting panel stacks above it (higher `DisplayOrder`) so you can craft mid-trade.
 - **Character:** same window box; left 330px portrait column (name, class, XP, `ViewportFrame` avatar, equipped mini-row); right column = Attributes (2-col with `+` allocate buttons), Combat chips (4-col grid), Resistance chips (wrap), Active-Traits summary (wrap of tier-bordered rows).
 
 ---

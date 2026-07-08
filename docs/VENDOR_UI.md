@@ -5,10 +5,14 @@
 > `PlayerService.executeDeal`, and the client rebuild (`ItemTooltip` +
 > `ItemGrid` + the three-pane `StoreUI`). Checklist step 8 (InventoryUI
 > migration onto ItemGrid) is the remaining follow-up. Verify per §9.
-> Implementation notes vs spec: price chips render bottom-LEFT (qty owns
-> bottom-right, matching InventoryUI); barter stock chips show "⇄" with the
-> exact costs in the tooltip; `removeItemAt` wasn't needed — positional
-> sells ride the `/deal` payload and the backend's `removeAt` directly.
+> Implementation notes vs spec: price chips render TOP-left and the lock
+> badge top-right (qty owns bottom-right, matching InventoryUI); barter
+> stock chips show "⇄" with the exact costs in the tooltip; `removeItemAt`
+> wasn't needed — positional sells ride the `/deal` payload and the
+> backend's `removeAt` directly. Revised 2026-07-08: deal grids are 6×6
+> per side (panel 714 tall), not the original 5×4; crafting (CraftUI)
+> deliberately stacks ABOVE the open trade screen so you can craft
+> mid-trade — only inventory↔store are mutually exclusive.
 
 > Spec for rebuilding `client/StoreUI.lua` from the current list + detail
 > panel into a three-pane trade screen modeled on Escape from Tarkov's
@@ -45,7 +49,7 @@
   screen once it migrates onto `ItemGrid` — §6/§8).
 
 Decided (2026-07-08): no stock limits/restock; deal zone is a real grid,
-not a line cart (5×4 per side, confirmed); shift-click on vendor stock
+not a line cart (6×6 per side — revised up from 5×4); shift-click on vendor stock
 adds ONE full stack regardless of gold; DEAL button copy is plain
 "DEAL"; value exponent is 1.85 (§5.1); `ItemGrid` eventually replaces
 InventoryUI's grid (consolidated, single implementation); no buyback
@@ -70,7 +74,7 @@ tiles, exactly like Tarkov shows what a trader pays for your loot.
 
 ## 3. Layout (authored at 1280×720, `UIKit.autoScale`)
 
-Window ~**1120×620**, centered, `UIKit.stylePanel` + `addShadow`.
+Window ~**1100×714**, centered, `UIKit.stylePanel` + `addShadow`.
 Title bar: store name (Display), vendor name (muted), `closeButton`.
 
 ```
@@ -97,14 +101,14 @@ Title bar: store name (Display), vendor name (muted), `closeButton`.
   order = shelf layout; the packing is display-only, nothing persists).
   Tile = `ItemModels.preview` viewport + rarity stroke/glow + a price
   chip (`Theme.Text.Xs`, `Semantic.Currency` on Ink900 @ ~20%
-  transparency) bottom-right. Barter trades show mini item icons + qty
-  instead of a gold chip.
-- **Deal pane (center, ~250px):** two 5-wide × 4-tall grids under
+  transparency) top-left. Barter trades show a "⇄" chip; the exact
+  costs live in the tooltip.
+- **Deal pane (center, ~275px):** two 6-wide × 6-tall grids under
   "YOU GIVE" / "YOU GET" headers, then the net-gold row, the DEAL
   button (`UIKit.primaryButton`), and the status line (keep
   `ERROR_TEXT`). Deal tiles carry a quantity badge; barter-cost tiles
-  carry a small lock badge (they belong to a "You get" item and can't
-  be edited directly).
+  carry a small lock badge top-right (they belong to a "You get" item
+  and can't be edited directly).
 - **Player pane (right, ~450px):** the `main` grid, 10 wide, ~11 rows
   visible, scrollable — same tile visuals as InventoryUI. Header: gold
   readout. Tiles the store buys get a `sellPrice` chip (formula value
