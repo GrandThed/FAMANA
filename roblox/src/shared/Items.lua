@@ -316,7 +316,35 @@ Items.defs = {
 		itemLevel = 5,
 		traits = { berserker = 5 },
 	},
+	-- ---- todos estos para abajo son items que se craftean
+	crafting_table = {
+		id = "crafting_table",
+		name = "Crafting Table",
+		flavor = "Placeholder, todavía no se puede poner en el mundo.",
+		type = "misc",
+		stackable = true,
+		maxStack = 5,
+		size = { 2, 2 },
+	},
+	torch = {
+		id = "torch",
+		name = "Torch",
+		type = "misc",
+		stackable = true,
+		maxStack = 50,
+		size = { 1, 1 },
+	},
+	arrow = {
+		id = "arrow",
+		name = "Arrow",
+		type = "misc",
+		stackable = true,
+		maxStack = 99,
+		size = { 1, 1 },
+	},
 }
+
+	
 
 -- Paper-doll equipment slots. A slot's index-1 is its `x` in the `equipment`
 -- container (y = 0). MUST match backend EQUIPMENT_SLOTS order.

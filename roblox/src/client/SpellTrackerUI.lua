@@ -1,4 +1,6 @@
--- TFT-style tracker on the left screen edge. EVERYTHING here is earned by
+-- TFT-style tracker, mounted by InventoryUI to the left of the paper doll
+-- (so it only exists — and is only visible — while the inventory is open;
+-- see SpellTrackerUI.start(hostFrame) below). EVERYTHING here is earned by
 -- equipment (the server-set `TraitPoints` attribute — schools and traits
 -- alike; the class never feeds points). Two sections in one strip:
 --   * SCHOOLS — one entry per school you have points in, points vs next
@@ -12,8 +14,9 @@
 -- "traitTracker", docs/traits_*_side.png):
 --   * compact — icon + name + count rows (the classic strip)
 --   * minimal — a narrow icon-only column with the count underneath
--- The mouse is never locked in this game, so this works mid-play;
--- ClientState.spellHover stops HudUI from also casting on the same keypress.
+-- The mouse is never locked in this game, so hover-to-bind works whenever
+-- the inventory is open; ClientState.spellHover stops HudUI from also
+-- casting on the same keypress.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -35,10 +38,13 @@ local player = Players.LocalPlayer
 
 local SpellTrackerUI = {}
 
-local PANEL_X = 10
 local ENTRY_W, ENTRY_H = 158, 36 -- compact rows
 local MINIMAL_W, MINIMAL_H = 48, 46 -- minimal (icon-only) entries
 local TOOLTIP_W = 260
+
+-- Widest layout mode, in px — InventoryUI reserves a column this wide so
+-- switching modes in the options menu never clips.
+SpellTrackerUI.MAX_WIDTH = ENTRY_W
 
 -- Aethelgard palette (client/Theme.lua).
 local COLORS = {
@@ -62,11 +68,19 @@ local BIND_KEYS = {
 	[Enum.KeyCode.Zero] = 9,
 }
 
-function SpellTrackerUI.start()
+-- Mounts inside `hostFrame` — a frame InventoryUI hands it (the new left
+-- column, left of the paper doll) — so the tracker only exists, and is only
+-- visible, while the inventory panel is open. It inherits that panel's
+-- UIScale, so it doesn't call UIKit.autoScale on itself. The tooltip still
+-- gets its own tiny top-level ScreenGui (screen-space, above everything —
+-- including the inventory panel it hangs off of), since it needs to render
+-- outside hostFrame's bounds.
+function SpellTrackerUI.start(hostFrame)
 	local gui = Instance.new("ScreenGui")
-	gui.Name = "SpellTrackerUI"
+	gui.Name = "SpellTrackerTooltip"
 	gui.ResetOnSpawn = false
 	gui.IgnoreGuiInset = true -- offsets match AbsolutePosition (like HudUI)
+	gui.DisplayOrder = 50 -- above the inventory panel it's anchored off of
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	-- Layout mode from the options menu; the panel narrows in minimal.
@@ -76,13 +90,10 @@ function SpellTrackerUI.start()
 	end
 
 	local panel = Instance.new("Frame")
-	panel.AnchorPoint = Vector2.new(0, 0.5)
-	panel.Position = UDim2.new(0, PANEL_X, 0.42, 0)
 	panel.Size = UDim2.new(0, panelWidth(), 0, 0)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.BackgroundTransparency = 1
-	panel.Parent = gui
-	UIKit.autoScale(panel) -- left-edge anchored: scales in place (§9)
+	panel.Parent = hostFrame
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -305,11 +316,14 @@ function SpellTrackerUI.start()
 		y += 20
 
 		tooltip.Size = UDim2.new(0, TOOLTIP_W, 0, y + 6)
-		-- Screen-space placement: the panel and tooltip render scaled.
+		-- Screen-space placement: panel.AbsolutePosition/Size already reflect
+		-- wherever it's actually mounted (and any inherited UIScale), so the
+		-- tooltip just hangs off its right edge.
 		local s = UIKit.scaleFactor()
 		local anchorY = anchorFrame.AbsolutePosition.Y
 		local maxY = math.max(8, gui.AbsoluteSize.Y - (y + 14) * s)
-		tooltip.Position = UDim2.new(0, PANEL_X + panelWidth() * s + 10, 0, math.clamp(anchorY, 8, maxY))
+		local tooltipX = panel.AbsolutePosition.X + panel.AbsoluteSize.X + 10
+		tooltip.Position = UDim2.new(0, tooltipX, 0, math.clamp(anchorY, 8, maxY))
 		tooltip.Visible = true
 	end
 
@@ -359,7 +373,8 @@ function SpellTrackerUI.start()
 		local s = UIKit.scaleFactor()
 		local anchorY = anchorFrame.AbsolutePosition.Y
 		local maxY = math.max(8, gui.AbsoluteSize.Y - (y + 16) * s)
-		tooltip.Position = UDim2.new(0, PANEL_X + panelWidth() * s + 10, 0, math.clamp(anchorY, 8, maxY))
+		local tooltipX = panel.AbsolutePosition.X + panel.AbsoluteSize.X + 10
+		tooltip.Position = UDim2.new(0, tooltipX, 0, math.clamp(anchorY, 8, maxY))
 		tooltip.Visible = true
 	end
 

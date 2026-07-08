@@ -148,6 +148,40 @@
         1
       ]
     },
+    "crafting_table": {
+      "id": "crafting_table",
+      "name": "Crafting Table",
+      "flavor": "Placeholder, todavía no se puede poner en el mundo.",
+      "type": "misc",
+      "stackable": true,
+      "maxStack": 5,
+      "size": [
+        1,
+        1
+      ]
+    },
+    "torch": {
+      "id": "torch",
+      "name": "Torch",
+      "type": "misc",
+      "stackable": true,
+      "maxStack": 50,
+      "size": [
+        1,
+        1
+      ]
+    },
+    "arrow": {
+      "id": "arrow",
+      "name": "Arrow",
+      "type": "misc",
+      "stackable": true,
+      "maxStack": 99,
+      "size": [
+        1,
+        1
+      ]
+    },
     "helmet_leather": {
       "id": "helmet_leather",
       "name": "Leather Helmet",

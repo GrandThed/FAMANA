@@ -1,0 +1,186 @@
+-- Crafting: Terraria-style — recipes without a `station` (shared/Recipes)
+-- can be crafted anywhere; recipes that need one only unlock near a matching
+-- workbench placed in the world (WORKBENCH_DEFS, built like VendorService's
+-- NPCs). Proximity is recomputed on a slow loop into a `NearbyStations`
+-- Player attribute (comma-joined station ids) so the client can show/hide
+-- recipes live; the actual craft request re-validates distance server-side,
+-- never trusting the attribute.
+--
+-- CraftItem (RemoteFunction) does the ingredient math: checks the player
+-- owns every ingredient (PlayerService.getItemCount), removes them, then
+-- adds the result — refunding the ingredients back if the output can't fit
+-- (mirrors VendorService's buy-refund-on-no-space flow).
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ArtKit = require(Shared:WaitForChild("ArtKit"))
+local Items = require(Shared:WaitForChild("Items"))
+local Recipes = require(Shared:WaitForChild("Recipes"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local PlayerService = require(script.Parent.PlayerService)
+
+local CraftingService = {}
+
+local STATION_RANGE = 16 -- studs; matches VendorService's MAX_TRADE_DISTANCE
+local PROXIMITY_INTERVAL = 1 -- seconds between nearby-station rechecks
+
+-- { station, name, position, facing? (degrees yaw) }. Position is a
+-- placeholder spot near the vendor/stand cluster — move it once there's a
+-- real town layout.
+local WORKBENCH_DEFS = {
+	{ station = "crafting_table", name = "Crafting Table", position = Vector3.new(22, 0, -28), facing = 200 },
+}
+
+local workbenchFolder
+local stationsByType = {} -- [station] = { Vector3 positions, ... }
+local notifyRemote
+
+local function groundY(x, z)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { workbenchFolder }
+	local result = Workspace:Raycast(Vector3.new(x, 200, z), Vector3.new(0, -1000, 0), params)
+	return result and result.Position.Y or 0
+end
+
+local function buildWorkbench(def)
+	local y = groundY(def.position.X, def.position.Z)
+	local origin = CFrame.new(def.position.X, y, def.position.Z) * CFrame.Angles(0, math.rad(def.facing or 0), 0)
+
+	local model = ArtKit.build("Workbench_" .. def.station, origin, {
+		{ name = "Top", size = Vector3.new(3.2, 0.3, 1.8), offset = Vector3.new(0, 1.55, 0), color = "trunk", primary = true },
+		{ name = "LegA", size = Vector3.new(0.3, 1.5, 0.3), offset = Vector3.new(-1.3, 0.7, -0.7), color = "trunkDark" },
+		{ name = "LegB", size = Vector3.new(0.3, 1.5, 0.3), offset = Vector3.new(1.3, 0.7, -0.7), color = "trunkDark" },
+		{ name = "LegC", size = Vector3.new(0.3, 1.5, 0.3), offset = Vector3.new(-1.3, 0.7, 0.7), color = "trunkDark" },
+		{ name = "LegD", size = Vector3.new(0.3, 1.5, 0.3), offset = Vector3.new(1.3, 0.7, 0.7), color = "trunkDark" },
+		{ name = "Brace", size = Vector3.new(2.6, 0.2, 1.3), offset = Vector3.new(0, 0.75, 0), color = "trunkDark" },
+	})
+	model.Parent = workbenchFolder
+
+	stationsByType[def.station] = stationsByType[def.station] or {}
+	table.insert(stationsByType[def.station], model.PrimaryPart.Position)
+end
+
+-- Whether `player` currently stands within range of any workbench running
+-- `station`. Used both for the live attribute and to re-validate a craft.
+local function nearStation(player, station)
+	local positions = stationsByType[station]
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not positions or not root then
+		return false
+	end
+	for _, position in ipairs(positions) do
+		if (root.Position - position).Magnitude <= STATION_RANGE then
+			return true
+		end
+	end
+	return false
+end
+
+-- Recomputes every online player's nearby stations and republishes the
+-- `NearbyStations` attribute (comma-joined station ids) only when it
+-- changed, so it doesn't spam attribute-replication every tick.
+local function refreshProximity()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local near = {}
+		for station in pairs(stationsByType) do
+			if nearStation(player, station) then
+				table.insert(near, station)
+			end
+		end
+		table.sort(near)
+		local joined = table.concat(near, ",")
+		if player:GetAttribute("NearbyStations") ~= joined then
+			player:SetAttribute("NearbyStations", joined)
+		end
+	end
+end
+
+local function craftMessage(def)
+	local quantity = def.result.quantity
+	local resultDef = Items.get(def.result.itemId)
+	local label = resultDef and resultDef.name or def.result.itemId
+	if quantity > 1 then
+		label = quantity .. "x " .. label
+	end
+	return "Crafted " .. label
+end
+
+local function handleCraft(player, recipeId)
+	if typeof(recipeId) ~= "string" then
+		return { ok = false, error = "bad_request" }
+	end
+	local def = Recipes.get(recipeId)
+	if not def then
+		return { ok = false, error = "unknown_recipe" }
+	end
+	if def.station and not nearStation(player, def.station) then
+		return { ok = false, error = "too_far" }
+	end
+
+	for _, ingredient in ipairs(def.ingredients) do
+		if PlayerService.getItemCount(player, ingredient.itemId) < ingredient.quantity then
+			return { ok = false, error = "missing_materials" }
+		end
+	end
+
+	-- Remove first; ingredient counts were just verified above so failure
+	-- here would only happen from a race (e.g. dropped mid-craft), which is
+	-- rare enough that the loop stops rather than trying to be atomic.
+	local removed = {}
+	for _, ingredient in ipairs(def.ingredients) do
+		if not PlayerService.removeItem(player, ingredient.itemId, ingredient.quantity) then
+			-- Refund whatever was already taken and bail.
+			for _, back in ipairs(removed) do
+				PlayerService.addItem(player, back.itemId, back.quantity)
+			end
+			return { ok = false, error = "missing_materials" }
+		end
+		table.insert(removed, ingredient)
+	end
+
+	local ok = PlayerService.addItem(player, def.result.itemId, def.result.quantity)
+	if not ok then
+		for _, back in ipairs(removed) do
+			PlayerService.addItem(player, back.itemId, back.quantity)
+		end
+		return { ok = false, error = "no_space" }
+	end
+
+	if notifyRemote then
+		notifyRemote:FireClient(player, craftMessage(def))
+	end
+	return { ok = true }
+end
+
+function CraftingService.start()
+	notifyRemote = Remotes.get("Notify")
+
+	workbenchFolder = Instance.new("Folder")
+	workbenchFolder.Name = "Workbenches"
+	workbenchFolder.Parent = Workspace
+
+	for _, def in ipairs(WORKBENCH_DEFS) do
+		buildWorkbench(def)
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		player:SetAttribute("NearbyStations", nil)
+	end)
+
+	task.spawn(function()
+		while true do
+			refreshProximity()
+			task.wait(PROXIMITY_INTERVAL)
+		end
+	end)
+
+	local craftItem = Remotes.getFunction("CraftItem")
+	craftItem.OnServerInvoke = handleCraft
+end
+
+return CraftingService

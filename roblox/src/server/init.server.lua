@@ -20,6 +20,7 @@ local SynergyService = require(script:WaitForChild("SynergyService"))
 local DropService = require(script:WaitForChild("DropService"))
 local ItemStandService = require(script:WaitForChild("ItemStandService"))
 local VendorService = require(script:WaitForChild("VendorService"))
+local CraftingService = require(script:WaitForChild("CraftingService"))
 local BorderService = require(script:WaitForChild("BorderService"))
 local WorldService = require(script:WaitForChild("WorldService"))
 local AdminSyncService = require(script:WaitForChild("AdminSyncService"))
@@ -41,6 +42,7 @@ SynergyService.start() -- equipment trait synergies: registers stat hooks everyw
 DropService.start()
 ItemStandService.start() -- after DropService: stands spawn drops
 VendorService.start()
+CraftingService.start()
 BorderService.start()
 AdminSyncService.start()
 
