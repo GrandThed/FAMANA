@@ -371,7 +371,8 @@ function StoreUI.start()
 		setStatus(nil)
 		local trade = tradeFor(itemId)
 		if not trade or (not trade.buyPrice and not trade.barter) then
-			return setStatus("not_traded")
+			setStatus("not_traded")
+			return
 		end
 		local existing
 		for _, line in ipairs(dealLines) do
@@ -389,11 +390,13 @@ function StoreUI.start()
 			end
 		else
 			if sendableCount() >= MAX_DEAL_LINES then
-				return setStatus("too_many_lines")
+				setStatus("too_many_lines")
+				return
 			end
 			local line = { side = "buy", itemId = itemId, quantity = math.clamp(quantity, 1, 99) }
 			if not placeLine(line) then
-				return setStatus("Deal grid is full")
+				setStatus("Deal grid is full")
+				return
 			end
 			dealLines[#dealLines + 1] = line
 			undo = function()
@@ -409,7 +412,8 @@ function StoreUI.start()
 		if not ok then
 			undo()
 			syncBarterCosts()
-			return setStatus(err == "deal_full" and "Deal grid is full" or err)
+			setStatus(err == "deal_full" and "Deal grid is full" or err)
+			return
 		end
 		refreshDeal()
 	end
@@ -424,10 +428,12 @@ function StoreUI.start()
 				end
 			end
 			if not sellPriceFor(entry, entry.itemId) then
-				return setStatus("not_traded")
+				setStatus("not_traded")
+				return
 			end
 			if sendableCount() >= MAX_DEAL_LINES then
-				return setStatus("too_many_lines")
+				setStatus("too_many_lines")
+				return
 			end
 			local line = {
 				side = "sell",
@@ -438,14 +444,17 @@ function StoreUI.start()
 				srcY = entry.y,
 			}
 			if not placeLine(line) then
-				return setStatus("Deal grid is full")
+				setStatus("Deal grid is full")
+				return
 			end
 			dealLines[#dealLines + 1] = line
-			return refreshDeal()
+			refreshDeal()
+			return
 		end
 
 		if not sellPriceFor(nil, entry.itemId) then
-			return setStatus("not_traded")
+			setStatus("not_traded")
+			return
 		end
 		local available = countOwned(entry.itemId) - committedGive(entry.itemId)
 		quantity = math.min(quantity, available)
@@ -463,11 +472,13 @@ function StoreUI.start()
 			existing.quantity += quantity
 		else
 			if sendableCount() >= MAX_DEAL_LINES then
-				return setStatus("too_many_lines")
+				setStatus("too_many_lines")
+				return
 			end
 			local line = { side = "sell", itemId = entry.itemId, quantity = quantity }
 			if not placeLine(line) then
-				return setStatus("Deal grid is full")
+				setStatus("Deal grid is full")
+				return
 			end
 			dealLines[#dealLines + 1] = line
 		end
@@ -591,7 +602,8 @@ function StoreUI.start()
 	local function setLineQuantity(line, quantity)
 		if quantity <= 0 then
 			hidePopover()
-			return removeLine(line)
+			removeLine(line)
+			return
 		end
 		local before = line.quantity
 		line.quantity = math.clamp(quantity, 1, math.max(1, popoverMax(line)))
@@ -832,7 +844,8 @@ function StoreUI.start()
 	end
 	stockGrid.callbacks.onHover = function(entry)
 		if not entry then
-			return tooltip.hide()
+			tooltip.hide()
+			return
 		end
 		local lines = {}
 		local trade = tradeFor(entry.itemId)
@@ -861,7 +874,8 @@ function StoreUI.start()
 	end
 	packGrid.callbacks.onHover = function(entry)
 		if not entry then
-			return tooltip.hide()
+			tooltip.hide()
+			return
 		end
 		local price = sellPriceFor(entry, entry.itemId)
 		local lines = {}
@@ -888,7 +902,8 @@ function StoreUI.start()
 	end
 	local function dealTileHover(entry)
 		if not entry then
-			return tooltip.hide()
+			tooltip.hide()
+			return
 		end
 		tooltip.schedule(entry, { { text = "In deal — click to adjust, drag out to remove" } })
 	end
