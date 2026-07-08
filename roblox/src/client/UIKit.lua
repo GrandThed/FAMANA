@@ -245,9 +245,12 @@ end
 
 -- 9-slice drop shadow behind a fixed-size frame (§6.1). Children always draw
 -- above their parent (Sibling ZIndex), so the shadow is a SIBLING that
--- mirrors the frame's geometry — including through slide tweens. Skip for
--- AutomaticSize frames (their Size property never changes). Returns nil
--- while the Shadow9Slice asset id isn't uploaded.
+-- mirrors the frame's geometry. It tracks ABSOLUTE geometry, not the design
+-- Size/Position: the frame usually carries an autoScale UIScale the sibling
+-- doesn't inherit — mirroring design px made the shadow a giant box on any
+-- viewport below 1280×720. Absolute tracking also follows slide tweens and
+-- ancestor moves for free. Returns nil while the Shadow9Slice asset id
+-- isn't uploaded.
 function UIKit.addShadow(frame, spread)
 	local image = Icons.image("Shadow9Slice")
 	if not image then
@@ -266,30 +269,31 @@ function UIKit.addShadow(frame, spread)
 	shadow.ImageColor3 = Color3.new(0, 0, 0)
 	shadow.ImageTransparency = 0.25
 	shadow.ZIndex = math.max(baseZ(frame) - 1, 0)
+	shadow.AnchorPoint = Vector2.zero
 
 	local function sync()
-		local anchor = frame.AnchorPoint
-		shadow.AnchorPoint = anchor
-		shadow.Size = UDim2.new(
-			frame.Size.X.Scale,
-			frame.Size.X.Offset + spread * 2,
-			frame.Size.Y.Scale,
-			frame.Size.Y.Offset + spread * 2
+		local parent = shadow.Parent
+		if not parent then
+			return
+		end
+		-- The frame's render scale (its UIScale, if any): absolute pixels vs
+		-- design offsets. The spread margin shrinks/grows with it.
+		local designW = frame.Size.X.Offset
+		local s = designW > 0 and frame.AbsoluteSize.X / designW or 1
+		local grow = spread * s
+		local parentPos = parent.AbsolutePosition
+		shadow.Position = UDim2.fromOffset(
+			frame.AbsolutePosition.X - parentPos.X - grow,
+			frame.AbsolutePosition.Y - parentPos.Y - grow
 		)
-		-- Keeps the enlarged box centered on the frame for any AnchorPoint.
-		shadow.Position = UDim2.new(
-			frame.Position.X.Scale,
-			frame.Position.X.Offset + spread * (2 * anchor.X - 1),
-			frame.Position.Y.Scale,
-			frame.Position.Y.Offset + spread * (2 * anchor.Y - 1)
-		)
+		shadow.Size = UDim2.fromOffset(frame.AbsoluteSize.X + grow * 2, frame.AbsoluteSize.Y + grow * 2)
 		shadow.Visible = frame.Visible
 	end
-	frame:GetPropertyChangedSignal("Position"):Connect(sync)
-	frame:GetPropertyChangedSignal("Size"):Connect(sync)
+	frame:GetPropertyChangedSignal("AbsolutePosition"):Connect(sync)
+	frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(sync)
 	frame:GetPropertyChangedSignal("Visible"):Connect(sync)
-	sync()
 	shadow.Parent = frame.Parent
+	sync()
 	return shadow
 end
 

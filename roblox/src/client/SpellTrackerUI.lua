@@ -1,8 +1,8 @@
--- TFT-style tracker, mounted by InventoryUI to the left of the paper doll
--- (so it only exists — and is only visible — while the inventory is open;
--- see SpellTrackerUI.start(hostFrame) below). EVERYTHING here is earned by
--- equipment (the server-set `TraitPoints` attribute — schools and traits
--- alike; the class never feeds points). Two sections in one strip:
+-- TFT-style tracker on the RIGHT screen edge (moved from the left so it
+-- never clashes with the party frames; it briefly lived inside the
+-- inventory panel — reverted to an always-on rail). EVERYTHING here is
+-- earned by equipment (the server-set `TraitPoints` attribute — schools and
+-- traits alike; the class never feeds points). Two sections in one strip:
 --   * SCHOOLS — one entry per school you have points in, points vs next
 --     unlock ("3/10"). Hover → tooltip with the whole point timeline
 --     (reached tiers bright / future gray) and the spell list; hover a
@@ -14,9 +14,8 @@
 -- "traitTracker", docs/traits_*_side.png):
 --   * compact — icon + name + count rows (the classic strip)
 --   * minimal — a narrow icon-only column with the count underneath
--- The mouse is never locked in this game, so hover-to-bind works whenever
--- the inventory is open; ClientState.spellHover stops HudUI from also
--- casting on the same keypress.
+-- The mouse is never locked in this game, so hover-to-bind works mid-play;
+-- ClientState.spellHover stops HudUI from also casting on the same keypress.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -38,13 +37,10 @@ local player = Players.LocalPlayer
 
 local SpellTrackerUI = {}
 
+local PANEL_X = 10 -- inset from the right screen edge
 local ENTRY_W, ENTRY_H = 158, 36 -- compact rows
 local MINIMAL_W, MINIMAL_H = 48, 46 -- minimal (icon-only) entries
 local TOOLTIP_W = 260
-
--- Widest layout mode, in px — InventoryUI reserves a column this wide so
--- switching modes in the options menu never clips.
-SpellTrackerUI.MAX_WIDTH = ENTRY_W
 
 -- Aethelgard palette (client/Theme.lua).
 local COLORS = {
@@ -68,19 +64,23 @@ local BIND_KEYS = {
 	[Enum.KeyCode.Zero] = 9,
 }
 
--- Mounts inside `hostFrame` — a frame InventoryUI hands it (the new left
--- column, left of the paper doll) — so the tracker only exists, and is only
--- visible, while the inventory panel is open. It inherits that panel's
--- UIScale, so it doesn't call UIKit.autoScale on itself. The tooltip still
--- gets its own tiny top-level ScreenGui (screen-space, above everything —
--- including the inventory panel it hangs off of), since it needs to render
--- outside hostFrame's bounds.
-function SpellTrackerUI.start(hostFrame)
+-- The rail and the tooltip live in SEPARATE ScreenGuis: the rail sits at
+-- default DisplayOrder (created early, so the big windows — store,
+-- inventory — draw and hit-test above it when they overlap the right edge),
+-- while the tooltip pops out LEFTWARD over whatever is open and must render
+-- above everything.
+function SpellTrackerUI.start()
+	local railGui = Instance.new("ScreenGui")
+	railGui.Name = "SpellTrackerUI"
+	railGui.ResetOnSpawn = false
+	railGui.IgnoreGuiInset = true -- offsets match AbsolutePosition (like HudUI)
+	railGui.Parent = player:WaitForChild("PlayerGui")
+
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "SpellTrackerTooltip"
 	gui.ResetOnSpawn = false
-	gui.IgnoreGuiInset = true -- offsets match AbsolutePosition (like HudUI)
-	gui.DisplayOrder = 50 -- above the inventory panel it's anchored off of
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 50 -- the tooltip overlays any open panel
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	-- Layout mode from the options menu; the panel narrows in minimal.
@@ -90,10 +90,13 @@ function SpellTrackerUI.start(hostFrame)
 	end
 
 	local panel = Instance.new("Frame")
+	panel.AnchorPoint = Vector2.new(1, 0.5) -- right edge pinned; width changes grow leftward
+	panel.Position = UDim2.new(1, -PANEL_X, 0.42, 0)
 	panel.Size = UDim2.new(0, panelWidth(), 0, 0)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.BackgroundTransparency = 1
-	panel.Parent = hostFrame
+	panel.Parent = railGui
+	UIKit.autoScale(panel) -- right-edge anchored: scales in place (§9)
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -316,13 +319,13 @@ function SpellTrackerUI.start(hostFrame)
 		y += 20
 
 		tooltip.Size = UDim2.new(0, TOOLTIP_W, 0, y + 6)
-		-- Screen-space placement: panel.AbsolutePosition/Size already reflect
-		-- wherever it's actually mounted (and any inherited UIScale), so the
-		-- tooltip just hangs off its right edge.
+		-- Screen-space placement: the rail hugs the right edge, so the
+		-- tooltip hangs off its LEFT (rendered width = design px × scale,
+		-- since the tooltip scales around its own top-left anchor).
 		local s = UIKit.scaleFactor()
 		local anchorY = anchorFrame.AbsolutePosition.Y
 		local maxY = math.max(8, gui.AbsoluteSize.Y - (y + 14) * s)
-		local tooltipX = panel.AbsolutePosition.X + panel.AbsoluteSize.X + 10
+		local tooltipX = panel.AbsolutePosition.X - TOOLTIP_W * s - 10
 		tooltip.Position = UDim2.new(0, tooltipX, 0, math.clamp(anchorY, 8, maxY))
 		tooltip.Visible = true
 	end
@@ -373,7 +376,7 @@ function SpellTrackerUI.start(hostFrame)
 		local s = UIKit.scaleFactor()
 		local anchorY = anchorFrame.AbsolutePosition.Y
 		local maxY = math.max(8, gui.AbsoluteSize.Y - (y + 16) * s)
-		local tooltipX = panel.AbsolutePosition.X + panel.AbsoluteSize.X + 10
+		local tooltipX = panel.AbsolutePosition.X - TOOLTIP_W * s - 10
 		tooltip.Position = UDim2.new(0, tooltipX, 0, math.clamp(anchorY, 8, maxY))
 		tooltip.Visible = true
 	end

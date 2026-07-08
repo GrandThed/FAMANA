@@ -1,13 +1,13 @@
 -- Grid inventory screen (toggled with B / the top-right button).
--- Three columns:
---   traits — the equipment-earned school/trait tracker (SpellTrackerUI),
---            mounted here so it only exists while the inventory is open
---   left   — equipment paper doll drawn over a live viewport of the player's
---            character (drag an item onto a slot to equip; while dragging,
---            every slot the item could go to lights up) and the active
---            effects panel (icons + countdowns from Effect_* attributes)
---   right  — utilities bar (Sort button, gold readout) over the scrollable
---            10x30 item grid.
+-- Two columns:
+--   left  — equipment paper doll drawn over a live viewport of the player's
+--           character (drag an item onto a slot to equip; while dragging,
+--           every slot the item could go to lights up) and the active
+--           effects panel (icons + countdowns from Effect_* attributes)
+--   right — utilities bar (Sort button, gold readout) over the scrollable
+--           10x30 item grid.
+-- (The school/trait tracker is its own always-on rail on the right screen
+-- edge — SpellTrackerUI, started from init.client.lua.)
 -- Items span WxH cells (item def `size`); drag & drop moves them (R rotates
 -- while dragging, green/red highlight previews the drop). Hovering an item
 -- and pressing 3–0 quick-binds tools/consumables to the hotbar (HotbarBinds);
@@ -40,7 +40,6 @@ local Classes = require(Shared:WaitForChild("Classes"))
 local ClientState = require(script.Parent.ClientState)
 local HotbarBinds = require(script.Parent.HotbarBinds)
 local ItemTooltip = require(script.Parent.ItemTooltip)
-local SpellTrackerUI = require(script.Parent.SpellTrackerUI)
 local Theme = require(script.Parent.Theme)
 local UIKit = require(script.Parent.UIKit)
 
@@ -229,8 +228,7 @@ function InventoryUI.start()
 	local gridPixW = GRID_W * CELL
 	local rightW = gridPixW + 14 -- room for the scrollbar
 	local leftW = 2 * EQUIP_SLOT + 170 -- slot columns at the edges, character between
-	local traitsW = SpellTrackerUI.MAX_WIDTH + 20 -- school/trait tracker column
-	local panelW = traitsW + leftW + rightW + 48
+	local panelW = leftW + rightW + 36
 	local panelH = TOPBAR + VISIBLE_ROWS * CELL + 88
 	InventoryUI.panelWidth = panelW -- read by NotificationUI so toasts can dodge the open panel
 
@@ -259,30 +257,10 @@ function InventoryUI.start()
 	closeBtn.Position = UDim2.new(1, -5, 0, 5)
 	closeBtn.AnchorPoint = Vector2.new(1, 0)
 
-	-- ---- traits column: school/trait tracker (SpellTrackerUI) --------------
-	local traitsCol = Instance.new("Frame")
-	traitsCol.Size = UDim2.new(0, traitsW, 1, -(TOPBAR + 12))
-	traitsCol.Position = UDim2.new(0, 12, 0, TOPBAR)
-	traitsCol.BackgroundColor3 = COLORS.section
-	traitsCol.BorderSizePixel = 0
-	traitsCol.Parent = panel
-
-	local traitsTitle = makeLabel(traitsCol, "TRAITS", Theme.Text.Label, Theme.Semantic.TextLabel)
-	traitsTitle.Size = UDim2.new(1, 0, 0, 22)
-	traitsTitle.Position = UDim2.new(0, 0, 0, HEADER_H)
-
-	local traitsHost = Instance.new("Frame")
-	traitsHost.Size = UDim2.new(1, -20, 1, -(HEADER_H + 26))
-	traitsHost.Position = UDim2.new(0, 10, 0, HEADER_H + 24)
-	traitsHost.BackgroundTransparency = 1
-	traitsHost.Parent = traitsCol
-
-	SpellTrackerUI.start(traitsHost)
-
 	-- ---- left column: paper doll + effects ---------------------------------
 	local leftCol = Instance.new("Frame")
 	leftCol.Size = UDim2.new(0, leftW, 1, -(TOPBAR + 12))
-	leftCol.Position = UDim2.new(0, traitsW + 24, 0, TOPBAR)
+	leftCol.Position = UDim2.new(0, 12, 0, TOPBAR)
 	leftCol.BackgroundColor3 = COLORS.section
 	leftCol.BorderSizePixel = 0
 	leftCol.Parent = panel
@@ -456,7 +434,7 @@ function InventoryUI.start()
 	effectsLayout.Parent = effectsList
 
 	-- ---- right column: utilities bar + grid --------------------------------
-	local rightX = traitsW + 24 + leftW + 12
+	local rightX = leftW + 24
 	local utilBar = Instance.new("Frame")
 	utilBar.Size = UDim2.new(0, rightW, 0, 30)
 	utilBar.Position = UDim2.new(0, rightX, 0, TOPBAR)
