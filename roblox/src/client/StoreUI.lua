@@ -1,39 +1,39 @@
--- Vendor store panel. Opens when the server fires OpenStore (vendor
--- ProximityPrompt) and trades through the StoreTrade RemoteFunction — the
--- server validates everything; this UI just previews prices and owned
--- counts. Buy tab lists the store's buyable trades, Sell tab the sellable
--- ones with how many the player holds (main grid only). Shift-click trades
--- five at a time for stackables.
+-- Tarkov-style vendor trade screen (docs/VENDOR_UI.md): three panes — the
+-- vendor's STOCK grid (left), the DEAL zone (center: "you give" / "you get"
+-- grids, net gold, the DEAL button), and YOUR PACK (right, the main grid).
+-- Opens on OpenStore (vendor ProximityPrompt); the whole deal settles through
+-- the StoreDeal RemoteFunction in ONE atomic backend transaction — on
+-- failure nothing changed and the zone stays put.
+--
+-- Interactions (§4): click a tile → +1 into the deal; shift-click → one full
+-- stack (vendor stock, regardless of gold) / the whole stack (your pack);
+-- drag a tile into a deal grid → same; drag a deal tile out → remove it.
+-- Click a deal tile → −/+/All/× popover. Rolled instances move whole as
+-- positional sell lines (that's what makes them sellable at all); barter
+-- buys auto-add locked cost tiles to "you give". Prices preview through the
+-- same shared modules the server settles with (Stores + ItemValue) — the
+-- server validates and prices everything again.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
 local Items = require(Shared:WaitForChild("Items"))
+local ItemValue = require(Shared:WaitForChild("ItemValue"))
 local Stores = require(Shared:WaitForChild("Stores"))
-local ItemModels = require(Shared:WaitForChild("ItemModels"))
-local Rarity = require(Shared:WaitForChild("Rarity"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local ClientState = require(script.Parent.ClientState)
+local ItemGrid = require(script.Parent.ItemGrid)
+local ItemTooltip = require(script.Parent.ItemTooltip)
 local Theme = require(script.Parent.Theme)
 local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
+local mouse = player:GetMouse() -- gui-space coords, same space as AbsolutePosition
 
 local StoreUI = {}
-
--- Aethelgard palette (client/Theme.lua).
-local COLORS = {
-	panel = Theme.Semantic.PanelTop,
-	section = Theme.Semantic.SurfaceWell,
-	line = Theme.Semantic.BorderHair,
-	tile = Theme.Color.Ink900,
-	accent = Theme.Color.Ember500,
-	bad = Theme.Semantic.Danger,
-	gold = Theme.Semantic.Currency,
-	text = Theme.Semantic.TextBody,
-	textDim = Theme.Semantic.TextMuted,
-}
 
 local ERROR_TEXT = {
 	no_gold = "Not enough gold",
@@ -41,21 +41,38 @@ local ERROR_TEXT = {
 	no_items = "You don't have that many",
 	too_far = "Too far from the vendor",
 	not_traded = "That item isn't traded here",
+	bad_line = "That trade isn't valid anymore",
+	too_many_lines = "Deal too large",
+	offline = "Backend unavailable",
 	bad_request = "Something went wrong",
 }
 
-local PANEL_W = 620 -- two columns: trade list left, detail pane right (§8)
-local PANEL_H = 470
-local LIST_W = 296
-local ROW_H = 46
-local SHIFT_QUANTITY = 5
+local CELL = Theme.Size.Cell
+local STOCK_COLS = 8
+local PACK_COLS = Config.inventoryGrid.width
+local PACK_ROWS = Config.inventoryGrid.height
+local DEAL_COLS, DEAL_ROWS = 5, 4
+local VISIBLE_ROWS = 12
+local MAX_DEAL_LINES = 20 -- sendable lines; mirrors VendorService
+local CLOSE_DISTANCE = 20 -- studs; walk away → the panel closes itself
+
+-- Pane x offsets (§3 layout, authored at 1280×720).
+local STOCK_X = 12
+local STOCK_W = STOCK_COLS * CELL + 8 -- + scrollbar
+local DEAL_X = STOCK_X + STOCK_W + 12
+local DEAL_COL_W = 230
+local DEAL_GRID_X = DEAL_X + (DEAL_COL_W - DEAL_COLS * CELL) / 2
+local PACK_X = DEAL_X + DEAL_COL_W + 12
+local PANEL_W = PACK_X + PACK_COLS * CELL + 8 + 12
+local PANEL_H = 620
+local PANE_TOP = 76
 
 local function makeLabel(parent, text, size, color, font)
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.FontFace = font or Theme.Font.BodyBold
 	label.TextSize = size
-	label.TextColor3 = color or COLORS.text
+	label.TextColor3 = color or Theme.Semantic.TextBody
 	label.Text = text
 	label.Parent = parent
 	return label
@@ -70,7 +87,7 @@ function StoreUI.start()
 
 	local panel = Instance.new("Frame")
 	panel.Size = UDim2.new(0, PANEL_W, 0, PANEL_H)
-	panel.Position = UDim2.new(0.72, 0, 0.5, 0)
+	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Visible = false
 	panel.Parent = gui
@@ -78,407 +95,861 @@ function StoreUI.start()
 	UIKit.addShadow(panel)
 	UIKit.autoScale(panel)
 
-	local title = makeLabel(panel, "", Theme.Text.Title, Theme.Semantic.TextTitle, Theme.Font.DisplayBold)
-	title.Size = UDim2.new(1, -80, 0, 30)
-	title.Position = UDim2.new(0, 12, 0, 4)
-	title.TextXAlignment = Enum.TextXAlignment.Left
+	local title = UIKit.titleBar(panel, "", 36)
 
-	local vendorLabel = makeLabel(panel, "", 12, COLORS.textDim, Theme.Font.Body)
-	vendorLabel.Size = UDim2.new(1, -80, 0, 16)
-	vendorLabel.Position = UDim2.new(0, 12, 0, 30)
-	vendorLabel.TextXAlignment = Enum.TextXAlignment.Left
+	local vendorLabel = makeLabel(panel, "", 12, Theme.Semantic.TextMuted, Theme.Font.Body)
+	vendorLabel.Size = UDim2.new(0, 300, 0, 36)
+	vendorLabel.Position = UDim2.new(1, -340, 0, 0)
+	vendorLabel.TextXAlignment = Enum.TextXAlignment.Right
 
 	local closeBtn = UIKit.closeButton(panel)
-	closeBtn.Position = UDim2.new(1, -6, 0, 6)
+	closeBtn.Position = UDim2.new(1, -6, 0, 5)
 	closeBtn.AnchorPoint = Vector2.new(1, 0)
 
-	-- ---- tabs (over the list column) --------------------------------------------
-	local tabs = Instance.new("Frame")
-	tabs.Size = UDim2.new(0, LIST_W, 0, 30)
-	tabs.Position = UDim2.new(0, 12, 0, 52)
-	tabs.BackgroundTransparency = 1
-	tabs.Parent = panel
+	-- ---- pane headers -----------------------------------------------------
+	local function header(text, x, w)
+		local label = UIKit.sectionLabel(panel, text)
+		label.Size = UDim2.new(0, w, 0, 18)
+		label.Position = UDim2.new(0, x, 0, 52)
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		return label
+	end
+	header("Stock", STOCK_X + 2, STOCK_W)
+	header("You give", DEAL_GRID_X + 2, DEAL_COLS * CELL)
+	header("Your pack", PACK_X + 2, 200)
 
-	local function makeTab(text, x)
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(0.5, -4, 1, 0)
-		btn.Position = UDim2.new(x, x == 0 and 0 or 4, 0, 0)
-		btn.BackgroundColor3 = COLORS.section
-		btn.BorderSizePixel = 0
-		btn.AutoButtonColor = false
-		btn.FontFace = Theme.Font.DisplayBold
-		btn.TextSize = Theme.Text.Lg
-		btn.TextColor3 = COLORS.text
-		btn.Text = text
-		btn.Parent = tabs
-		local btnStroke = Instance.new("UIStroke")
-		btnStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border -- tab is a TextButton
-		btnStroke.Thickness = 1
-		btnStroke.Color = Theme.Semantic.BorderMuted
-		btnStroke.Parent = btn
-		return btn
+	local goldLabel = makeLabel(panel, "◈ 0", 14, Theme.Semantic.Currency)
+	goldLabel.Size = UDim2.new(0, 160, 0, 18)
+	goldLabel.Position = UDim2.new(0, PACK_X + PACK_COLS * CELL + 8 - 160, 0, 52)
+	goldLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+	-- ---- the three panes ----------------------------------------------------
+	local stockGrid = ItemGrid.create(panel, { columns = STOCK_COLS, visibleRows = VISIBLE_ROWS })
+	stockGrid.frame.Position = UDim2.new(0, STOCK_X, 0, PANE_TOP)
+
+	local giveGrid = ItemGrid.create(panel, { columns = DEAL_COLS, visibleRows = DEAL_ROWS, canvasRows = DEAL_ROWS })
+	giveGrid.frame.Position = UDim2.new(0, DEAL_GRID_X, 0, PANE_TOP)
+
+	local getHeader = header("You get", DEAL_GRID_X + 2, DEAL_COLS * CELL)
+	getHeader.Position = UDim2.new(0, DEAL_GRID_X + 2, 0, PANE_TOP + DEAL_ROWS * CELL + 10)
+
+	local getGrid = ItemGrid.create(panel, { columns = DEAL_COLS, visibleRows = DEAL_ROWS, canvasRows = DEAL_ROWS })
+	getGrid.frame.Position = UDim2.new(0, DEAL_GRID_X, 0, PANE_TOP + DEAL_ROWS * CELL + 32)
+
+	local packGrid = ItemGrid.create(
+		panel,
+		{ columns = PACK_COLS, visibleRows = VISIBLE_ROWS, canvasRows = PACK_ROWS }
+	)
+	packGrid.frame.Position = UDim2.new(0, PACK_X, 0, PANE_TOP)
+
+	-- ---- net row + DEAL + status --------------------------------------------
+	local dealBottom = PANE_TOP + DEAL_ROWS * CELL + 32 + DEAL_ROWS * CELL
+
+	local netLabel = makeLabel(panel, "", 14, Theme.Semantic.TextBody)
+	netLabel.Size = UDim2.new(0, DEAL_COL_W - 16, 0, 20)
+	netLabel.Position = UDim2.new(0, DEAL_X + 8, 0, dealBottom + 10)
+
+	local dealBtn = UIKit.primaryButton(panel, "DEAL")
+	dealBtn.Size = UDim2.new(0, DEAL_COLS * CELL, 0, 36)
+	dealBtn.Position = UDim2.new(0, DEAL_GRID_X, 0, dealBottom + 36)
+
+	local statusLabel = makeLabel(panel, "", 12, Theme.Semantic.Danger)
+	statusLabel.Size = UDim2.new(0, DEAL_COL_W - 16, 0, 40)
+	statusLabel.Position = UDim2.new(0, DEAL_X + 8, 0, dealBottom + 78)
+	statusLabel.TextWrapped = true
+	statusLabel.TextYAlignment = Enum.TextYAlignment.Top
+
+	-- ---- state ---------------------------------------------------------------
+	local current = nil -- { storeId, storeName, vendorName, position }
+	local inventory = {}
+	local busy = false
+	-- Deal lines. side "buy" fills the GET grid; "sell" and "cost" (locked
+	-- barter costs, derived from barter buys, never sent) fill GIVE. Each
+	-- carries its deal-grid placement (x, y, rotated); instance sells also
+	-- remember their pack position (srcX, srcY) — that's the sell reference.
+	local dealLines = {}
+
+	local storeDeal = Remotes.getFunction("StoreDeal")
+
+	local tooltip = ItemTooltip.create(gui, function()
+		return panel.Visible
+	end)
+
+	local refreshDeal -- forward declarations (helpers call across sections)
+	local refreshPack
+
+	-- ---- pricing helpers ------------------------------------------------------
+	local function tradeFor(itemId)
+		return current and Stores.trade(current.storeId, itemId)
 	end
 
-	local buyTab = makeTab("Buy", 0)
-	local sellTab = makeTab("Sell", 0.5)
+	local function storeDef()
+		return current and Stores.get(current.storeId)
+	end
 
-	-- ---- rows (left column) -------------------------------------------------------
-	local list = Instance.new("ScrollingFrame")
-	list.Size = UDim2.new(0, LIST_W, 1, -(52 + 38 + 66))
-	list.Position = UDim2.new(0, 12, 0, 90)
-	list.BackgroundColor3 = COLORS.section
-	list.BorderSizePixel = 0
-	list.ScrollBarThickness = 6
-	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	list.CanvasSize = UDim2.new(0, 0, 0, 0)
-	list.Parent = panel
-
-	local listStroke = Instance.new("UIStroke")
-	listStroke.Thickness = 1
-	listStroke.Color = Theme.Semantic.BorderHair
-	listStroke.Parent = list
-
-	-- ---- detail pane (right column: big preview + price + the action) -------------
-	local detail = Instance.new("Frame")
-	detail.Position = UDim2.new(0, LIST_W + 24, 0, 52)
-	detail.Size = UDim2.new(1, -(LIST_W + 36), 1, -(52 + 66))
-	detail.BackgroundColor3 = COLORS.section
-	detail.BorderSizePixel = 0
-	detail.Parent = panel
-
-	local detailStroke = Instance.new("UIStroke")
-	detailStroke.Thickness = 1
-	detailStroke.Color = Theme.Semantic.BorderHair
-	detailStroke.Parent = detail
-
-	local layout = Instance.new("UIListLayout")
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 4)
-	layout.Parent = list
-
-	local listPadding = Instance.new("UIPadding")
-	listPadding.PaddingTop = UDim.new(0, 6)
-	listPadding.PaddingLeft = UDim.new(0, 6)
-	listPadding.PaddingRight = UDim.new(0, 6)
-	listPadding.PaddingBottom = UDim.new(0, 6)
-	listPadding.Parent = list
-
-	-- ---- footer: gold, status, hint -------------------------------------------
-	local goldLabel = makeLabel(panel, "◈ 0 Gold", 14, COLORS.gold)
-	goldLabel.Size = UDim2.new(0.5, -12, 0, 20)
-	goldLabel.Position = UDim2.new(0, 12, 1, -56)
-	goldLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-	local hintLabel = makeLabel(panel, "Shift-click: x" .. SHIFT_QUANTITY, 11, COLORS.textDim)
-	hintLabel.Size = UDim2.new(0.5, -12, 0, 20)
-	hintLabel.Position = UDim2.new(0.5, 0, 1, -56)
-	hintLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-	local statusLabel = makeLabel(panel, "", 12, COLORS.bad)
-	statusLabel.Size = UDim2.new(1, -24, 0, 24)
-	statusLabel.Position = UDim2.new(0, 12, 1, -32)
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-	-- ---- state -----------------------------------------------------------------
-	local current = nil -- { storeId, storeName, vendorName }
-	local tab = "buy"
-	local busy = false
-	local inventory = {}
-	local selected -- itemId focused in the detail pane
-
-	local storeTrade = Remotes.getFunction("StoreTrade")
+	-- The gold the store pays for ONE unit of an entry (nil = won't buy it).
+	-- Resolution order — MUST match VendorService's: rolled instances (meta)
+	-- price by the shared formula; listed plain items by the curated trade
+	-- sellPrice (even when their def carries starter trait points — the
+	-- curated price wins); unlisted def-trait gear by the formula.
+	local function sellPriceFor(entry, itemId)
+		local def = Items.get(itemId)
+		local store = storeDef()
+		local buysGear = store and store.buysGear
+		if buysGear and entry and entry.meta then
+			local value = ItemValue.forEntry(entry, def)
+			if value then
+				return value
+			end
+		end
+		local trade = tradeFor(itemId)
+		if trade and trade.sellPrice then
+			return trade.sellPrice
+		end
+		if buysGear then
+			return ItemValue.forEntry(entry, def)
+		end
+		return nil
+	end
 
 	local function countOwned(itemId)
 		local total = 0
 		for _, entry in ipairs(inventory) do
-			if entry.containerId == "main" and entry.itemId == itemId then
+			if entry.containerId == "main" and entry.itemId == itemId and not entry.meta then
 				total += entry.quantity
 			end
 		end
 		return total
 	end
 
-	local function updateGold()
-		goldLabel.Text = ("◈ %d Gold"):format(player:GetAttribute("Gold") or 0)
-	end
-	player:GetAttributeChangedSignal("Gold"):Connect(updateGold)
-	updateGold()
-
-	local refresh -- forward declaration; row buttons re-render after a trade
-
-	local function doTrade(action, itemId)
-		if busy or not current then
-			return
-		end
-		busy = true
-		statusLabel.Text = ""
-		local def = Items.get(itemId)
-		local quantity = 1
-		if def and def.stackable and UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-			quantity = SHIFT_QUANTITY
-		end
-		local result = storeTrade:InvokeServer({
-			storeId = current.storeId,
-			action = action,
-			itemId = itemId,
-			quantity = quantity,
-		})
-		busy = false
-		if typeof(result) ~= "table" or not result.ok then
-			local code = typeof(result) == "table" and result.error or nil
-			statusLabel.Text = ERROR_TEXT[code] or ERROR_TEXT.bad_request
-		end
-		-- Success needs no local bookkeeping: the server pushes InventoryUpdated
-		-- and the Gold attribute, which re-render the rows and footer.
-	end
-
-	-- ---- detail pane rendering -----------------------------------------------
-	local function detailText(text, size, color, font)
-		local label = makeLabel(detail, text, size, color, font)
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		return label
-	end
-
-	-- Rebuilds the right column for the focused trade: big rarity-framed
-	-- preview, name, owned count (sell), price and the one action button.
-	local function renderDetail()
-		for _, child in ipairs(detail:GetChildren()) do
-			if child:IsA("GuiObject") then
-				child:Destroy()
+	-- Quantity of `itemId` the give side already consumes (plain sells +
+	-- barter costs — instance sells are their own rows and don't count).
+	local function committedGive(itemId)
+		local total = 0
+		for _, line in ipairs(dealLines) do
+			if line.itemId == itemId and (line.side == "cost" or (line.side == "sell" and not line.meta)) then
+				total += line.quantity
 			end
 		end
-		local store = current and Stores.get(current.storeId)
-		local trade
-		if store and selected then
-			for _, candidate in ipairs(store.trades) do
-				if candidate.itemId == selected then
-					trade = candidate
+		return total
+	end
+
+	local function linesOn(gridSide) -- "give" | "get"
+		local out = {}
+		for _, line in ipairs(dealLines) do
+			local isGive = line.side ~= "buy"
+			if (gridSide == "give") == isGive then
+				out[#out + 1] = line
+			end
+		end
+		return out
+	end
+
+	local function sendableCount()
+		local count = 0
+		for _, line in ipairs(dealLines) do
+			if line.side ~= "cost" then
+				count += 1
+			end
+		end
+		return count
+	end
+
+	local function lineTotal(line)
+		if line.side == "buy" then
+			local trade = tradeFor(line.itemId)
+			return trade and trade.buyPrice and trade.buyPrice * line.quantity or nil -- barter buys carry no gold
+		elseif line.side == "sell" then
+			local price = sellPriceFor(line.meta and { itemId = line.itemId, meta = line.meta } or nil, line.itemId)
+			return price and price * line.quantity or 0
+		end
+		return nil -- cost lines: the barter chip explains them
+	end
+
+	local function netGold()
+		local net = 0
+		for _, line in ipairs(dealLines) do
+			local total = lineTotal(line)
+			if total then
+				net += line.side == "buy" and -total or total
+			end
+		end
+		return net
+	end
+
+	-- ---- deal mutation ---------------------------------------------------------
+	local function setStatus(code)
+		statusLabel.Text = code and (ERROR_TEXT[code] or code) or ""
+	end
+
+	local function placeLine(line)
+		local gridSide = line.side == "buy" and "get" or "give"
+		local x, y, rotated = ItemGrid.findSpot(linesOn(gridSide), line.itemId, DEAL_COLS, DEAL_ROWS)
+		if not x then
+			return false
+		end
+		line.x, line.y, line.rotated = x, y, rotated
+		return true
+	end
+
+	-- Rebuilds the locked cost tiles from the barter buys (derived data).
+	-- Fails without mutating when the costs don't fit or aren't owned —
+	-- callers undo whatever change they were attempting.
+	local function syncBarterCosts()
+		local keep = {}
+		for _, line in ipairs(dealLines) do
+			if line.side ~= "cost" then
+				keep[#keep + 1] = line
+			end
+		end
+
+		local needs = {} -- [itemId] = qty, merged across barter buys
+		local order = {}
+		for _, line in ipairs(keep) do
+			if line.side == "buy" then
+				local trade = tradeFor(line.itemId)
+				if trade and trade.barter then
+					for _, cost in ipairs(trade.barter) do
+						if not needs[cost.itemId] then
+							order[#order + 1] = cost.itemId
+						end
+						needs[cost.itemId] = (needs[cost.itemId] or 0) + cost.qty * line.quantity
+					end
+				end
+			end
+		end
+
+		local placedGive = {}
+		for _, line in ipairs(keep) do
+			if line.side ~= "buy" then
+				placedGive[#placedGive + 1] = line
+			end
+		end
+		local costLines = {}
+		for _, itemId in ipairs(order) do
+			local needed = needs[itemId]
+			local sold = 0
+			for _, line in ipairs(keep) do
+				if line.side == "sell" and not line.meta and line.itemId == itemId then
+					sold += line.quantity
+				end
+			end
+			if countOwned(itemId) - sold < needed then
+				return false, "no_items"
+			end
+			local x, y, rotated = ItemGrid.findSpot(placedGive, itemId, DEAL_COLS, DEAL_ROWS)
+			if not x then
+				return false, "deal_full"
+			end
+			local costLine =
+				{ side = "cost", itemId = itemId, quantity = needed, locked = true, x = x, y = y, rotated = rotated }
+			placedGive[#placedGive + 1] = costLine
+			costLines[#costLines + 1] = costLine
+		end
+
+		dealLines = keep
+		for _, line in ipairs(costLines) do
+			dealLines[#dealLines + 1] = line
+		end
+		return true
+	end
+
+	local function removeLine(line)
+		for i, candidate in ipairs(dealLines) do
+			if candidate == line then
+				table.remove(dealLines, i)
+				break
+			end
+		end
+		if line.side == "buy" then
+			syncBarterCosts() -- shrinking always succeeds
+		end
+		refreshDeal()
+	end
+
+	local function addBuy(itemId, quantity)
+		setStatus(nil)
+		local trade = tradeFor(itemId)
+		if not trade or (not trade.buyPrice and not trade.barter) then
+			return setStatus("not_traded")
+		end
+		local existing
+		for _, line in ipairs(dealLines) do
+			if line.side == "buy" and line.itemId == itemId then
+				existing = line
+				break
+			end
+		end
+		local undo
+		if existing then
+			local before = existing.quantity
+			existing.quantity = math.clamp(before + quantity, 1, 99)
+			undo = function()
+				existing.quantity = before
+			end
+		else
+			if sendableCount() >= MAX_DEAL_LINES then
+				return setStatus("too_many_lines")
+			end
+			local line = { side = "buy", itemId = itemId, quantity = math.clamp(quantity, 1, 99) }
+			if not placeLine(line) then
+				return setStatus("Deal grid is full")
+			end
+			dealLines[#dealLines + 1] = line
+			undo = function()
+				for i, candidate in ipairs(dealLines) do
+					if candidate == line then
+						table.remove(dealLines, i)
+						break
+					end
+				end
+			end
+		end
+		local ok, err = syncBarterCosts()
+		if not ok then
+			undo()
+			syncBarterCosts()
+			return setStatus(err == "deal_full" and "Deal grid is full" or err)
+		end
+		refreshDeal()
+	end
+
+	local function addSell(entry, quantity)
+		setStatus(nil)
+		if entry.meta then
+			-- Rolled instance: the whole row moves, one line per pack position.
+			for _, line in ipairs(dealLines) do
+				if line.side == "sell" and line.srcX == entry.x and line.srcY == entry.y then
+					return -- already in the deal
+				end
+			end
+			if not sellPriceFor(entry, entry.itemId) then
+				return setStatus("not_traded")
+			end
+			if sendableCount() >= MAX_DEAL_LINES then
+				return setStatus("too_many_lines")
+			end
+			local line = {
+				side = "sell",
+				itemId = entry.itemId,
+				quantity = entry.quantity,
+				meta = entry.meta,
+				srcX = entry.x,
+				srcY = entry.y,
+			}
+			if not placeLine(line) then
+				return setStatus("Deal grid is full")
+			end
+			dealLines[#dealLines + 1] = line
+			return refreshDeal()
+		end
+
+		if not sellPriceFor(nil, entry.itemId) then
+			return setStatus("not_traded")
+		end
+		local available = countOwned(entry.itemId) - committedGive(entry.itemId)
+		quantity = math.min(quantity, available)
+		if quantity <= 0 then
+			return
+		end
+		local existing
+		for _, line in ipairs(dealLines) do
+			if line.side == "sell" and not line.meta and line.itemId == entry.itemId then
+				existing = line
+				break
+			end
+		end
+		if existing then
+			existing.quantity += quantity
+		else
+			if sendableCount() >= MAX_DEAL_LINES then
+				return setStatus("too_many_lines")
+			end
+			local line = { side = "sell", itemId = entry.itemId, quantity = quantity }
+			if not placeLine(line) then
+				return setStatus("Deal grid is full")
+			end
+			dealLines[#dealLines + 1] = line
+		end
+		refreshDeal()
+	end
+
+	local function clearDeal()
+		dealLines = {}
+		refreshDeal()
+	end
+
+	-- Re-check the deal against a fresh inventory push (gathering, drops and
+	-- the settled deal itself all change it under the open panel).
+	local function revalidateDeal()
+		local changed = false
+		for i = #dealLines, 1, -1 do
+			local line = dealLines[i]
+			if line.side == "sell" and line.meta then
+				local still
+				for _, entry in ipairs(inventory) do
+					if
+						entry.containerId == "main"
+						and entry.x == line.srcX
+						and entry.y == line.srcY
+						and entry.itemId == line.itemId
+						and entry.meta
+					then
+						still = entry
+						break
+					end
+				end
+				if not still then
+					table.remove(dealLines, i)
+					changed = true
+				end
+			elseif line.side == "sell" then
+				local available = countOwned(line.itemId)
+				if available < line.quantity then
+					line.quantity = available
+					changed = true
+					if line.quantity <= 0 then
+						table.remove(dealLines, i)
+					end
+				end
+			end
+		end
+		-- Barter buys whose costs vanished shrink until the deal is payable.
+		while not syncBarterCosts() do
+			local victim
+			for i = #dealLines, 1, -1 do
+				local line = dealLines[i]
+				local trade = tradeFor(line.itemId)
+				if line.side == "buy" and trade and trade.barter then
+					victim = line
 					break
 				end
 			end
+			if not victim then
+				break
+			end
+			if victim.quantity > 1 then
+				victim.quantity -= 1
+			else
+				for i, line in ipairs(dealLines) do
+					if line == victim then
+						table.remove(dealLines, i)
+						break
+					end
+				end
+			end
+			changed = true
 		end
-		local price = trade and (tab == "buy" and trade.buyPrice or trade.sellPrice)
-		if not trade or not price then
-			local hint = detailText("Select an item", Theme.Text.Body, COLORS.textDim, Theme.Font.Body)
-			hint.Size = UDim2.new(1, -24, 0, 40)
-			hint.Position = UDim2.new(0, 12, 0, 8)
-			return
-		end
-
-		local def = Items.get(trade.itemId)
-		local rarity = Rarity.forDef(def)
-
-		local thumbHolder = Instance.new("Frame")
-		thumbHolder.Size = UDim2.new(0, 110, 0, 110)
-		thumbHolder.Position = UDim2.new(0.5, -55, 0, 12)
-		thumbHolder.BackgroundColor3 = Theme.Color.Ink900
-		thumbHolder.BorderSizePixel = 0
-		thumbHolder.Parent = detail
-		local thumbStroke = Instance.new("UIStroke")
-		thumbStroke.Thickness = 1
-		thumbStroke.Color = rarity.color
-		thumbStroke.Parent = thumbHolder
-		if rarity.hasGlow then
-			UIKit.addGlow(thumbHolder, rarity.glowColor, 0.7)
-		end
-		local thumb = Instance.new("ViewportFrame")
-		thumb.Size = UDim2.new(1, -8, 1, -8)
-		thumb.Position = UDim2.new(0, 4, 0, 4)
-		thumb.BackgroundTransparency = 1
-		thumb.Ambient = Color3.fromRGB(180, 180, 190)
-		thumb.LightColor = Color3.new(1, 1, 1)
-		thumb.ZIndex = 2
-		thumb.Parent = thumbHolder
-		ItemModels.preview(thumb, trade.itemId)
-
-		local name =
-			detailText(def and def.name or trade.itemId, Theme.Text.Item, rarity.textColor, Theme.Font.DisplayBold)
-		name.Size = UDim2.new(1, -24, 0, 22)
-		name.Position = UDim2.new(0, 12, 0, 128)
-		name.TextTruncate = Enum.TextTruncate.AtEnd
-
-		local rarityLabel = detailText(rarity.name, Theme.Text.Xs, rarity.textColor, Theme.Font.Body)
-		rarityLabel.TextTransparency = 0.25
-		rarityLabel.Size = UDim2.new(1, -24, 0, 14)
-		rarityLabel.Position = UDim2.new(0, 12, 0, 150)
-
-		local infoY = 172
-		local owned = countOwned(trade.itemId)
-		if tab == "sell" then
-			local ownedLabel = detailText("You have " .. owned, Theme.Text.Sm, COLORS.textDim, Theme.Font.Body)
-			ownedLabel.Size = UDim2.new(1, -24, 0, 16)
-			ownedLabel.Position = UDim2.new(0, 12, 0, infoY)
-			infoY += 20
-		end
-
-		local priceLabel = detailText("◈ " .. price, Theme.Text.Lg, COLORS.gold)
-		priceLabel.Size = UDim2.new(1, -24, 0, 20)
-		priceLabel.Position = UDim2.new(0, 12, 0, infoY)
-
-		local canTrade = tab == "buy" or owned > 0
-		local actionBtn
-		if canTrade then
-			actionBtn = UIKit.primaryButton(detail, tab == "buy" and "Buy" or "Sell")
-			actionBtn.MouseButton1Click:Connect(function()
-				doTrade(tab, trade.itemId)
-			end)
-		else
-			actionBtn = UIKit.ghostButton(detail, "Nothing to sell")
-			actionBtn.TextColor3 = Theme.Semantic.TextDim
-		end
-		actionBtn.Size = UDim2.new(1, -24, 0, 32)
-		actionBtn.Position = UDim2.new(0, 12, 1, -12)
-		actionBtn.AnchorPoint = Vector2.new(0, 1)
-	end
-
-	-- ---- trade rows -------------------------------------------------------------
-	local rowWidgets = {} -- [itemId] = { row, stroke } for selection styling
-
-	local function styleRowSelection()
-		for itemId, widgets in pairs(rowWidgets) do
-			local isSelected = itemId == selected
-			widgets.row.BackgroundTransparency = isSelected and 0.05 or 0.35
-			widgets.stroke.Thickness = isSelected and 2 or 1
+		if changed then
+			setStatus("Deal updated — inventory changed")
 		end
 	end
 
-	local function makeRow(order, trade, price)
-		local def = Items.get(trade.itemId)
-		local name = def and def.name or trade.itemId
-		local rarity = Rarity.forDef(def) -- store rows are plain defs, never rolled
+	-- ---- quantity popover -------------------------------------------------------
+	local popover = Instance.new("Frame")
+	popover.Size = UDim2.new(0, 168, 0, 40)
+	popover.Visible = false
+	popover.ZIndex = 70
+	popover.Parent = gui
+	UIKit.stylePanel(popover)
+	UIKit.autoScale(popover)
 
-		local row = Instance.new("TextButton")
-		row.Text = ""
-		row.AutoButtonColor = false
-		row.Size = UDim2.new(1, 0, 0, ROW_H)
-		row.BackgroundColor3 = COLORS.tile
-		row.BackgroundTransparency = 0.35
-		row.BorderSizePixel = 0
-		row.LayoutOrder = order
-		row.Parent = list
+	local popoverLine -- the deal line being edited
 
-		local rowStroke = Instance.new("UIStroke")
-		rowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border -- row is a TextButton
-		rowStroke.Thickness = 1
-		rowStroke.Color = rarity.color
-		rowStroke.Parent = row
-		if rarity.hasGlow then
-			UIKit.addGlow(row, rarity.glowColor, 0.85)
-		end
-
-		local thumbHolder = Instance.new("Frame")
-		thumbHolder.Size = UDim2.new(0, ROW_H - 6, 0, ROW_H - 6)
-		thumbHolder.Position = UDim2.new(0, 3, 0, 3)
-		thumbHolder.BackgroundColor3 = Theme.Color.Ink850
-		thumbHolder.BorderSizePixel = 0
-		thumbHolder.Parent = row
-
-		local thumb = Instance.new("ViewportFrame")
-		thumb.Size = UDim2.new(1, -4, 1, -4)
-		thumb.Position = UDim2.new(0, 2, 0, 2)
-		thumb.BackgroundTransparency = 1
-		thumb.Ambient = Color3.fromRGB(180, 180, 190)
-		thumb.LightColor = Color3.new(1, 1, 1)
-		thumb.Parent = thumbHolder
-		ItemModels.preview(thumb, trade.itemId)
-
-		local nameLabel = makeLabel(row, name, 13, rarity.textColor)
-		nameLabel.Size = UDim2.new(1, -(ROW_H + 76), 1, 0)
-		nameLabel.Position = UDim2.new(0, ROW_H + 4, 0, 0)
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-
-		local priceLabel = makeLabel(row, "◈ " .. price, 13, COLORS.gold)
-		priceLabel.Size = UDim2.new(0, 60, 1, 0)
-		priceLabel.Position = UDim2.new(1, -66, 0, 0)
-		priceLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-		row.MouseButton1Click:Connect(function()
-			selected = trade.itemId
-			statusLabel.Text = ""
-			styleRowSelection()
-			renderDetail()
-		end)
-
-		rowWidgets[trade.itemId] = { row = row, stroke = rowStroke }
+	local function popoverButton(text, x, w)
+		local btn = UIKit.ghostButton(popover, text)
+		btn.Size = UDim2.new(0, w, 0, 26)
+		btn.Position = UDim2.new(0, x, 0, 7)
+		btn.ZIndex = 71
+		return btn
 	end
 
-	refresh = function()
-		for _, child in ipairs(list:GetChildren()) do
-			if child:IsA("GuiObject") then
-				child:Destroy()
+	local minusBtn = popoverButton("−", 8, 26)
+	local qtyLabel = makeLabel(popover, "", 13, Theme.Semantic.TextStrong)
+	qtyLabel.Size = UDim2.new(0, 30, 0, 26)
+	qtyLabel.Position = UDim2.new(0, 38, 0, 7)
+	qtyLabel.TextXAlignment = Enum.TextXAlignment.Center
+	qtyLabel.ZIndex = 71
+	local plusBtn = popoverButton("+", 72, 26)
+	local allBtn = popoverButton("All", 102, 30)
+	local removeBtn = popoverButton("✕", 136, 26)
+	removeBtn.TextColor3 = Theme.Semantic.Danger
+
+	local function hidePopover()
+		popover.Visible = false
+		popoverLine = nil
+	end
+
+	local function popoverMax(line)
+		if line.side == "buy" then
+			local def = Items.get(line.itemId)
+			return (def and def.stackable) and math.min(Items.maxStackFor(line.itemId), 99) or 99
+		end
+		return countOwned(line.itemId) - committedGive(line.itemId) + line.quantity
+	end
+
+	local function setLineQuantity(line, quantity)
+		if quantity <= 0 then
+			hidePopover()
+			return removeLine(line)
+		end
+		local before = line.quantity
+		line.quantity = math.clamp(quantity, 1, math.max(1, popoverMax(line)))
+		if line.side == "buy" then
+			local ok, err = syncBarterCosts()
+			if not ok then
+				line.quantity = before
+				syncBarterCosts()
+				setStatus(err == "deal_full" and "Deal grid is full" or err)
 			end
 		end
-		rowWidgets = {}
+		qtyLabel.Text = tostring(line.quantity)
+		refreshDeal()
+	end
+
+	local function openPopover(line)
+		-- Instance sells move whole: nothing to adjust, offer remove only.
+		local fixed = line.meta ~= nil
+		minusBtn.Visible = not fixed
+		plusBtn.Visible = not fixed
+		allBtn.Visible = not fixed
+		qtyLabel.Text = tostring(line.quantity)
+		popoverLine = line
+		popover.Position = UDim2.new(0, mouse.X - 84, 0, mouse.Y + 8)
+		popover.Visible = true
+	end
+
+	minusBtn.Activated:Connect(function()
+		if popoverLine then
+			setLineQuantity(popoverLine, popoverLine.quantity - 1)
+		end
+	end)
+	plusBtn.Activated:Connect(function()
+		if popoverLine then
+			setLineQuantity(popoverLine, popoverLine.quantity + 1)
+		end
+	end)
+	allBtn.Activated:Connect(function()
+		if popoverLine then
+			setLineQuantity(popoverLine, popoverMax(popoverLine))
+		end
+	end)
+	removeBtn.Activated:Connect(function()
+		if popoverLine then
+			local line = popoverLine
+			hidePopover()
+			removeLine(line)
+		end
+	end)
+
+	-- Click anywhere outside the popover dismisses it.
+	UserInputService.InputBegan:Connect(function(input)
+		if not popover.Visible or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+			return
+		end
+		local topLeft = popover.AbsolutePosition
+		local size = popover.AbsoluteSize
+		if
+			mouse.X < topLeft.X
+			or mouse.X > topLeft.X + size.X
+			or mouse.Y < topLeft.Y
+			or mouse.Y > topLeft.Y + size.Y
+		then
+			hidePopover()
+		end
+	end)
+
+	-- ---- rendering ------------------------------------------------------------
+	local function updateGold()
+		goldLabel.Text = ("◈ %d"):format(player:GetAttribute("Gold") or 0)
+	end
+
+	local function refreshDealButton()
+		local net = netGold()
+		local hasLines = #dealLines > 0
+		local gold = player:GetAttribute("Gold") or 0
+		local affordable = net >= 0 or gold >= -net
+
+		if not hasLines then
+			netLabel.Text = "Add items to trade"
+			netLabel.TextColor3 = Theme.Semantic.TextMuted
+			dealBtn.Text = "DEAL"
+		elseif net < 0 then
+			netLabel.Text = ("Net — pay ◈ %d"):format(-net)
+			netLabel.TextColor3 = affordable and Theme.Semantic.TextBody or Theme.Semantic.Danger
+			dealBtn.Text = ("DEAL — PAY ◈ %d"):format(-net)
+		elseif net > 0 then
+			netLabel.Text = ("Net — get ◈ %d"):format(net)
+			netLabel.TextColor3 = Theme.Semantic.Currency
+			dealBtn.Text = ("DEAL — GET ◈ %d"):format(net)
+		else
+			netLabel.Text = "Net — even trade"
+			netLabel.TextColor3 = Theme.Semantic.TextBody
+			dealBtn.Text = "DEAL"
+		end
+
+		local enabled = hasLines and affordable and not busy
+		dealBtn.Active = enabled
+		dealBtn.TextTransparency = enabled and 0 or 0.45
+	end
+
+	refreshPack = function()
 		if not current then
 			return
 		end
-		local store = Stores.get(current.storeId)
-		if not store then
-			statusLabel.Text = "Store unavailable"
-			return
-		end
-		buyTab.BackgroundColor3 = tab == "buy" and COLORS.accent or COLORS.section
-		sellTab.BackgroundColor3 = tab == "sell" and COLORS.accent or COLORS.section
-		local order = 0
-		local selectionListed = false
-		for _, trade in ipairs(store.trades) do
-			local price = tab == "buy" and trade.buyPrice or trade.sellPrice
-			if price then
-				order += 1
-				makeRow(order, trade, price)
-				if not selected then
-					selected = trade.itemId -- focus the first trade by default
+		local entries = {}
+		for _, entry in ipairs(inventory) do
+			if entry.containerId == "main" then
+				local price = sellPriceFor(entry, entry.itemId)
+				local committed = false
+				if entry.meta then
+					for _, line in ipairs(dealLines) do
+						if line.side == "sell" and line.srcX == entry.x and line.srcY == entry.y then
+							committed = true
+							break
+						end
+					end
 				end
-				if trade.itemId == selected then
-					selectionListed = true
-				end
+				-- Clone: display fields must not leak into the shared entry
+				-- tables other UIs read from the same remote push.
+				entries[#entries + 1] = {
+					itemId = entry.itemId,
+					quantity = entry.quantity,
+					x = entry.x,
+					y = entry.y,
+					rotated = entry.rotated,
+					meta = entry.meta,
+					chip = price and ("◈ " .. price) or nil,
+					dimmed = price == nil or committed,
+					locked = committed,
+				}
 			end
 		end
-		if not selectionListed then
-			selected = nil
+		packGrid.render(entries)
+	end
+
+	refreshDeal = function()
+		local give = {}
+		local get = {}
+		for _, line in ipairs(dealLines) do
+			local total = lineTotal(line)
+			local entry = {
+				itemId = line.itemId,
+				quantity = line.quantity,
+				x = line.x,
+				y = line.y,
+				rotated = line.rotated,
+				meta = line.meta,
+				locked = line.side == "cost",
+				chip = total and ("◈ " .. total) or (line.side == "buy" and "⇄" or nil),
+				_line = line,
+			}
+			if line.side == "buy" then
+				get[#get + 1] = entry
+			else
+				give[#give + 1] = entry
+			end
 		end
-		styleRowSelection()
-		renderDetail()
+		giveGrid.render(give)
+		getGrid.render(get)
+		refreshDealButton()
+		refreshPack() -- committed instances dim in the pack
 	end
 
-	local function setTab(name)
-		tab = name
-		statusLabel.Text = ""
-		refresh()
+	local function refreshStock()
+		local store = storeDef()
+		if not store then
+			return
+		end
+		local items = {}
+		for _, trade in ipairs(store.trades) do
+			if trade.buyPrice or trade.barter then
+				items[#items + 1] = {
+					itemId = trade.itemId,
+					quantity = 1,
+					chip = trade.buyPrice and ("◈ " .. trade.buyPrice) or "⇄",
+				}
+			end
+		end
+		local placed, overflow = ItemGrid.packFirstFit(items, STOCK_COLS, 60)
+		if #overflow > 0 then
+			warn("[StoreUI] stock overflow: " .. #overflow .. " trades didn't fit the shelf")
+		end
+		stockGrid.render(placed)
 	end
-	buyTab.MouseButton1Click:Connect(function()
-		setTab("buy")
-	end)
-	sellTab.MouseButton1Click:Connect(function()
-		setTab("sell")
-	end)
 
+	-- ---- the deal itself --------------------------------------------------------
+	local function doDeal()
+		if busy or not current or #dealLines == 0 or not dealBtn.Active then
+			return
+		end
+		busy = true
+		refreshDealButton()
+		setStatus(nil)
+
+		local lines = {}
+		for _, line in ipairs(dealLines) do
+			if line.side == "buy" then
+				lines[#lines + 1] = { side = "buy", itemId = line.itemId, quantity = line.quantity }
+			elseif line.side == "sell" and line.meta then
+				lines[#lines + 1] = { side = "sell", itemId = line.itemId, x = line.srcX, y = line.srcY }
+			elseif line.side == "sell" then
+				lines[#lines + 1] = { side = "sell", itemId = line.itemId, quantity = line.quantity }
+			end
+		end
+
+		local ok, result = pcall(function()
+			return storeDeal:InvokeServer({ storeId = current.storeId, lines = lines })
+		end)
+		busy = false
+		if ok and typeof(result) == "table" and result.ok == true then
+			hidePopover()
+			clearDeal()
+			-- The server pushes InventoryUpdated + the Gold attribute + the toast.
+		else
+			local code = ok and typeof(result) == "table" and result.error or "bad_request"
+			setStatus(code)
+			refreshDealButton()
+		end
+	end
+	dealBtn.Activated:Connect(doDeal)
+
+	-- ---- tile interaction wiring -------------------------------------------------
+	local function inDealZone(screenPos)
+		return giveGrid.containsPoint(screenPos) or getGrid.containsPoint(screenPos)
+	end
+
+	stockGrid.callbacks.onClick = function(entry, shift)
+		local def = Items.get(entry.itemId)
+		-- Shift = one full stack, gold-blind (§4); DEAL stays disabled if short.
+		local quantity = (shift and def and def.stackable) and Items.maxStackFor(entry.itemId) or 1
+		addBuy(entry.itemId, quantity)
+	end
+	stockGrid.callbacks.onDragOut = function(entry, screenPos)
+		if inDealZone(screenPos) then
+			addBuy(entry.itemId, 1)
+		end
+	end
+	stockGrid.callbacks.onHover = function(entry)
+		if not entry then
+			return tooltip.hide()
+		end
+		local lines = {}
+		local trade = tradeFor(entry.itemId)
+		if trade and trade.buyPrice then
+			lines[#lines + 1] = { text = ("Buy ◈ %d"):format(trade.buyPrice), color = Theme.Semantic.Currency }
+		elseif trade and trade.barter then
+			local parts = {}
+			for _, cost in ipairs(trade.barter) do
+				local def = Items.get(cost.itemId)
+				parts[#parts + 1] = ("%d× %s"):format(cost.qty, def and def.name or cost.itemId)
+			end
+			lines[#lines + 1] = { text = "Costs " .. table.concat(parts, ", "), color = Theme.Semantic.Currency }
+		end
+		lines[#lines + 1] = { text = "Click: add 1 · Shift: full stack" }
+		tooltip.schedule(entry, lines)
+	end
+
+	packGrid.callbacks.onClick = function(entry, shift)
+		local quantity = (shift or entry.meta) and entry.quantity or 1
+		addSell(entry, quantity)
+	end
+	packGrid.callbacks.onDragOut = function(entry, screenPos)
+		if inDealZone(screenPos) then
+			addSell(entry, entry.quantity) -- drag = the whole stack (§4)
+		end
+	end
+	packGrid.callbacks.onHover = function(entry)
+		if not entry then
+			return tooltip.hide()
+		end
+		local price = sellPriceFor(entry, entry.itemId)
+		local lines = {}
+		if price then
+			lines[#lines + 1] = { text = ("Sell ◈ %d each"):format(price), color = Theme.Semantic.Currency }
+			lines[#lines + 1] = { text = "Click: add 1 · Shift: whole stack" }
+		else
+			lines[#lines + 1] = { text = "Not traded here", color = Theme.Semantic.Danger }
+		end
+		tooltip.schedule(entry, lines)
+	end
+
+	local function dealTileClick(entry)
+		if entry._line then
+			openPopover(entry._line)
+		end
+	end
+	local function dealTileDragOut(grid)
+		return function(entry, screenPos)
+			if not grid.containsPoint(screenPos) and entry._line then
+				removeLine(entry._line)
+			end
+		end
+	end
+	local function dealTileHover(entry)
+		if not entry then
+			return tooltip.hide()
+		end
+		tooltip.schedule(entry, { { text = "In deal — click to adjust, drag out to remove" } })
+	end
+	giveGrid.callbacks = { onClick = dealTileClick, onDragOut = dealTileDragOut(giveGrid), onHover = dealTileHover }
+	getGrid.callbacks = { onClick = dealTileClick, onDragOut = dealTileDragOut(getGrid), onHover = dealTileHover }
+
+	-- ---- open / close lifecycle ---------------------------------------------------
 	local function close()
 		current = nil
 		panel.Visible = false
+		ClientState.storeOpen = false
+		hidePopover()
+		tooltip.hide()
 	end
-	closeBtn.MouseButton1Click:Connect(close)
+	closeBtn.Activated:Connect(close)
+	ClientState.closeStore = close
 
 	Remotes.get("OpenStore").OnClientEvent:Connect(function(info)
 		if typeof(info) ~= "table" then
 			return
 		end
+		if ClientState.inventoryOpen and ClientState.closeInventory then
+			ClientState.closeInventory() -- the panes overlap; one screen at a time
+		end
 		current = info
-		tab = "buy"
-		selected = nil -- refresh() focuses the first trade
+		dealLines = {}
 		title.Text = info.storeName or "Store"
 		vendorLabel.Text = info.vendorName or ""
-		statusLabel.Text = ""
+		setStatus(nil)
 		panel.Visible = true
-		refresh()
+		ClientState.storeOpen = true
+		updateGold()
+		refreshStock()
+		refreshDeal()
 	end)
 
-	-- Sell counts come from the same push the inventory screen uses.
+	-- Walk away → close (the server enforces its own distance on the deal).
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			if current and typeof(current.position) == "Vector3" then
+				local character = player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+				if root and (root.Position - current.position).Magnitude > CLOSE_DISTANCE then
+					close()
+				end
+			end
+		end
+	end)
+
+	player:GetAttributeChangedSignal("Gold"):Connect(function()
+		updateGold()
+		refreshDealButton()
+	end)
+	updateGold()
+
 	Remotes.get("InventoryUpdated").OnClientEvent:Connect(function(entries)
 		inventory = entries or {}
-		if current and tab == "sell" then
-			refresh()
+		if current then
+			revalidateDeal()
+			refreshDeal()
 		end
 	end)
 	task.spawn(function()

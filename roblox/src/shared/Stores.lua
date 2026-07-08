@@ -4,8 +4,12 @@
 -- the fallback for Studio-without-HTTP and backend outages.
 --
 -- Prices are gold per unit; a trade may be buy-only (no sellPrice),
--- sell-only (no buyPrice), or both. Vendor NPC placement lives in
--- server/VendorService — this module is economy data only.
+-- sell-only (no buyPrice), or both. A trade may instead cost items —
+-- `barter = { { itemId, qty } }` — which REPLACES its gold offer (either/or;
+-- docs/VENDOR_UI.md §5.3). Stores with `buysGear = true` also buy any
+-- trait-line gear at the shared ItemValue price, even off the trade list.
+-- Vendor NPC placement lives in server/VendorService — this module is
+-- economy data only.
 
 -- `warn` is a Roblox global; the fallback keeps this module runnable under
 -- the headless Luau CLI (content overlay tests).
@@ -17,6 +21,7 @@ Stores.defs = {
 	general_goods = {
 		id = "general_goods",
 		name = "General Goods",
+		buysGear = true,
 		trades = {
 			{ itemId = "sword_iron", buyPrice = 120, sellPrice = 40 },
 			{ itemId = "helmet_leather", buyPrice = 40, sellPrice = 12 },
@@ -24,10 +29,18 @@ Stores.defs = {
 			{ itemId = "gloves_leather", buyPrice = 30, sellPrice = 9 },
 			{ itemId = "legs_leather", buyPrice = 45, sellPrice = 13 },
 			{ itemId = "boots_leather", buyPrice = 30, sellPrice = 9 },
-			{ itemId = "ring_vitality", buyPrice = 150, sellPrice = 50 },
-			{ itemId = "ring_focus", buyPrice = 150, sellPrice = 50 },
+			{
+				itemId = "ring_vitality",
+				sellPrice = 50,
+				barter = { { itemId = "slime_goo", qty = 25 }, { itemId = "goblin_ear", qty = 10 } },
+			},
+			{
+				itemId = "ring_focus",
+				sellPrice = 50,
+				barter = { { itemId = "slime_goo", qty = 25 }, { itemId = "goblin_ear", qty = 10 } },
+			},
 			{ itemId = "wood", sellPrice = 2 },
-			{ itemId = "stone", sellPrice = 2 },
+			{ itemId = "stone", sellPrice = 2, barter = { { itemId = "wood", qty = 2 } } },
 			{ itemId = "slime_goo", sellPrice = 3 },
 			{ itemId = "goblin_ear", sellPrice = 5 },
 		},

@@ -26,6 +26,9 @@ function validatePrice(where, value) {
 for (const [key, store] of Object.entries(raw.stores)) {
   if (store.id !== key) fail(`store "${key}" has mismatched id "${store.id}"`);
   if (typeof store.name !== "string" || !store.name) fail(`store "${key}" needs a name`);
+  if (store.buysGear !== undefined && typeof store.buysGear !== "boolean") {
+    fail(`store "${key}" buysGear must be a boolean`);
+  }
   if (!Array.isArray(store.trades) || store.trades.length === 0) {
     fail(`store "${key}" needs a non-empty trades list`);
   }
@@ -37,8 +40,24 @@ for (const [key, store] of Object.entries(raw.stores)) {
     seen.add(trade.itemId);
     validatePrice(`${where} buyPrice`, trade.buyPrice);
     validatePrice(`${where} sellPrice`, trade.sellPrice);
-    if (trade.buyPrice === undefined && trade.sellPrice === undefined) {
-      fail(`${where} needs a buyPrice and/or sellPrice`);
+    if (trade.barter !== undefined) {
+      // Barter replaces the gold offer (either/or, VENDOR_UI.md §5.3).
+      if (trade.buyPrice !== undefined) {
+        fail(`${where} can't have both buyPrice and barter`);
+      }
+      if (!Array.isArray(trade.barter) || trade.barter.length === 0 || trade.barter.length > 4) {
+        fail(`${where} barter must list 1-4 costs`);
+      }
+      for (const cost of trade.barter) {
+        if (!cost || !ITEMS[cost.itemId]) fail(`${where} barter references an unknown item`);
+        if (cost.itemId === trade.itemId) fail(`${where} barter can't cost the item itself`);
+        if (!Number.isInteger(cost.qty) || cost.qty < 1 || cost.qty > 99) {
+          fail(`${where} barter qty must be 1-99`);
+        }
+      }
+    }
+    if (trade.buyPrice === undefined && trade.sellPrice === undefined && trade.barter === undefined) {
+      fail(`${where} needs a buyPrice, sellPrice, or barter`);
     }
   }
 }

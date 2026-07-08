@@ -126,4 +126,90 @@ export default async function inventoryRoutes(fastify) {
     const inventory = await withTransaction((client) => getInventory(client, id));
     return { ...result, inventory };
   });
+
+  // Atomic vendor deal (docs/VENDOR_UI.md §5.2): gold delta + item removes +
+  // adds settle in ONE transaction — it all lands or none of it does. The
+  // Roblox server prices the deal (it's the trusted caller, same model as
+  // /save gold); this route just settles it safely.
+  //   body { goldDelta?, removes?: [ {itemId, quantity}            — plain stacks
+  //                                | {containerId, x, y, itemId?} ], — whole row (rolled instance)
+  //          adds?: [ {itemId, quantity} ] }
+  //   → { ok, gold, inventory } | 409 { error: no_gold|no_items|no_space|bad_move }
+  fastify.post("/player/:id/deal", async (request, reply) => {
+    const id = parseId(request, reply);
+    if (id === null) return;
+    const body = request.body || {};
+    const goldDelta = body.goldDelta ?? 0;
+    const removes = body.removes ?? [];
+    const adds = body.adds ?? [];
+
+    if (
+      !Number.isInteger(goldDelta) ||
+      Math.abs(goldDelta) > 1_000_000_000 ||
+      !Array.isArray(removes) ||
+      !Array.isArray(adds) ||
+      removes.length + adds.length === 0 ||
+      removes.length + adds.length > 64
+    ) {
+      reply.code(400);
+      return { error: "bad_request" };
+    }
+
+    const dealErr = (message, code) => Object.assign(new Error(message), { code });
+
+    try {
+      return await withTransaction(async (client) => {
+        for (const line of removes) {
+          if (line && Number.isInteger(line.x) && Number.isInteger(line.y)) {
+            const removed = await removeAt(client, id, line);
+            // The caller says what it expects to sell at that position; a
+            // mismatch means the grid changed under the deal — abort.
+            if (line.itemId !== undefined && removed.itemId !== line.itemId) {
+              throw dealErr("position holds a different item", "bad_move");
+            }
+          } else if (line && typeof line.itemId === "string") {
+            await removeItem(client, id, line.itemId, line.quantity);
+          } else {
+            throw dealErr("bad remove line", "bad_move");
+          }
+        }
+
+        for (const line of adds) {
+          if (!line || typeof line.itemId !== "string") {
+            throw dealErr("bad add line", "bad_move");
+          }
+          await addItem(client, id, line.itemId, line.quantity);
+        }
+
+        // Relative update so concurrent writes can't lose gold; a negative
+        // result throws and the whole transaction rolls back.
+        const { rows } = await client.query(
+          `UPDATE players SET gold = gold + $1, updated_at = now()
+            WHERE id = $2 RETURNING gold`,
+          [goldDelta, id]
+        );
+        if (rows.length === 0) throw dealErr("no such player", "bad_move");
+        const gold = Number(rows[0].gold);
+        if (gold < 0) throw dealErr("not enough gold", "no_gold");
+
+        const inventory = await getInventory(client, id);
+        return { ok: true, gold, inventory };
+      });
+    } catch (err) {
+      const codes = {
+        no_gold: "no_gold",
+        insufficient: "no_items",
+        no_room: "no_space",
+        bad_move: "bad_move",
+        not_found: "bad_move",
+        bad_quantity: "bad_move",
+        unknown_item: "bad_move",
+      };
+      if (codes[err.code]) {
+        reply.code(409);
+        return { error: codes[err.code] };
+      }
+      throw err;
+    }
+  });
 }

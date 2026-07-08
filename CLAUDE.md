@@ -61,9 +61,14 @@ Fastify + `pg` (raw SQL, ESM). Live at
   at boot; the Luau mirrors (`Items.lua`, `Stores.lua`) are the fallback for
   Studio-without-HTTP and backend outages — drift gets warned at overlay
   time. **Store defs (vendor trade lists) live in `content/stores.json`**,
-  validated against the item defs by `src/stores.js`. `loadPlayer`
-  reconciles the starter kit (tools/weapons) on every load, so existing
-  players pick up newly-added starter gear.
+  validated against the item defs by `src/stores.js`: a trade carries gold
+  prices and/or a `barter` item cost (barter replaces the gold buy —
+  either/or), and a store with `buysGear: true` also buys trait-line gear
+  at the shared `ItemValue` formula price. Vendor deals settle through
+  `POST /player/:id/deal` — gold delta + removes + adds in ONE transaction
+  (all-or-nothing; see [`docs/VENDOR_UI.md`](docs/VENDOR_UI.md)).
+  `loadPlayer` reconciles the starter kit (tools/weapons) on every load, so
+  existing players pick up newly-added starter gear.
 - **Admin dashboard** (`/admin`): `src/adminService.js` (reads + audited
   mutations), `src/adminAuth.js` (signed-cookie sessions via Node `crypto`,
   separate from the game's `X-Api-Key`), `src/routes/admin.js`, static SPA in
@@ -86,9 +91,10 @@ everything else requires `X-Api-Key`: `GET /player/:id`, `POST /player`,
 `POST /player/:id/save` (health, gold, cell, position, hotbar binds, client
 settings),
 `GET|POST /player/:id/inventory[...]` (`add` with optional `partial`,
-`remove`, `move`, `sort`), `POST /player/events` (drain queued events for
-online players), `GET /content` (versioned game-content defs: items, starter
-kit, grid dims, equipment slots, stores).
+`remove`, `move`, `sort`), `POST /player/:id/deal` (atomic vendor deal:
+gold delta + item removes + adds, all-or-nothing), `POST /player/events`
+(drain queued events for online players), `GET /content` (versioned
+game-content defs: items, starter kit, grid dims, equipment slots, stores).
 
 ## Roblox (`roblox/`) — Rojo + Rokit
 
@@ -177,10 +183,12 @@ the instance meta rides the drop part as a JSON attribute — labels show
 `ItemStandService` (data-driven pedestals showing a spinning item copy;
 ProximityPrompt takes a copy as a normal ground drop) ·
 `VendorService` (vendor NPCs placed via `VENDOR_DEFS`; the ProximityPrompt
-fires `OpenStore`, trades come back through the `StoreTrade` remote and are
-validated server-side — store carries the item, price side exists, player
-near the vendor — then run through `PlayerService` gold + inventory so they
-persist; buy refunds on a full inventory) ·
+fires `OpenStore`, whole DEALS come back through the `StoreDeal` remote and
+are validated + priced server-side — near the vendor, every line tradable
+with the right side, sell positions hold what the client claims, trait gear
+priced by `shared/ItemValue`, barter costs expanded into removes — then
+settled atomically via `PlayerService.executeDeal` → `POST /player/:id/deal`;
+the whole deal lands or nothing changes. See `docs/VENDOR_UI.md`) ·
 `BorderService` (grid teleport
 handoff) · `AdminSyncService` (polls `/player/events` every 4s → `inventory` events
 refresh the inventory, `stats` events apply admin gold/level/xp/class edits
@@ -216,9 +224,20 @@ swapped back to the first free grid spot),
 ({ active, pages } persisted with the profile — legacy flat maps migrate to
 page 1 on load); fresh profiles get axe/pickaxe seeded on keys 3/4 of
 page 1),
-`StoreUI` (vendor trade panel from the `OpenStore` remote: Buy/Sell tabs,
-owned counts, shift-click ×5, live gold; server errors map to a status
-line), `PlayerSettings` (client preference registry, HotbarBinds-style
+`StoreUI` (Tarkov-style trade screen from the `OpenStore` remote — see
+`docs/VENDOR_UI.md`: vendor stock grid left, deal zone center ("you give"/
+"you get" grids + net gold + DEAL), your pack grid right; click adds 1,
+shift-click a full/whole stack, drag between grids, deal-tile popover
+adjusts quantities, barter buys ride locked cost tiles; sells price via
+trade list or `shared/ItemValue` (rolled instances sell positionally);
+settles through `StoreDeal`, auto-closes when walking away, mutually
+exclusive with InventoryUI), `ItemGrid` (the shared grid VIEW: diffed
+footprint tiles with rarity strokes, qty badges, price chips, dimming and
+lock badges, click/drag-out hooks + `findSpot`/`packFirstFit` first-fit
+placement — StoreUI's three panes today, InventoryUI's grid eventually),
+`ItemTooltip` (the §6.5 tooltip card extracted from InventoryUI; hosts
+append extra lines — store prices, "not traded here"),
+`PlayerSettings` (client preference registry, HotbarBinds-style
 lifecycle: seeded from the `PlayerSettings` attribute, changes pushed via
 `SetPlayerSettings` and persisted with the profile), `SettingsUI` (options
 menu behind the gear button top-right; currently the trait tracker
@@ -231,9 +250,10 @@ tinted by its metal tier), `LevelUpUI` (celebration on the `LevelUp` remote), `D
 level), `GatherFeedbackUI` (harvest feedback from the `GatherFeedback`
 remote), `BorderFadeUI`, `NotificationUI` (toasts from the `Notify` remote),
 `ShiftLockController` (cursor lock + character faces camera; frees cursor when
-inventory open), `TargetingController` (RMB focuses by equipped tool within
+inventory or store open), `TargetingController` (RMB focuses by equipped tool within
 reach — sword→enemies, axe→trees, pickaxe→rocks), `ClientState` (shared
-`aiming` / `inventoryOpen` flags), `Theme` (the Aethelgard design tokens
+`aiming` / `inventoryOpen` / `storeOpen` flags + the `closeInventory`/
+`closeStore` cross-close hooks), `Theme` (the Aethelgard design tokens
 from `docs/UI.md` §2 — ink/stone/ember/parchment Color3 ramps, the two
 serif FontFaces with a Gotham fallback guard, text sizes, orb ramps, and
 the Bronze/Silver/Gold/Prismatic metal tiers + `tierFor`; rarity colors
@@ -252,7 +272,11 @@ fallback + `inventoryGrid` dims — must match backend `GRID`) · `Items`
 `GET /content`; per-item `size` footprint, `reach`, `manaCost`, armor/ring
 `slot`; plus `EQUIPMENT_SLOTS`, `sizeFor`, `slotAccepts`) · `Stores`
 (fallback mirror of vendor trade lists, overlaid from `GET /content`;
-`get`, `trade`, `apply`) · `Classes` (class defs as passive stat
+`get`, `trade`, `apply`; trades may carry a `barter` item cost instead of
+a `buyPrice`, stores a `buysGear` flag) · `ItemValue` (trait-value sell
+pricing, `docs/VENDOR_UI.md` §5.1: `max(5, round(3 × Σ points^1.85))` per
+line — concentrated rolls beat spread; used by the store chips AND the
+`StoreDeal` settlement so they can't disagree) · `Classes` (class defs as passive stat
 multipliers + `damageMult`; class ids mirrored in backend
 `src/classes.js`) · `Spells` (subclass schools + spell defs: unlock levels,
 behaviors, school passives, `hotbarPriority` recommendation order, and the
@@ -294,10 +318,11 @@ while an id is still 0).
   `EnemyService`; add an item to `backend/content/items.json` **and**
   `Items.lua` (with a `size` footprint; equipment may carry `itemLevel` +
   `traits` points — see `shared/Traits.lua` — and an optional `rarity`
-  tier — see `shared/Rarity.lua`); add/reprice a store via
-  `backend/content/stores.json` (+ the `Stores.lua` mirror) and place its
-  vendor via a `VENDOR_DEFS` entry in `VendorService`; add an effect to
-  `Effects.lua`.
+  tier — see `shared/Rarity.lua`); add/reprice a store trade (gold prices
+  or a `barter` cost — never both on one trade, and an item appears in at
+  most ONE trade entry) via `backend/content/stores.json` (+ the
+  `Stores.lua` mirror) and place its vendor via a `VENDOR_DEFS` entry in
+  `VendorService`; add an effect to `Effects.lua`.
 - New gameplay that grants items must go through `PlayerService.addItem/
   removeItem` so it persists and the UI/tools stay in sync. Inventory
   placement is validated **backend-side only** — the client just previews

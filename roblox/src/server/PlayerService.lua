@@ -295,6 +295,32 @@ function PlayerService.removeItem(player, itemId, quantity)
 	return false
 end
 
+-- Settles a vendor deal atomically (docs/VENDOR_UI.md §5): the backend
+-- lands the gold delta + item removes + adds in one transaction, or none
+-- of it. plan = { goldDelta, removes, adds } — already validated and
+-- priced by VendorService. Gold lives in this cache between autosaves, so
+-- the cached balance is flushed to the backend first: the transaction's
+-- no-negative-gold check must run against the real number, not the last
+-- autosave's. Returns (ok, errorCode).
+function PlayerService.executeDeal(player, plan)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary then
+		return false, "offline"
+	end
+	if not BackendService.savePlayer(player.UserId, { gold = profile.gold }) then
+		return false, "offline"
+	end
+	local ok, result = BackendService.deal(player.UserId, plan)
+	if not ok then
+		return false, typeof(result) == "string" and result or "offline"
+	end
+	profile.gold = result.gold or profile.gold
+	player:SetAttribute("Gold", profile.gold)
+	profile.inventory = result.inventory or profile.inventory
+	PlayerService.pushInventory(player)
+	return true
+end
+
 -- Gold is a live server-authoritative stat (like health): mutate it here,
 -- mirror it to the Gold attribute for UI, and let autosave/leave persist it.
 function PlayerService.addGold(player, amount)

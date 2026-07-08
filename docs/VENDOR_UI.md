@@ -1,44 +1,68 @@
 # Vendor UI Remodel — Tarkov-Style Trade Screen
 
+> **Status (2026-07-08): implemented** — backend `/deal` route + barter
+> content, `shared/ItemValue.lua`, `VendorService.StoreDeal`,
+> `PlayerService.executeDeal`, and the client rebuild (`ItemTooltip` +
+> `ItemGrid` + the three-pane `StoreUI`). Checklist step 8 (InventoryUI
+> migration onto ItemGrid) is the remaining follow-up. Verify per §9.
+> Implementation notes vs spec: price chips render bottom-LEFT (qty owns
+> bottom-right, matching InventoryUI); barter stock chips show "⇄" with the
+> exact costs in the tooltip; `removeItemAt` wasn't needed — positional
+> sells ride the `/deal` payload and the backend's `removeAt` directly.
+
 > Spec for rebuilding `client/StoreUI.lua` from the current list + detail
 > panel into a three-pane trade screen modeled on Escape from Tarkov's
 > trader view (reference screenshot in chat, 2026-07-07): the vendor's
-> stock as an item grid on the left, a deal cart in the middle with one
+> stock as an item grid on the left, a deal zone in the middle with one
 > big DEAL button, and the player's own inventory grid on the right.
-> Everything stays server-authoritative — the client builds a cart and
-> asks; `VendorService` validates and executes through `PlayerService`.
+> Everything stays server-authoritative — the client builds a deal and
+> asks; `VendorService` validates, prices, and settles it through ONE
+> transactional backend call.
 
 ## 1. Goal & scope
 
 - **One screen, no tabs.** Buy and sell live together: vendor stock left,
-  your grid right, both feeding a central deal cart. The Buy/Sell tabs
+  your grid right, both feeding the central deal zone. The Buy/Sell tabs
   and the detail pane die.
-- **Grid-native.** Both sides render items as footprint-sized tiles
-  (`Theme.Size.Cell` = 42px module, item `size` W×H), with price chips,
-  rarity strokes and the §6.5 hover tooltip — the same visual language as
-  `InventoryUI` (see the Lynx Ring tooltip screenshot).
-- **Batched trades.** The cart holds buy AND sell lines at once; DEAL
-  executes them in one remote call and settles the net gold.
-- **New capability: selling rolled instances.** Today `PlayerService.
-  removeItem` is id-based and deliberately skips `meta` rows, so rolled
-  gear is unsellable. Drag & drop is positional, so sell lines can carry
-  a grid position and ride the existing `removeAt` path — rolled gear
-  becomes sellable without touching the meta-protection rule.
+- **Grid-native everywhere.** Stock, your pack, AND the deal zone render
+  items as footprint-sized tiles (`Theme.Size.Cell` = 42px, item `size`
+  W×H) with price chips, rarity strokes and the §6.5 hover tooltip. The
+  deal zone is two real grids ("You give" / "You get") — items dropped
+  in are auto-placed first-fit, Tarkov style.
+- **Atomic batched deals.** The whole deal — gold delta, sells, buys,
+  barter costs — settles in one backend transaction
+  (`POST /player/:id/deal`). It all lands or none of it does; a failed
+  deal leaves the zone intact.
+- **Trait-value pricing for rolled gear** (§5): sell value grows
+  superlinearly with each trait's points (`points^1.85` per line, §5.1),
+  so concentrated rolls beat spread ones. This also makes rolled `meta`
+  instances sellable at all — today the id-based remove deliberately
+  skips them.
+- **Barter trades**: a stock item may cost items instead of gold
+  (`barter` on the trade def); its costs auto-enter "You give".
+- **Quick-move**: shift-click moves the whole stack to the contextual
+  destination (deal zone in the store; equipment slot in the inventory
+  screen once it migrates onto `ItemGrid` — §6/§8).
 
-Out of scope (phase 2+, see §10): stock quantities/restock timers,
-barter trades (item-for-item), a buyback tab, rearranging your own grid
-while the store is open, per-roll sell pricing.
+Decided (2026-07-08): no stock limits/restock; deal zone is a real grid,
+not a line cart (5×4 per side, confirmed); shift-click on vendor stock
+adds ONE full stack regardless of gold; DEAL button copy is plain
+"DEAL"; value exponent is 1.85 (§5.1); `ItemGrid` eventually replaces
+InventoryUI's grid (consolidated, single implementation); no buyback
+tab for now. Still out of scope: multi-vendor tabs, rearranging your
+own pack inside the store screen.
 
 ## 2. Reference mapping (Tarkov → FAMANA)
 
 | Tarkov element | FAMANA equivalent |
 |---|---|
-| Trader stock grid (left, price tag per tile) | Store's **buyable** trades packed into a grid, `buyPrice` chip per tile |
-| Deal zone + "DEAL!" button (center) | Cart with "You give / You get" lines, net gold, DEAL button |
+| Trader stock grid (left, price tag per tile) | Store's **buyable** trades packed into a grid, `buyPrice` (or barter icons) chip per tile |
+| Deal zone + "DEAL!" button (center) | "You give" / "You get" grids, net-gold row, DEAL button |
 | Player stash grid (right) | The `main` 10×30 grid (read + drag-to-sell; no rearranging in MVP) |
-| Roubles | Gold (`◈`, `Gold` attribute) |
+| Roubles | Gold (`◈`, `Gold` attribute; gold is the net row, never a tile) |
+| Barter offers (items-for-items) | `barter` cost on a trade def (§5.3) |
+| Ctrl-click quick-move | Shift-click whole-stack quick-move |
 | Trader tabs along the bottom | Out of scope — one vendor per screen (`OpenStore` already scopes it) |
-| Item context menus / quantity dialog | Click/shift-click/drag + cart steppers (§4) |
 
 Sell-only trades (wood, stone, slime goo, goblin ear) never appear in
 the stock pane — they surface as sell-price chips on the player's own
@@ -53,14 +77,17 @@ Title bar: store name (Display), vendor name (muted), `closeButton`.
 ┌──────────────────────────────────────────────────────────────────┐
 │  GENERAL GOODS · Marla the Trader                            [X] │
 ├──────────────────┬───────────────────┬───────────────────────────┤
-│  STOCK           │       DEAL        │  YOUR PACK        ◈ 1 240 │
-│ ┌──┬──┬──┬──┐    │  You give         │ ┌──┬──┬──┬──┬──┬──┬──┬──┐ │
-│ │▒▒│▒▒│▒▒│▒▒│    │   50× Wood  ◈100  │ │▒▒│▒▒│  │  │▒▒│  │  │  │ │
-│ │◈120 ◈40 …  │    │  You get          │ │◈2 │◈2 │  … 10 cols …  │ │
-│ ├──┴──┴──┴──┤    │   Iron Sword ◈120 │ ├──┴──┴─────────────────┤ │
-│ │ 8 cols,    │    │  ───────────────  │ │ 10×30, ~11 rows       │ │
-│ │ scrolls    │    │  Net   pay ◈ 20   │ │ visible, scrolls      │ │
-│ └────────────┘    │  [    DEAL    ]   │ └───────────────────────┘ │
+│  STOCK           │  YOU GIVE         │  YOUR PACK        ◈ 1 240 │
+│ ┌──┬──┬──┬──┐    │ ┌──┬──┬──┬──┬──┐  │ ┌──┬──┬──┬──┬──┬──┬──┬──┐ │
+│ │▒▒│▒▒│▒▒│▒▒│    │ │██│▒▒│  │  │  │  │ │▒▒│▒▒│  │  │▒▒│  │  │  │ │
+│ │◈120 ◈40 …  │    │ │50│  │  │  │  │  │ │◈2 │◈2 │  … 10 cols …  │ │
+│ ├──┴──┴──┴──┤    │ └──┴──┴──┴──┴──┘  │ ├──┴──┴─────────────────┤ │
+│ │ 8 cols,    │    │  YOU GET          │ │ 10×30, ~11 rows       │ │
+│ │ scrolls    │    │ ┌──┬──┬──┬──┬──┐  │ │ visible, scrolls      │ │
+│ └────────────┘    │ │▒▒│  │  │  │  │  │ └───────────────────────┘ │
+│                   │ └──┴──┴──┴──┴──┘  │                           │
+│                   │  Net    pay ◈ 20  │                           │
+│                   │  [     DEAL     ] │                           │
 │                   │  status line      │                           │
 └──────────────────┴───────────────────┴───────────────────────────┘
 ```
@@ -70,183 +97,282 @@ Title bar: store name (Display), vendor name (muted), `closeButton`.
   order = shelf layout; the packing is display-only, nothing persists).
   Tile = `ItemModels.preview` viewport + rarity stroke/glow + a price
   chip (`Theme.Text.Xs`, `Semantic.Currency` on Ink900 @ ~20%
-  transparency) in the bottom-right corner.
-- **Deal pane (center, ~250px):** two stacked line lists under "YOU
-  GIVE" / "YOU GET" headers, then a net-gold row, the DEAL button
-  (`UIKit.primaryButton`), and the status line (keep `ERROR_TEXT`).
-  Cart line (42px): thumb · name (rarity-tinted, truncated) · qty
-  stepper `− n +` (stackables only) · line total · remove `×`.
+  transparency) bottom-right. Barter trades show mini item icons + qty
+  instead of a gold chip.
+- **Deal pane (center, ~250px):** two 5-wide × 4-tall grids under
+  "YOU GIVE" / "YOU GET" headers, then the net-gold row, the DEAL
+  button (`UIKit.primaryButton`), and the status line (keep
+  `ERROR_TEXT`). Deal tiles carry a quantity badge; barter-cost tiles
+  carry a small lock badge (they belong to a "You get" item and can't
+  be edited directly).
 - **Player pane (right, ~450px):** the `main` grid, 10 wide, ~11 rows
   visible, scrollable — same tile visuals as InventoryUI. Header: gold
-  readout. Tiles of items this store buys get a `sellPrice` chip;
-  everything the store does NOT buy renders dimmed (~50% transparency)
-  with a "Not traded here" tooltip line.
+  readout. Tiles the store buys get a `sellPrice` chip (formula value
+  for rolled gear); everything the store does NOT buy renders dimmed
+  (~50% transparency) with a "Not traded here" tooltip line. Quantities
+  already committed to the deal show ghosted on the source tile.
 - Sharp corners, one ember accent (the DEAL button), tooltips identical
-  to the inventory's (§6 below). `docs/UI.md` §8's vendor line gets
-  rewritten to this layout.
+  to the inventory's (§6). `docs/UI.md` §8's vendor line gets rewritten
+  to this layout.
 
 ## 4. Interactions
 
-**Adding to the cart**
-- Click a stock tile → +1 buy line (shift-click → +5, stackables only —
-  preserves today's modifier). Drag a stock tile into the deal pane →
-  same.
-- Click a player tile → +1 sell line (shift-click → +5). Drag a player
-  tile into the deal pane → the whole stack.
-- Rolled instances (`meta` present) always add quantity 1 and carry
-  their grid position; their line shows the "[Lv N]" tier-colored label.
-- Cart steppers clamp: sells to the quantity owned (main grid only),
-  buys to 99 (`MAX_TRADE_QUANTITY`). Same item id merges into one line
-  per side; distinct rolled instances stay distinct lines.
+**Adding to the deal** (every route auto-places first-fit in the
+target grid — unrotated first, rotated if that's the only fit):
+- Click a stock tile → +1 into "You get". **Shift-click → one full
+  stack** (def stack size; 1 for gear), regardless of gold — DEAL just
+  stays disabled while unaffordable.
+- Click a player tile → +1 into "You give". **Shift-click → the whole
+  stack.** Drag into the deal pane → the whole stack.
+- Drag a stock tile into the deal pane → +1 (drag has no natural
+  quantity on the unlimited side).
+- Rolled instances (`meta` present) always move as quantity 1, carry
+  their grid position, and show the "[Lv N]" tier-colored label.
+- Adding a barter item to "You get" auto-adds its cost tiles (locked)
+  to "You give"; each extra unit scales the costs. Costs come out of
+  your pack — the deal validates you own them.
+- Same plain item id merges into one deal tile per side (badge grows);
+  distinct rolled instances stay distinct tiles. If the deal grid can't
+  fit the footprint, the add is refused with a status nudge.
+
+**Editing the deal**
+- Click a deal tile → popover: `− n +`, "All", remove `×`. Sells clamp
+  to owned (main grid only), buys to 99 (`MAX_TRADE_QUANTITY`).
+- Drag a tile out of the deal grid → removes it (its locked barter
+  costs follow their "You get" item).
 
 **The DEAL button**
 - Label shows the settlement: `DEAL — PAY ◈ 20` / `DEAL — GET ◈ 130`.
-- Disabled (ghost style) when the cart is empty or net gold is short;
-  the net row turns `Semantic.Danger` when unaffordable.
-- On success: cart clears; grids and gold refresh through the existing
-  `InventoryUpdated` push + `Gold` attribute (no local bookkeeping,
-  same as today); server sends the Notify toast.
-- On failure: unexecuted lines stay in the cart, status line maps the
-  error code.
+- Disabled (ghost) when the zone is empty, net gold is short, or a
+  barter cost is missing; the net row turns `Semantic.Danger`.
+- Success: zone clears; grids/gold refresh through the existing
+  `InventoryUpdated` push + `Gold` attribute; server sends the Notify
+  toast. Failure: the WHOLE deal was rolled back (§5.4) — the zone
+  stays as-is and the status line maps the error.
 
 **Lifecycle**
-- Opens on `OpenStore` (unchanged). Cart starts empty, always.
+- Opens on `OpenStore` (unchanged), zone always starts empty.
 - New `ClientState.storeOpen` flag; `ShiftLockController` frees the
   cursor when `inventoryOpen or storeOpen`.
-- Exclusive with the inventory screen: opening one closes the other
-  (the windows overlap, and the store already shows your grid).
+- Exclusive with the inventory screen: opening one closes the other.
 - Client auto-closes past ~20 studs from the vendor (watch every 0.5s);
   the server's `MAX_TRADE_DISTANCE = 16` check stays authoritative.
 
-## 5. Protocol — `StoreDeal` replaces `StoreTrade`
+## 5. Pricing, barter & protocol
 
-No changes to `stores.json` / `Stores.lua` / backend content. One new
-RemoteFunction, owned by `VendorService`; `StoreTrade` is deleted with
-the old UI (StoreUI is its only consumer).
+### 5.1 Trait-value formula — `shared/ItemValue.lua`
+
+One shared module so the chip, the deal tile, the net row and the
+server all agree:
+
+```
+value(entry) = max(FLOOR, round( K × Σ over lines (points_i ^ EXP) ))
+EXP = 1.85 (decided) · K = 3, FLOOR = 5 (tune vs goblin farm income)
+```
+
+- Raising EACH line to 1.85 separately (not the sum) rewards
+  concentration. Reference values at K = 3:
+
+| Lines | Σ p^1.85 | Value |
+|---|---|---|
+| Brawler 3 (e.g. Lynx Eye +3) | 7.6 | 23g |
+| Brawler 4 | 13.0 | 39g |
+| Brawler 5 + Bastion 1 | 20.6 | 62g |
+| Brawler 5 + Bastion 3 | 27.3 | 82g |
+| Brawler 6 | 27.5 | 83g |
+| 8 + 4 + 3 (big legendary) | 67.5 | 202g |
+
+  Ordering matches the design examples: 6 concentrated beats 5+3
+  spread (by a hair — the crossover exponent is ≈1.82, so never tune
+  below that), and Brawler 4 is +70% over 3 — more, but not double.
+  Implementation rule: sum the lines in floating point and round ONCE
+  at the end — per-line rounding erases the concentration edge (at
+  K = 1, Brawler 6 and 5+3 both round to 28).
+- Trait lines and school-point lines count identically — the roll
+  already treats them as one budget. Rarity/itemLevel need no explicit
+  term: rarity's bonus points + extra lines ARE the points.
+- Lines come from `Traits.entryInfo` (meta overrides def), so the
+  formula also prices def-fixed trait gear.
+- **Sell-price resolution** (identical in StoreUI and VendorService):
+  rolled instance (`meta`) → `ItemValue` IF the store has `buysGear =
+  true` (new optional store field; `general_goods` sets it); else a
+  listed trade `sellPrice` wins — INCLUDING for listed items whose def
+  carries starter trait points (sword_iron's berserker +1 must not
+  floor its curated 40g); else unlisted def-trait gear → `ItemValue`
+  under `buysGear`. Otherwise not sellable here. Vendors never SELL
+  rolled gear, so `buyPrice` is untouched.
+
+### 5.2 Backend — `POST /player/:id/deal`
+
+New route (X-Api-Key, same trust model as `addGold`/inventory today:
+the Roblox server computes prices, the backend settles). One
+transaction, all-or-nothing:
+
+```
+{ "goldDelta": -20,
+  "removes": [ { "itemId": "wood", "quantity": 50 },
+               { "containerId": "main", "x": 3, "y": 7 } ],
+  "adds":    [ { "itemId": "sword_iron", "quantity": 1 } ] }
+→ 200 { "ok": true, "gold": 1220, "inventory": [...] }
+→ 409 { "error": "no_gold" | "no_items" | "no_space" | "bad_move" }
+```
+
+Composes the existing transactional primitives in `src/inventory.js`
+(`removeItem` id-based, `removeAt` positional, `addItem` strict — all
+already take a `client`); gold checks `gold + goldDelta >= 0` on the
+players row. Any failure rolls the whole transaction back.
+
+### 5.3 Barter trades — `stores.json`
+
+```json
+{ "itemId": "ring_vitality",
+  "barter": [ { "itemId": "slime_goo", "qty": 25 },
+              { "itemId": "goblin_ear", "qty": 10 } ] }
+```
+A trade carries `barter` OR `buyPrice`, never both, and an itemId
+appears in at most one trade entry (`Stores.trade` is first-match) —
+so giving an item a barter REPLACES its gold offer. Dual-cost offers
+(player picks gold or mats) would need a `payWith` field on buy
+lines; future extension. `backend/src/stores.js` validates: barter
+ids exist in the item defs, qty 1..99, the either/or rule.
+`Stores.lua` mirror carries the same entries.
+
+**Starting barters** (general_goods — a seed list to expand later).
+Pricing guideline: the cost's total sell value lands at ~80–90% of the
+item's old gold price, so farming the mats beats paying gold; raw
+material exchanges tax ~50%:
+
+| You get | You give | Cost worth | Notes |
+|---|---|---|---|
+| ring_vitality | 25 slime_goo + 10 goblin_ear | 125g (was ◈150) | farm-gated ring |
+| ring_focus | 25 slime_goo + 10 goblin_ear | 125g (was ◈150) | farm-gated ring |
+| stone ×1 | 2 wood | 4g (stone sells 2g) | material exchange — a buy route stone never had |
+
+Both rings deliberately lose their 150g gold offers (the either/or
+rule); deleting the barter reverts that if it plays badly.
+
+### 5.4 `StoreDeal` remote (replaces `StoreTrade`)
 
 ```lua
--- request
-{
-  storeId = "general_goods",
+-- request (client → VendorService)
+{ storeId = "general_goods",
   lines = {
     { side = "buy",  itemId = "sword_iron", quantity = 1 },
     { side = "sell", itemId = "wood", quantity = 50 },
-    -- rolled instance: positional, quantity always 1
-    { side = "sell", itemId = "ring_lynx", x = 3, y = 7 },
-  },
-}
--- response
-{ ok = true }                                    -- everything executed
-{ ok = false, error = "no_gold", applied = 2 }   -- lines[1..2] executed, rest kept in cart
+    { side = "sell", itemId = "ring_lynx", x = 3, y = 7 }, -- rolled: positional, qty 1
+  } }
+-- response: { ok = true } | { ok = false, error = "no_gold" | ... }
 ```
 
-**Validation (reject the whole deal up front):** payload shape; ≤ 16
-lines; `nearVendor`; every line traded by the store with the right
-price side; quantities in 1..99; positional lines resolve to a matching
-`main`-grid entry (itemId + meta present).
+VendorService: validate shape (≤ 24 lines), `nearVendor`, every line
+tradable with the right side (buy → `buyPrice`/`barter`; sell →
+`sellPrice` or `buysGear` + trait lines), quantities, positional lines
+resolve to a matching main-grid entry. Then PRICE the deal
+(trade prices + `ItemValue` + barter costs expanded into removes),
+build the `{goldDelta, removes, adds}` plan, and settle it via
+`PlayerService.executeDeal` (§7). No partial execution exists anymore —
+the response is binary and the client keeps the zone on failure.
+`StoreTrade` is deleted with the old UI.
 
-**Execution order — sells first, then buys** (the sale gold funds the
-purchases, maximizing success):
-1. Sell (plain): `PlayerService.removeItem(player, itemId, qty)` — the
-   existing id-based remove; it skips meta rows, which is correct here.
-2. Sell (rolled): the positional path `PlayerService.dropItem`-style →
-   backend `removeAt` (meta rows are quantity-1 rows, so whole-row
-   removal IS the sale). Extract the remove half of `dropItem` into
-   `PlayerService.removeItemAt(player, ref)` so DropService and
-   VendorService share it. Payout: base `sellPrice` (see §10.1).
-3. Buy: `spendGold` → `addItem`; on `no_space`, refund that line's gold
-   (today's behavior) and abort.
-4. First failed line aborts the remainder → `{ ok = false, error,
-   applied }`. Already-executed lines are NOT rolled back — inventory
-   writes go through to the backend per call, so full atomicity needs a
-   backend batch endpoint (§10.4). One toast summarizes what settled.
-
-New error codes joining `ERROR_TEXT`: `bad_line` ("That trade isn't
-valid anymore"), `too_many_lines` ("Deal too large").
+New `ERROR_TEXT` codes: `bad_line` ("That trade isn't valid anymore"),
+`too_many_lines` ("Deal too large").
 
 ## 6. Client architecture
 
-Two extractions make both store panes cheap, then StoreUI is a rebuild:
+Two extractions make all three panes cheap, then StoreUI is a rebuild:
 
 1. **`client/ItemTooltip.lua`** — lift InventoryUI's §6.5 tooltip
    (rarity-tinted stroke, name/level/type rows, trait lines, stat line)
    into a module both screens require: `ItemTooltip.show(gui, entryOrDef,
    screenPos)` / `.hide()`. InventoryUI switches to it in the same PR —
    it's the regression test that the extraction is faithful.
-2. **`client/ItemGrid.lua`** — a render-only grid view: takes a column
-   count and a list of `{ itemId, quantity, x, y, meta?, price?,
-   dimmed? }`, renders footprint tiles (viewport thumb, rarity stroke,
-   qty badge, price chip), diffs tiles across updates like InventoryUI
-   does, and exposes `onClick` / `onDragOut` / hover callbacks. The
-   stock pane feeds it synthetic packed entries; the player pane feeds
-   real `main` entries. It does NOT do within-grid drag/rotate — that
-   complexity stays in InventoryUI until a later migration (§10.5).
-3. **`client/StoreUI.lua`** — rebuilt: three panes, cart state
-   (`{ side, itemId, quantity, x?, y?, meta? }` lines), DEAL via
-   `StoreDeal`. Keeps: `OpenStore` wiring, `InventoryUpdated` +
-   `RequestInventory` inventory mirror, `Gold` attribute readout,
-   `ERROR_TEXT` mapping.
+2. **`client/ItemGrid.lua`** — the one grid view (destined to replace
+   InventoryUI's grid too — consolidation decided): takes a column
+   count and entries `{ itemId, quantity, x?, y?, meta?, price?,
+   dimmed?, locked? }`, renders footprint tiles (viewport thumb, rarity
+   stroke, qty badge, price chip, lock badge), diffs tiles across
+   updates, and exposes `onClick(entry, shift)` / `onDragOut` / hover
+   callbacks plus `placeFirstFit(entry)` (unrotated-then-rotated
+   packing — used by the stock pane's shelf layout AND the deal grids'
+   auto-placement). Within-grid drag/rotate lands with the InventoryUI
+   migration (§8 step 8), not before.
+3. **`client/StoreUI.lua`** — rebuilt: three panes, deal state (two
+   ItemGrids + line records `{ side, itemId, quantity, x?, y?, meta?,
+   barterFor? }`), quantity popover, DEAL via `StoreDeal`. Keeps:
+   `OpenStore` wiring, `InventoryUpdated` + `RequestInventory`
+   inventory mirror, `Gold` attribute readout, `ERROR_TEXT` mapping.
 
 `ClientState.storeOpen` + the ShiftLockController read and the
 InventoryUI/StoreUI mutual-close are the only touches outside these
-three files (plus `EQUIP/BIND` hover keys are inventory-only — the
-store grids don't quick-bind).
+files. Quick-bind/equip hover keys stay inventory-only.
 
 ## 7. Server changes
 
-- **`VendorService`**: replace `handleTrade` with the `StoreDeal`
-  handler (§5). Vendor building, prompts, `VENDOR_DEFS`, `nearVendor`
-  all unchanged.
-- **`PlayerService`**: extract `removeItemAt(player, ref)` from
-  `dropItem` (remove + refresh + return `itemId, quantity, meta`);
-  `dropItem` becomes a thin wrapper. No new backend routes.
+- **`VendorService`**: `handleTrade` → the `StoreDeal` handler (§5.4).
+  Vendor building, prompts, `VENDOR_DEFS`, `nearVendor` unchanged.
+- **`PlayerService.executeDeal(player, plan)`**: calls
+  `POST /player/:id/deal`, on success swaps in the returned inventory +
+  gold (cache, `Gold` attribute, `onInventoryChanged`, client push —
+  the `refreshInventory` path), maps 409 codes through.
+- **Backend**: the `/deal` route + handler (§5.2); `stores.js` barter
+  validation (§5.3). `content/stores.json` + `Stores.lua` gain
+  `buysGear` and the first barter entries.
 
 ## 8. Implementation checklist
 
-1. `ItemTooltip.lua` extraction + InventoryUI switched to it (no visual
+1. Backend: `POST /player/:id/deal` + `stores.js` barter/`buysGear`
+   validation (verify: `node -e "import('./src/stores.js')"` and a
+   local `/deal` smoke test with rollback cases).
+2. `shared/ItemValue.lua` + unit sanity in a Studio command bar (the
+   §5.1 examples) · `PlayerService.executeDeal` ·
+   `VendorService.StoreDeal` (keep `StoreTrade` alive until step 5).
+3. `ItemTooltip.lua` extraction + InventoryUI switched to it (no visual
    change — screenshot-compare the Lynx Ring tooltip).
-2. `PlayerService.removeItemAt` + `VendorService.StoreDeal` (keep
-   `StoreTrade` alive until step 4 lands so the old UI keeps working).
-3. `ItemGrid.lua` + the three-pane StoreUI with click-to-cart only.
-4. Drag & drop from both grids into the deal pane; delete `StoreTrade`.
-5. Polish: dimming + "Not traded here", price chips, auto-close on
-   walk-away, empty-cart state, `ClientState.storeOpen` cursor wiring.
-6. Docs: CLAUDE.md (StoreUI/VendorService/new modules lines), UI.md §8
-   vendor layout, this file's status.
+4. `ItemGrid.lua`: tiles, chips, badges, diffing, `placeFirstFit`,
+   click/shift/drag-out hooks.
+5. StoreUI rebuild: three panes, deal grids, click/shift-click routes,
+   popover, DEAL; delete `StoreTrade`.
+6. Drag & drop (stock → deal, pack → deal, deal → out) + barter locked
+   tiles + barter chips on stock tiles.
+7. Polish: dimming + "Not traded here", ghosted committed quantities,
+   auto-close on walk-away, `ClientState.storeOpen` cursor wiring.
+8. **InventoryUI migration onto `ItemGrid`** (adds within-grid drag +
+   rotate + shift-click auto-equip quick-move) — after the store ships.
+9. Docs: CLAUDE.md (routes line, StoreUI/VendorService/new modules),
+   UI.md §8 vendor layout, this file's status.
 
 ## 9. Verification
 
-- `luau-analyze` on every touched Luau file.
+- `luau-analyze` on every touched Luau file; backend content validation
+  via the import checks in step 1.
 - Manual, in Studio at Marla:
-  1. Buy 1 sword + 50 wood sell in one deal → net settles correctly,
-     toast fires, grids refresh.
-  2. Net short on gold → DEAL disabled; drop the buy line → enabled.
-  3. Fill the grid, buy a 2×2 piece → `no_space`, gold refunded, prior
-     lines settled, `applied` count matches.
-  4. Kill goblins for a rolled drop → its tile sells via drag, the line
-     shows "[Lv N]" in tier color, meta row gone after the deal.
-  5. Shift-click ×5 on wood both directions; steppers clamp at owned/99.
-  6. Tooltip on stock/player tiles matches the inventory's pixel-for-
-     pixel; dimmed non-traded tiles say so.
-  7. Open inventory (B) while trading → store closes (and vice versa);
-     walk 20+ studs away → panel closes itself.
-  8. Resize the window (small viewport) → `autoScale` keeps all three
-     panes usable.
+  1. Buy 1 sword + sell 50 wood in one deal → net settles, toast fires,
+     grids refresh; check the backend `gold`/inventory match.
+  2. Net short on gold → DEAL disabled; remove the buy tile → enabled.
+  3. Fill the pack, buy a 2×2 piece alongside a valid sell → 409
+     `no_space`, NOTHING changed (gold and sold items intact), zone
+     preserved.
+  4. Rolled goblin drop: pack tile shows the `ItemValue` chip
+     (badge math matches the §5.1 table), sells via shift-click, meta
+     row gone after the deal; a spread roll prices below a concentrated
+     roll of the same level.
+  5. Barter item: adding it auto-adds locked costs, missing costs
+     disable DEAL, success removes costs + grants the item atomically.
+  6. Shift-click: vendor tile → full stack regardless of gold; pack
+     tile → whole stack; popover clamps at owned/99; deal grid refuses
+     adds when full.
+  7. Tooltips on all three panes match the inventory's; dimmed
+     non-traded tiles say so.
+  8. Open inventory (B) while trading → store closes (and vice versa);
+     walk 20+ studs away → panel closes itself; small viewport →
+     `autoScale` keeps all panes usable.
 
 ## 10. Open questions
 
-1. **Rolled-instance pricing** — flat base `sellPrice` (proposed MVP),
-   or scale by `meta.itemLevel` × rarity (needs a shared formula so the
-   chip, the cart line and the server agree)?
-2. **Stock limits / restock** — Tarkov's scarcity loop. Needs per-store
-   state (in-memory per server, or backend if shared). Post-MVP.
-3. **Barter trades** — `stores.json` trades could grow a
-   `barter: [{ itemId, qty }]` cost; the cart model already fits it.
-4. **Deal atomicity** — accept sequential-with-report (proposed), or
-   add a backend `POST /player/:id/deal` batch endpoint that settles
-   gold + all lines in one transaction?
-5. **ItemGrid ↔ InventoryUI convergence** — after the store ships,
-   migrate InventoryUI's grid onto `ItemGrid` (adding drag-within/
-   rotate), or keep them separate implementations?
-6. **DEAL flavor** — plain "DEAL", or Aethelgard-flavored copy
-   ("Seal the Bargain")? Pure copywriting, ember button either way.
+1. **Value tuning** — the exponent is locked at 1.85; K = 3 / FLOOR = 5
+   are still first-pass, so check a goblin-farming session's gold/hour
+   before locking them. If the exponent ever gets retuned, stay above
+   ≈1.82 or concentrated rolls stop beating spread ones (§5.1).
+2. **Barter economy check** — do the §5.3 seed barters play well
+   (rings farm-gated, wood→stone exchange), and which items join the
+   list next?

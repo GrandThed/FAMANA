@@ -159,6 +159,20 @@ function BackendService.removeItem(userId, itemId, quantity)
 	return false, nil
 end
 
+-- Settle an atomic vendor deal (docs/VENDOR_UI.md §5.2): gold delta + item
+-- removes + adds land in ONE backend transaction, or none of them do.
+-- plan = { goldDelta, removes = {...}, adds = {...} }.
+-- Returns (ok, data) on success where data = { gold, inventory }, or
+-- (false, errorCode) — the backend's reason on a 409, nil on transport
+-- failure.
+function BackendService.deal(userId, plan)
+	local ok, data = request("POST", "/player/" .. tostring(userId) .. "/deal", plan)
+	if ok and data then
+		return true, data
+	end
+	return false, data and data.error or nil
+end
+
 -- Fetch the player's current inventory (used to refresh after an admin edit).
 function BackendService.getInventory(userId)
 	local ok, data = request("GET", "/player/" .. tostring(userId) .. "/inventory")

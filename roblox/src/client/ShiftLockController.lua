@@ -65,8 +65,8 @@ function ShiftLockController.start()
 
 	RunService.RenderStepped:Connect(function(dt)
 		-- Aim (face camera + crosshair + targeting) only while holding RMB and
-		-- not in the inventory. The mouse is never locked.
-		local aiming = ClientState.aiming and not ClientState.inventoryOpen
+		-- not in the inventory or store. The mouse is never locked.
+		local aiming = ClientState.aiming and not (ClientState.inventoryOpen or ClientState.storeOpen)
 		dot.Visible = aiming
 
 		if aiming and character and character.Parent and root and humanoid and humanoid.Health > 0 then

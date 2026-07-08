@@ -1,10 +1,12 @@
 -- Vendor NPCs: low-poly merchants with a ProximityPrompt that opens the
--- store UI on the client (OpenStore remote). Trades come back through the
--- StoreTrade RemoteFunction and are validated here — store carries the item,
--- the right price side exists, the player is actually near the vendor — then
--- orchestrated through PlayerService so gold and inventory stay authoritative
--- and persisted (buy: spend gold, add item, refund on full inventory;
--- sell: remove items, then pay out).
+-- store UI on the client (OpenStore remote). Deals come back through the
+-- StoreDeal RemoteFunction (docs/VENDOR_UI.md §5.4) and are validated here —
+-- the player is near the vendor, every line is tradable with the right
+-- side, sell positions hold what the client claims — then PRICED (trade
+-- list prices, shared ItemValue for trait gear, barter costs expanded into
+-- removes) and settled through PlayerService.executeDeal: the backend lands
+-- gold + removes + adds in ONE transaction, so the whole deal succeeds or
+-- nothing changes.
 --
 -- Store contents/prices are data (shared/Stores, overlaid from GET /content);
 -- vendor placement is world layout and lives here in VENDOR_DEFS.
@@ -15,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
+local ItemValue = require(Shared:WaitForChild("ItemValue"))
 local Stores = require(Shared:WaitForChild("Stores"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
@@ -25,6 +28,8 @@ local VendorService = {}
 -- doesn't reject a click the player already lined up.
 local MAX_TRADE_DISTANCE = 16
 local MAX_TRADE_QUANTITY = 99
+local MAX_DEAL_LINES = 20
+local MAX_DEAL_OPS = 64 -- backend /deal cap on removes + adds
 
 -- { storeId, name, position, facing? (degrees yaw; vendor looks along -Z) }
 local VENDOR_DEFS = {
@@ -87,6 +92,9 @@ local function buildVendor(def)
 			storeId = def.storeId,
 			storeName = store.name,
 			vendorName = def.name,
+			-- The client watches its distance to this and closes the panel
+			-- when the player walks away.
+			position = model.PrimaryPart.Position,
 		})
 	end)
 end
@@ -107,68 +115,178 @@ local function nearVendor(player, storeId)
 	return false
 end
 
-local function tradeMessage(verb, def, quantity, total)
-	local label = quantity > 1 and (quantity .. "x " .. def.name) or def.name
-	return verb .. " " .. label .. " for " .. total .. "g"
+-- Non-meta main-grid quantity of an item (what generic id-based removal can
+-- actually consume — rolled instances sell positionally instead).
+local function countOwned(inventory, itemId)
+	local total = 0
+	for _, entry in ipairs(inventory) do
+		if entry.containerId == "main" and entry.itemId == itemId and not entry.meta then
+			total += entry.quantity
+		end
+	end
+	return total
 end
 
-local function handleTrade(player, payload)
-	if typeof(payload) ~= "table" then
-		return { ok = false, error = "bad_request" }
+local function entryAt(inventory, x, y)
+	for _, entry in ipairs(inventory) do
+		if entry.containerId == "main" and entry.x == x and entry.y == y then
+			return entry
+		end
 	end
-	local storeId = payload.storeId
-	local itemId = payload.itemId
-	local action = payload.action
+	return nil
+end
+
+-- Validates and prices a whole deal, then settles it atomically. Lines:
+--   { side = "buy",  itemId, quantity }          — gold or barter cost
+--   { side = "sell", itemId, quantity }          — plain stacks, id-based
+--   { side = "sell", itemId, x, y }              — whole row at a position
+--                                                  (rolled instances)
+local function handleDeal(player, payload)
 	if
-		typeof(storeId) ~= "string"
-		or typeof(itemId) ~= "string"
-		or (action ~= "buy" and action ~= "sell")
+		typeof(payload) ~= "table"
+		or typeof(payload.storeId) ~= "string"
+		or typeof(payload.lines) ~= "table"
 	then
 		return { ok = false, error = "bad_request" }
 	end
-
-	local quantity = math.floor(tonumber(payload.quantity) or 1)
-	quantity = math.clamp(quantity, 1, MAX_TRADE_QUANTITY)
-
+	local storeId = payload.storeId
+	local lines = payload.lines
+	if #lines == 0 or #lines > MAX_DEAL_LINES then
+		return { ok = false, error = "too_many_lines" }
+	end
+	local store = Stores.get(storeId)
+	if not store then
+		return { ok = false, error = "bad_request" }
+	end
 	if not nearVendor(player, storeId) then
 		return { ok = false, error = "too_far" }
 	end
+	local profile = PlayerService.get(player)
+	if not profile then
+		return { ok = false, error = "offline" }
+	end
+	local inventory = profile.inventory or {}
 
-	local trade = Stores.trade(storeId, itemId)
-	local def = Items.get(itemId)
-	if not trade or not def then
-		return { ok = false, error = "not_traded" }
-	end
-	if not def.stackable then
-		quantity = 1
+	local goldDelta = 0
+	local adds = {}
+	local removes = {} -- positional rows first; merged id-based removes appended below
+	local idRemoves = {} -- [itemId] = qty: plain sells + barter costs share one remove
+	local seenPositions = {}
+
+	for _, line in ipairs(lines) do
+		if typeof(line) ~= "table" or typeof(line.itemId) ~= "string" then
+			return { ok = false, error = "bad_line" }
+		end
+		local itemId = line.itemId
+		local def = Items.get(itemId)
+		if not def then
+			return { ok = false, error = "bad_line" }
+		end
+
+		if line.side == "buy" then
+			local quantity = math.clamp(math.floor(tonumber(line.quantity) or 1), 1, MAX_TRADE_QUANTITY)
+			local trade = Stores.trade(storeId, itemId)
+			if not trade then
+				return { ok = false, error = "not_traded" }
+			end
+			if trade.buyPrice then
+				goldDelta -= trade.buyPrice * quantity
+			elseif trade.barter then
+				for _, cost in ipairs(trade.barter) do
+					idRemoves[cost.itemId] = (idRemoves[cost.itemId] or 0) + cost.qty * quantity
+				end
+			else
+				return { ok = false, error = "not_traded" } -- sell-only trade
+			end
+			table.insert(adds, { itemId = itemId, quantity = quantity })
+		elseif line.side == "sell" then
+			local x, y = tonumber(line.x), tonumber(line.y)
+			if x and y then
+				-- Positional: sells the WHOLE row at (x, y). Rolled instances
+				-- go this way, keeping the id-based remove's meta-skip rule
+				-- intact; the backend re-checks the position holds this item.
+				x, y = math.floor(x), math.floor(y)
+				local positionKey = x .. ":" .. y
+				if seenPositions[positionKey] then
+					return { ok = false, error = "bad_line" }
+				end
+				seenPositions[positionKey] = true
+				local entry = entryAt(inventory, x, y)
+				if not entry or entry.itemId ~= itemId then
+					return { ok = false, error = "bad_line" }
+				end
+				-- Price resolution mirrors StoreUI.sellPriceFor: meta → formula,
+				-- listed plain → curated sellPrice, unlisted def-trait → formula.
+				local price
+				if store.buysGear and entry.meta then
+					price = ItemValue.forEntry(entry, def)
+				end
+				if not price then
+					local trade = Stores.trade(storeId, itemId)
+					price = trade and trade.sellPrice
+				end
+				if not price and store.buysGear then
+					price = ItemValue.forEntry(entry, def)
+				end
+				if not price then
+					return { ok = false, error = "not_traded" }
+				end
+				goldDelta += price * entry.quantity
+				table.insert(removes, { containerId = "main", x = x, y = y, itemId = itemId })
+			else
+				local quantity = math.clamp(math.floor(tonumber(line.quantity) or 1), 1, MAX_TRADE_QUANTITY)
+				local trade = Stores.trade(storeId, itemId)
+				local price = trade and trade.sellPrice
+				if not price and store.buysGear then
+					-- Def-fixed trait gear (identical copies, no meta) can
+					-- sell by id at the same formula price.
+					price = ItemValue.forEntry(nil, def)
+				end
+				if not price then
+					return { ok = false, error = "not_traded" }
+				end
+				goldDelta += price * quantity
+				idRemoves[itemId] = (idRemoves[itemId] or 0) + quantity
+			end
+		else
+			return { ok = false, error = "bad_line" }
+		end
 	end
 
-	if action == "buy" then
-		if not trade.buyPrice then
-			return { ok = false, error = "not_traded" }
+	-- Pre-flight what the backend re-checks atomically anyway, so honest
+	-- clients get precise errors without burning the HTTP round trip.
+	for itemId, quantity in pairs(idRemoves) do
+		if countOwned(inventory, itemId) < quantity then
+			return { ok = false, error = "no_items" }
 		end
-		local total = trade.buyPrice * quantity
-		if not PlayerService.spendGold(player, total) then
-			return { ok = false, error = "no_gold" }
-		end
-		local added = PlayerService.addItem(player, itemId, quantity)
-		if not added then
-			PlayerService.addGold(player, total) -- refund; nothing was granted
-			return { ok = false, error = "no_space" }
-		end
-		notifyRemote:FireClient(player, tradeMessage("Bought", def, quantity, total))
-		return { ok = true }
+	end
+	if profile.gold + goldDelta < 0 then
+		return { ok = false, error = "no_gold" }
 	end
 
-	if not trade.sellPrice then
-		return { ok = false, error = "not_traded" }
+	for itemId, quantity in pairs(idRemoves) do
+		table.insert(removes, { itemId = itemId, quantity = quantity })
 	end
-	if not PlayerService.removeItem(player, itemId, quantity) then
-		return { ok = false, error = "no_items" }
+	if #removes + #adds > MAX_DEAL_OPS then
+		return { ok = false, error = "too_many_lines" }
 	end
-	local total = trade.sellPrice * quantity
-	PlayerService.addGold(player, total)
-	notifyRemote:FireClient(player, tradeMessage("Sold", def, quantity, total))
+
+	local ok, errorCode = PlayerService.executeDeal(player, {
+		goldDelta = goldDelta,
+		removes = removes,
+		adds = adds,
+	})
+	if not ok then
+		return { ok = false, error = errorCode or "bad_request" }
+	end
+
+	if goldDelta > 0 then
+		notifyRemote:FireClient(player, ("Deal settled — got %dg"):format(goldDelta))
+	elseif goldDelta < 0 then
+		notifyRemote:FireClient(player, ("Deal settled — paid %dg"):format(-goldDelta))
+	else
+		notifyRemote:FireClient(player, "Deal settled")
+	end
 	return { ok = true }
 end
 
@@ -183,8 +301,8 @@ function VendorService.start()
 		buildVendor(def)
 	end
 
-	local storeTrade = Remotes.getFunction("StoreTrade")
-	storeTrade.OnServerInvoke = handleTrade
+	local storeDeal = Remotes.getFunction("StoreDeal")
+	storeDeal.OnServerInvoke = handleDeal
 end
 
 return VendorService
