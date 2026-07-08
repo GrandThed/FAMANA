@@ -189,6 +189,13 @@ with the right side, sell positions hold what the client claims, trait gear
 priced by `shared/ItemValue`, barter costs expanded into removes — then
 settled atomically via `PlayerService.executeDeal` → `POST /player/:id/deal`;
 the whole deal lands or nothing changes. See `docs/VENDOR_UI.md`) ·
+`CraftingService` (Terraria-style crafting from `shared/Recipes`: recipes
+with no `station` craft anywhere, station-gated ones only near a matching
+workbench placed via `WORKBENCH_DEFS` — proximity is recomputed onto each
+player's `NearbyStations` attribute ~1x/second so the client can show/hide
+recipes live, and re-validated server-side on the actual `CraftItem` request;
+crafting removes every ingredient then adds the result, refunding the
+ingredients back if the output can't fit) ·
 `BorderService` (grid teleport
 handoff) · `AdminSyncService` (polls `/player/events` every 4s → `inventory` events
 refresh the inventory, `stats` events apply admin gold/level/xp/class edits
@@ -237,7 +244,12 @@ lock badges, click/drag-out hooks + `findSpot`/`packFirstFit` first-fit
 placement — StoreUI's three panes today, InventoryUI's grid eventually),
 `ItemTooltip` (the §6.5 tooltip card extracted from InventoryUI; hosts
 append extra lines — store prices, "not traded here"),
-`PlayerSettings` (client preference registry, HotbarBinds-style
+`CraftUI` (crafting panel, `V` key: lists every recipe from
+`shared/Recipes` the player could craft right now — station-less ones
+always, station-gated ones only while `NearbyStations` says you're close
+enough — with an ingredient owned/required breakdown and a Craft button
+that calls the `CraftItem` remote; server is the only authority, this just
+previews affordability off `InventoryUpdated`), `PlayerSettings` (client preference registry, HotbarBinds-style
 lifecycle: seeded from the `PlayerSettings` attribute, changes pushed via
 `SetPlayerSettings` and persisted with the profile), `SettingsUI` (options
 menu behind the gear button top-right; currently the trait tracker
@@ -276,7 +288,10 @@ fallback + `inventoryGrid` dims — must match backend `GRID`) · `Items`
 a `buyPrice`, stores a `buysGear` flag) · `ItemValue` (trait-value sell
 pricing, `docs/VENDOR_UI.md` §5.1: `max(5, round(3 × Σ points^1.85))` per
 line — concentrated rolls beat spread; used by the store chips AND the
-`StoreDeal` settlement so they can't disagree) · `Classes` (class defs as passive stat
+`StoreDeal` settlement so they can't disagree) · `Recipes` (crafting
+catalog — result, ingredients, optional `station` — pure Luau data, not
+backend-served yet since it's gameplay logic rather than admin-editable
+content; `get`/`list`) · `Classes` (class defs as passive stat
 multipliers + `damageMult`; class ids mirrored in backend
 `src/classes.js`) · `Spells` (subclass schools + spell defs: unlock levels,
 behaviors, school passives, `hotbarPriority` recommendation order, and the
@@ -322,7 +337,11 @@ while an id is still 0).
   or a `barter` cost — never both on one trade, and an item appears in at
   most ONE trade entry) via `backend/content/stores.json` (+ the
   `Stores.lua` mirror) and place its vendor via a `VENDOR_DEFS` entry in
-  `VendorService`; add an effect to `Effects.lua`.
+  `VendorService`; add an effect to `Effects.lua`; add a crafting recipe
+  via a `shared/Recipes.lua` entry (+ its output item def if new) — gate it
+  behind a `station` id to require a nearby workbench, or leave it off to
+  craft anywhere; place a workbench via a `WORKBENCH_DEFS` entry in
+  `CraftingService`.
 - New gameplay that grants items must go through `PlayerService.addItem/
   removeItem` so it persists and the UI/tools stay in sync. Inventory
   placement is validated **backend-side only** — the client just previews

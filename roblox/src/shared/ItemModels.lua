@@ -243,6 +243,26 @@ ItemModels.defs = {
 		{ name = "EarTip", shape = "Wedge", size = V(0.25, 0.7, 0.45), offset = V(-0.25, 0.55, 0), rot = V(0, 0, 30), color = "goblin" },
 		{ name = "EarInner", size = V(0.24, 0.35, 0.28), offset = V(0.05, -0.05, 0), rot = V(0, 0, 20), color = "goblinDark" },
 	},
+
+	-- ---- crafting outputs (quick placeholders, swap out later) ------------
+
+	crafting_table = {
+		{ name = "Top", size = V(1.6, 0.18, 1.0), color = "trunk" },
+		{ name = "LegA", size = V(0.16, 0.7, 0.16), offset = V(-0.65, -0.44, -0.35), color = "trunkDark" },
+		{ name = "LegB", size = V(0.16, 0.7, 0.16), offset = V(0.65, -0.44, -0.35), color = "trunkDark" },
+		{ name = "LegC", size = V(0.16, 0.7, 0.16), offset = V(-0.65, -0.44, 0.35), color = "trunkDark" },
+		{ name = "LegD", size = V(0.16, 0.7, 0.16), offset = V(0.65, -0.44, 0.35), color = "trunkDark" },
+	},
+
+	torch = {
+		{ name = "Handle", size = V(0.16, 1.0, 0.16), color = "trunkDark" },
+		{ name = "Flame", shape = "Ball", size = V(0.34, 0.34, 0.34), offset = V(0, 0.6, 0), color = "gold", material = Enum.Material.Neon },
+	},
+
+	arrow = {
+		{ name = "Shaft", size = V(0.08, 1.4, 0.08), color = "trunk" },
+		{ name = "Head", shape = "Wedge", size = V(0.1, 0.28, 0.1), offset = V(0, 0.84, 0), color = "steel" },
+	},
 }
 
 function ItemModels.get(itemId)
