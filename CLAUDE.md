@@ -95,7 +95,10 @@ settings),
 `remove`, `move`, `sort`), `POST /player/:id/deal` (atomic vendor deal:
 gold delta + item removes + adds, all-or-nothing), `POST /player/events`
 (drain queued events for online players), `GET /content` (versioned
-game-content defs: items, starter kit, grid dims, equipment slots, stores).
+game-content defs: items, starter kit, grid dims, equipment slots, stores),
+`POST /deploys` + `GET /deploys/latest` + `GET /places` (deploy ledger +
+place registry written by `scripts/deploy-places.mjs` — see
+`docs/DEPLOYMENT.md`; `src/deploys.js`).
 
 ## Roblox (`roblox/`) — Rojo + Rokit
 
@@ -113,10 +116,17 @@ destroyed at boot by `shared/MapMarkers`; when no Map folder exists the
 services fall back to their hardcoded def positions). The map is exported to
 `roblox/maps/<name>.rbxm` (gitignore exception) and each place builds from
 its own `roblox/<name>.project.json` (mounts the map, forces `HttpEnabled`,
-carries the fallback Baseplate/SpawnLocation). `node
-scripts/deploy-places.mjs` rojo-builds every place in `roblox/places.json`
-and publishes via the Open Cloud Place Publishing API (`ROBLOX_API_KEY` env;
-a deploy REPLACES the place, so maps must be exported first). Places have
+carries the fallback Baseplate/SpawnLocation). **Deploys are CI-driven**
+(see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)): pushing `roblox/**` to
+`main` triggers `.github/workflows/deploy-places.yml`, which rojo-builds
+every place in `roblox/places.json` and publishes via the Open Cloud Place
+Publishing API (a deploy REPLACES the place, so maps must be exported
+first). `scripts/deploy-places.mjs` also runs locally (`--draft`,
+`--restart` to migrate live servers, `--force` for dirty trees); it stamps
+`shared/BuildInfo.lua` with the git commit, refuses unreproducible builds,
+records every publish in the backend deploy ledger (`places` + `deploys`
+tables) and warns when a place's version jumped outside the pipeline
+(unexported Studio work). Places have
 roles (`GridConfig.currentRole()`: cells vs instances registered in
 `GridConfig.places`) — `init.server.lua` skips cell-only services
 (WorldService, BorderService) in instance places.
@@ -429,7 +439,11 @@ while an id is still 0).
 
 ## Git / workflow
 
-- Default branch `main`, remote `github.com/GrandThed/FAMANA-backend`.
+- Default branch `main`, remote `github.com/GrandThed/FAMANA`.
+- **Pushing `roblox/**` changes to `main` deploys all places** via GitHub
+  Actions (`docs/DEPLOYMENT.md`) — repo secrets `ROBLOX_API_KEY` +
+  `FAMANA_API_KEY` are already set. Live servers migrate only via the
+  workflow's `restart` input or `deploy-places.mjs --restart`.
 - Commit at logical checkpoints; end commit messages with the Co-Authored-By
   trailer.
 - Don't commit secrets (`.env`, `Secret.lua`) — both are gitignored.
