@@ -1,7 +1,8 @@
 -- Crafting: Terraria-style — recipes without a `station` (shared/Recipes)
 -- can be crafted anywhere; recipes that need one only unlock near a matching
--- workbench placed in the world (WORKBENCH_DEFS, built like VendorService's
--- NPCs). Proximity is recomputed on a slow loop into a `NearbyStations`
+-- workbench placed in the world (Workbench_<station> markers in authored
+-- maps — see shared/MapMarkers — with WORKBENCH_DEFS positions as the
+-- no-map fallback). Proximity is recomputed on a slow loop into a `NearbyStations`
 -- Player attribute (comma-joined station ids) so the client can show/hide
 -- recipes live; the actual craft request re-validates distance server-side,
 -- never trusting the attribute.
@@ -18,6 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
+local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local Recipes = require(Shared:WaitForChild("Recipes"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
@@ -164,8 +166,26 @@ function CraftingService.start()
 	workbenchFolder.Name = "Workbenches"
 	workbenchFolder.Parent = Workspace
 
-	for _, def in ipairs(WORKBENCH_DEFS) do
-		buildWorkbench(def)
+	if MapMarkers.mapPresent() then
+		local defsByStation = {}
+		for _, def in ipairs(WORKBENCH_DEFS) do
+			defsByStation[def.station] = def
+		end
+		local markers = MapMarkers.takeFor("Workbench_", defsByStation)
+		for station, def in pairs(defsByStation) do
+			for _, marker in ipairs(markers[station] or {}) do
+				buildWorkbench({
+					station = def.station,
+					name = def.name,
+					position = marker.cframe.Position,
+					facing = MapMarkers.facing(marker),
+				})
+			end
+		end
+	else
+		for _, def in ipairs(WORKBENCH_DEFS) do
+			buildWorkbench(def)
+		end
 	end
 
 	Players.PlayerRemoving:Connect(function(player)

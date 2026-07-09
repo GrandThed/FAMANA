@@ -18,6 +18,7 @@ local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Rarity = require(Shared:WaitForChild("Rarity"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Theme = require(script.Parent.Theme)
+local TopRightMenu = require(script.Parent.TopRightMenu)
 local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
@@ -402,12 +403,8 @@ function CraftUI.start()
 		setOpen(not isOpen)
 	end
 
-	local openBtn = UIKit.ghostButton(gui, "Craft (V)")
+	local openBtn = TopRightMenu.addButton("Craft (V)", 3)
 	openBtn.Name = "CraftButton"
-	openBtn.Size = UDim2.new(0, 120, 0, 30)
-	openBtn.Position = UDim2.new(1, -16, 0, 92) -- stacked under Inventory/Character
-	openBtn.AnchorPoint = Vector2.new(1, 0)
-	openBtn.TextSize = Theme.Text.Sm
 
 	openBtn.Activated:Connect(toggle)
 	closeBtn.Activated:Connect(function()

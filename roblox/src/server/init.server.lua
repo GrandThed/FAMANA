@@ -25,8 +25,14 @@ local BorderService = require(script:WaitForChild("BorderService"))
 local WorldService = require(script:WaitForChild("WorldService"))
 local AdminSyncService = require(script:WaitForChild("AdminSyncService"))
 
+-- Cell-only services (border teleports, cell theming) don't start in
+-- instance places (dungeons, housing — see GridConfig.places).
+local role = GridConfig.currentRole()
+
 ContentService.start() -- first: overlays backend item defs onto the mirror
-WorldService.start()
+if role == "cell" then
+	WorldService.start()
+end
 PlayerService.start()
 HealthService.start()
 ManaService.start()
@@ -43,7 +49,13 @@ DropService.start()
 ItemStandService.start() -- after DropService: stands spawn drops
 VendorService.start()
 CraftingService.start()
-BorderService.start()
+if role == "cell" then
+	BorderService.start()
+end
 AdminSyncService.start()
 
-print("[FAMANA] Server systems started (cell " .. GridConfig.currentCell() .. ").")
+if role == "cell" then
+	print("[FAMANA] Server systems started (cell " .. GridConfig.currentCell() .. ").")
+else
+	print("[FAMANA] Server systems started (role " .. role .. ").")
+end

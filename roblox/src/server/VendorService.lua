@@ -9,7 +9,9 @@
 -- nothing changes.
 --
 -- Store contents/prices are data (shared/Stores, overlaid from GET /content);
--- vendor placement is world layout and lives here in VENDOR_DEFS.
+-- vendor placement is world layout: authored maps use Vendor_<storeId>
+-- markers (see shared/MapMarkers), VENDOR_DEFS positions are the fallback
+-- for places without a map (the defs also carry the vendor's name).
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,6 +20,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
 local ItemValue = require(Shared:WaitForChild("ItemValue"))
+local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local Stores = require(Shared:WaitForChild("Stores"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
@@ -297,8 +300,26 @@ function VendorService.start()
 	vendorFolder.Name = "Vendors"
 	vendorFolder.Parent = Workspace
 
-	for _, def in ipairs(VENDOR_DEFS) do
-		buildVendor(def)
+	if MapMarkers.mapPresent() then
+		local defsByStore = {}
+		for _, def in ipairs(VENDOR_DEFS) do
+			defsByStore[def.storeId] = def
+		end
+		local markers = MapMarkers.takeFor("Vendor_", defsByStore)
+		for storeId, def in pairs(defsByStore) do
+			for _, marker in ipairs(markers[storeId] or {}) do
+				buildVendor({
+					storeId = def.storeId,
+					name = def.name,
+					position = marker.cframe.Position,
+					facing = MapMarkers.facing(marker),
+				})
+			end
+		end
+	else
+		for _, def in ipairs(VENDOR_DEFS) do
+			buildVendor(def)
+		end
 	end
 
 	local storeDeal = Remotes.getFunction("StoreDeal")

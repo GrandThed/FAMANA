@@ -2,7 +2,9 @@
 -- an item. A ProximityPrompt on the pedestal lets players take a copy, which
 -- spawns as a normal ground drop — pickup and persistence go through the
 -- usual DropService/PlayerService flow, so stands never touch inventories
--- directly. Data-driven: add a stand via a STAND_DEFS entry.
+-- directly. Data-driven: authored maps place stands via ItemStand_<itemId>
+-- markers (any item with a model works — see shared/MapMarkers); the
+-- STAND_DEFS list is the fallback for places without a map.
 
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -12,6 +14,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local ItemModels = require(Shared:WaitForChild("ItemModels"))
 local Items = require(Shared:WaitForChild("Items"))
+local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local DropService = require(script.Parent.DropService)
 
 local ItemStandService = {}
@@ -122,8 +125,20 @@ function ItemStandService.start()
 	standFolder.Name = "ItemStands"
 	standFolder.Parent = Workspace
 
-	for _, def in ipairs(STAND_DEFS) do
-		buildStand(def)
+	if MapMarkers.mapPresent() then
+		for itemId, markers in pairs(MapMarkers.take("ItemStand_")) do
+			for _, marker in ipairs(markers) do
+				buildStand({
+					itemId = itemId,
+					position = marker.cframe.Position,
+					facing = MapMarkers.facing(marker),
+				})
+			end
+		end
+	else
+		for _, def in ipairs(STAND_DEFS) do
+			buildStand(def)
+		end
 	end
 
 	-- Turntable: spin every display around its visual center.

@@ -124,34 +124,59 @@ function UIKit.hover(button, normalColor, hoverColor)
 	end)
 end
 
--- Primary button (§6.6): ember gradient, ember stroke, warm display label.
--- Brighter than the raw token ramp (Ember500→600 renders muddy in-engine;
--- the mock's button pops like Ember400→500).
+-- Primary button (§6.6): deep ember fill (Ember500→Ember600), Ember400
+-- stroke, warm display label. The gradient is a neutral white→gray
+-- MULTIPLIER (UIGradient multiplies BackgroundColor3), so hover/press
+-- tween the base color and the vertical falloff rides along:
+-- hover brightens toward Ember400, press darkens toward Ember600.
 function UIKit.primaryButton(parent, text)
 	local button = Instance.new("TextButton")
-	button.BackgroundColor3 = Theme.Color.Ember400
+	button.BackgroundColor3 = Theme.Color.Ember500
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
 	button.FontFace = Theme.Font.DisplayBold
 	button.TextSize = Theme.Text.Lg
-	button.TextColor3 = Color3.fromRGB(255, 232, 205)
+	button.TextColor3 = Color3.fromRGB(255, 228, 200)
 	button.Text = text
 	button.ZIndex = baseZ(parent) + 1
 	button.Parent = parent
 
 	local gradient = Instance.new("UIGradient")
 	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new(Theme.Color.Ember400, Theme.Color.Ember500)
+	-- ×1 top → ×~0.63 bottom: Ember500 lands on Ember600.
+	gradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(166, 152, 145))
 	gradient.Parent = button
 
 	local stroke = Instance.new("UIStroke")
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border -- buttons are text objects
 	stroke.Thickness = 1
-	stroke.Color = Theme.Color.Ember200
-	stroke.Transparency = 0.3
+	stroke.Color = Theme.Color.Ember400
+	stroke.Transparency = 0.15
 	stroke.Parent = button
 
-	UIKit.hover(button, Theme.Color.Ember400, Theme.Color.Ember200)
+	local hovered, pressed = false, false
+	local function restyle()
+		local target = pressed and Theme.Color.Ember600
+			or hovered and Theme.Color.Ember400
+			or Theme.Color.Ember500
+		TweenService:Create(button, Theme.Tween.Fast, { BackgroundColor3 = target }):Play()
+	end
+	button.MouseEnter:Connect(function()
+		hovered = true
+		restyle()
+	end)
+	button.MouseLeave:Connect(function()
+		hovered, pressed = false, false
+		restyle()
+	end)
+	button.MouseButton1Down:Connect(function()
+		pressed = true
+		restyle()
+	end)
+	button.MouseButton1Up:Connect(function()
+		pressed = false
+		restyle()
+	end)
 	return button
 end
 

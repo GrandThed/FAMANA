@@ -67,8 +67,9 @@ Fastify + `pg` (raw SQL, ESM). Live at
   at the shared `ItemValue` formula price. Vendor deals settle through
   `POST /player/:id/deal` — gold delta + removes + adds in ONE transaction
   (all-or-nothing; see [`docs/VENDOR_UI.md`](docs/VENDOR_UI.md)).
-  `loadPlayer` reconciles the starter kit (tools/weapons) on every load, so
-  existing players pick up newly-added starter gear.
+  `loadPlayer` grants each starter tool/weapon ONCE (ids recorded per player
+  in `granted_starter_items`): newly-added starter gear reaches existing
+  players on their next load, but dropped/sold starter gear stays gone.
 - **Admin dashboard** (`/admin`): `src/adminService.js` (reads + audited
   mutations), `src/adminAuth.js` (signed-cookie sessions via Node `crypto`,
   separate from the game's `X-Api-Key`), `src/routes/admin.js`, static SPA in
@@ -103,6 +104,22 @@ Synced into Studio with **Rojo 7.7.0** (pinned in `rokit.toml`). Structure maps
 `src/client` → `StarterPlayerScripts` (see `default.project.json`).
 
 Run: `cd roblox && rojo serve`, connect via the Rojo Studio plugin.
+
+**Maps & deployment** (see [`docs/MAP_AUTHORING.md`](docs/MAP_AUTHORING.md)):
+worlds are authored in Studio inside a `Workspace.Map` folder with tagged
+marker parts for gameplay objects (`Node_tree`, `Enemy_goblin`,
+`Vendor_<storeId>`, `Workbench_<station>`, `ItemStand_<itemId>` — read +
+destroyed at boot by `shared/MapMarkers`; when no Map folder exists the
+services fall back to their hardcoded def positions). The map is exported to
+`roblox/maps/<name>.rbxm` (gitignore exception) and each place builds from
+its own `roblox/<name>.project.json` (mounts the map, forces `HttpEnabled`,
+carries the fallback Baseplate/SpawnLocation). `node
+scripts/deploy-places.mjs` rojo-builds every place in `roblox/places.json`
+and publishes via the Open Cloud Place Publishing API (`ROBLOX_API_KEY` env;
+a deploy REPLACES the place, so maps must be exported first). Places have
+roles (`GridConfig.currentRole()`: cells vs instances registered in
+`GridConfig.places`) — `init.server.lua` skips cell-only services
+(WorldService, BorderService) in instance places.
 
 **Server services** (`src/server/`, started by `init.server.lua`):
 `ContentService` (fetches `GET /content` at boot with retries, overlays the
@@ -210,17 +227,22 @@ quick binds from `HotbarBinds` — item binds equip Tools, spell binds
 cooldown veil from the `SpellCd_<id>` attributes (grayed while the spell
 isn't currently known — its gear unequipped); clicking an empty bind slot opens a pick-list
 of known spells, and the three bind pages cycle via the button at the bar's
-right end or the `X` key; HUD effect rows drain a remaining-duration bar), `SpellTrackerUI` (TFT-style tracker in
-TWO instances: an always-on rail on the RIGHT screen edge (popouts open
-leftward; the big windows draw above it when they overlap) AND the traits
+right end or the `X` key; HUD effect rows drain a remaining-duration bar),
+`TopRightMenu` (the shared top-right stack: one auto-scaled column holding
+the Inventory/Character/Craft buttons, the options gear beside the top row,
+and the trait rail below them — rows registered by the owning UIs, so
+nothing overlaps or drifts out of alignment), `SpellTrackerUI` (TFT-style tracker in
+TWO instances: an always-on rail in the top-right stack right under the
+menu buttons (popouts open leftward; the big windows draw above it when
+they overlap) AND the traits
 column inside the inventory panel (popouts open rightward) — both driven
 by the equipment-earned `TraitPoints` attribute:
 school entries appear once gear gives them points (points vs next unlock —
 hover → point timeline + spell rows, hover a row and press 3–0 to bind it;
 sets `ClientState.spellHover` so the keypress doesn't also cast), trait
 entries below them lit when their first threshold is active, hover → all
-thresholds; two layouts from the options menu — compact rows or a minimal
-icon-only column), `SpellsClient` (known-spell
+thresholds; two layouts — compact rows or a minimal icon-only column — the
+options menu picks the RAIL's, the inventory column is always compact), `SpellsClient` (known-spell
 registry from `SpellsChanged`/`RequestSpells`; auto-places newly unlocked
 spells in the next free hotbar slot (page 1 first) and seeds the recommended
 loadout on fresh profiles — waits on `HotbarBinds.waitReady` so it never
@@ -229,7 +251,10 @@ key: equipment paper doll + effects panel on the left, Sort/gold utilities
 bar over the scrollable 10×30 drag & drop grid on the right; R rotates while
 dragging, drop previews green/red, hover + 3–0 quick-binds tools/consumables,
 hover + 1/2 equips a weapon/tool into weapon/offhand with the occupant
-swapped back to the first free grid spot),
+swapped back to the first free grid spot, shift-click equips into the
+first FREE accepting slot (occupied → no-op, never swaps) or unequips a
+paper-doll slot back into the grid, and hovering
+equippable gear shows trait deltas vs the equipped piece in the tooltip),
 `HotbarBinds` (bind registry shared by the UIs, in THREE swappable pages
 ({ active, pages } persisted with the profile — legacy flat maps migrate to
 page 1 on load); fresh profiles get axe/pickaxe seeded on keys 3/4 of
@@ -246,7 +271,10 @@ footprint tiles with rarity strokes, qty badges, price chips, dimming and
 lock badges, click/drag-out hooks + `findSpot`/`packFirstFit` first-fit
 placement — StoreUI's three panes today, InventoryUI's grid eventually),
 `ItemTooltip` (the §6.5 tooltip card extracted from InventoryUI; hosts
-append extra lines — store prices, "not traded here"),
+append extra lines — store prices, "not traded here" — and may pass a
+`compareEntry` (the equipped counterpart): the trait rows then carry
+right-aligned green/red point deltas against it, equipped-only traits
+appearing as "+0" rows with the full loss on the right),
 `CraftUI` (crafting panel, `V` key: lists every recipe from
 `shared/Recipes` the player could craft right now — station-less ones
 always, station-gated ones only while `NearbyStations` says you're close
@@ -315,7 +343,11 @@ common; tiers tint inventory tiles, equipment slots, tooltips and drop
 labels) · `Effects`
 (buff/debuff defs + the `Effect_<id>` attribute naming scheme) · `Remotes`
 (RemoteEvent/Function factory) · `GridConfig` (cells keyed by PlaceId, neighbors,
-border geometry, per-cell themes) · `ArtKit` (low-poly design frame: shared
+border geometry, per-cell themes; `places` registry + `currentRole()` for
+non-cell instance places) · `MapMarkers` (tagged-marker scanner for authored
+maps: `mapPresent`, `take`/`takeFor` prefix collectors that snapshot + destroy
+marker parts, `facing` yaw helper — see `docs/MAP_AUTHORING.md`) ·
+`ArtKit` (low-poly design frame: shared
 flat-color palette + declarative `ArtKit.build(name, originCFrame, partSpecs)`
 model builder + `ArtKit.weld(handle, specs, scale?)` for Tool/drop assemblies) ·
 `ItemModels` (per-item low-poly model specs; `build(itemId)` → display Model,
@@ -333,7 +365,11 @@ while an id is still 0).
   `PlayerService.onInventoryChanged(fn)`.
 - Content is **data-driven**: add a resource node via a `NODE_DEFS` entry (+
   builder) in `GatheringService`; add an enemy via an `ENEMY_DEFS` entry in
-  `EnemyService`; add an item to `backend/content/items.json` **and**
+  `EnemyService`. **Placement is map-driven where a map exists**: authored
+  places position nodes/enemies/vendors/workbenches/stands with tagged
+  markers (`shared/MapMarkers`, `docs/MAP_AUTHORING.md`); the positions in
+  the defs (`spots`, `position`) are only the fallback for map-less places.
+  Add an item to `backend/content/items.json` **and**
   `Items.lua` (with a `size` footprint; equipment may carry `itemLevel` +
   `traits` points — see `shared/Traits.lua` — and an optional `rarity`
   tier — see `shared/Rarity.lua`); add/reprice a store trade (gold prices
@@ -377,6 +413,11 @@ while an id is still 0).
   fresh clone must recreate it.
 - **Enable HTTP in Studio** (Game Settings → Security → Allow HTTP Requests) or
   the game silently falls back to a temporary, non-persisted profile.
+  `rojo serve` now sets it automatically (`HttpService.HttpEnabled` in the
+  project files), but a Studio session without Rojo connected still needs it.
+- **Deploys replace the whole place.** `scripts/deploy-places.mjs` publishes
+  what the repo builds — Studio map work not exported to `roblox/maps/`
+  is lost on the next deploy (`docs/MAP_AUTHORING.md` §5).
 - **Teleport needs a published game.** `TeleportService` does nothing in Studio
   playtest — the border handoff can only be tested live. In Studio the border
   just fades out and back in (fail-safe). See

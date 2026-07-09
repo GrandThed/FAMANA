@@ -64,8 +64,10 @@ export const ITEMS = raw.items;
 // Items a brand-new player starts with.
 export const STARTER_ITEMS = raw.starterItems;
 
-// The permanent starter kit (tools/weapons) is reconciled on every load so
-// existing players pick up newly-added starter gear (e.g. the pickaxe).
+// The permanent starter kit (tools/weapons). Each id is granted ONCE per
+// player (recorded in players.granted_starter_items) — newly-added starter
+// gear reaches existing players on their next load, but dropped/sold gear
+// stays gone. See ensureStarterEquippables in playerService.js.
 export const STARTER_EQUIPPABLES = STARTER_ITEMS.filter((entry) => {
   const def = ITEMS[entry.itemId];
   return def && (def.type === "weapon" || def.type === "tool");

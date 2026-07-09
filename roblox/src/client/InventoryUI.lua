@@ -12,7 +12,11 @@
 -- Items span WxH cells (item def `size`); drag & drop moves them (R rotates
 -- while dragging, green/red highlight previews the drop). Hovering an item
 -- and pressing 3–0 quick-binds tools/consumables to the hotbar (HotbarBinds);
--- bound items show their key as a badge on the tile.
+-- bound items show their key as a badge on the tile. Hovering equippable
+-- gear shows trait deltas vs the equipped counterpart in the tooltip
+-- (ItemTooltip's compareEntry). Shift-click equips into the first FREE
+-- accepting slot — never swaps (that's the 1/2 keys' job) — and
+-- shift-clicking a paper-doll slot unequips into the first free grid spot.
 --
 -- Rendering is a diff: tiles are reused (and just repositioned) across
 -- updates so item thumbnails aren't rebuilt on every move/sort. Moves apply
@@ -43,6 +47,7 @@ local HotbarBinds = require(script.Parent.HotbarBinds)
 local ItemTooltip = require(script.Parent.ItemTooltip)
 local SpellTrackerUI = require(script.Parent.SpellTrackerUI)
 local Theme = require(script.Parent.Theme)
+local TopRightMenu = require(script.Parent.TopRightMenu)
 local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
@@ -592,6 +597,46 @@ function InventoryUI.start()
 		return nil
 	end
 
+	-- The entry sitting in an equipment slot (container x), or nil.
+	local function occupantAt(slotIndex)
+		for _, e in ipairs(currentInventory) do
+			if e.containerId == "equipment" and e.x == slotIndex then
+				return e
+			end
+		end
+		return nil
+	end
+
+	-- The equipped piece a grid item would replace — what the tooltip's
+	-- Diablo-style compare card shows: the first accepting slot that holds
+	-- something (weapon before offhand, ring1 before ring2).
+	local function equippedCounterpart(entry)
+		local def = Items.get(entry.itemId)
+		if not def or entry.containerId ~= "main" then
+			return nil
+		end
+		for i, slotName in ipairs(Items.EQUIPMENT_SLOTS) do
+			if Items.slotAccepts(slotName, def) then
+				local occupant = occupantAt(i - 1)
+				if occupant then
+					return occupant
+				end
+			end
+		end
+		return nil
+	end
+
+	-- Shift-click equip target: the first accepting EMPTY slot, or nil when
+	-- every accepting slot is taken (shift-click never swaps).
+	local function shiftEquipSlot(def)
+		for i, slotName in ipairs(Items.EQUIPMENT_SLOTS) do
+			if Items.slotAccepts(slotName, def) and not occupantAt(i - 1) then
+				return i - 1
+			end
+		end
+		return nil
+	end
+
 	-- The 1/2 equip shortcut: move the hovered grid item into an equipment
 	-- slot. If the slot is taken, the occupant is first unequipped into the
 	-- first free grid spot — no free spot, no swap. Two sequential moves; if
@@ -604,13 +649,7 @@ function InventoryUI.start()
 		local from = { containerId = "main", x = entry.x, y = entry.y }
 		local equipRef = { containerId = "equipment", x = slotIndex, y = 0 }
 
-		local occupant
-		for _, e in ipairs(currentInventory) do
-			if e.containerId == "equipment" and e.x == slotIndex then
-				occupant = e
-				break
-			end
-		end
+		local occupant = occupantAt(slotIndex)
 		if occupant then
 			local spot = findFreeSpotFor(occupant.itemId)
 			if not spot then
@@ -996,7 +1035,7 @@ function InventoryUI.start()
 			hovered = record.entry
 			local currentDef = Items.get(record.itemId)
 			hoverLabel.Text = currentDef and currentDef.name or record.itemId
-			scheduleTooltip(record.entry)
+			scheduleTooltip(record.entry, nil, equippedCounterpart(record.entry))
 		end)
 		tile.MouseLeave:Connect(function()
 			if hovered == record.entry then
@@ -1008,6 +1047,26 @@ function InventoryUI.start()
 		tile.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1 then
 				local entryNow = record.entry
+				local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+					or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+				if shiftHeld and not drag then
+					-- Shift-click: equip into a free accepting slot; occupied
+					-- (or not equippable) → do nothing, and never start a drag.
+					local def = Items.get(entryNow.itemId)
+					local slotIndex = def and shiftEquipSlot(def)
+					if slotIndex and moveItemRemote then
+						hideTooltip()
+						task.spawn(function()
+							pcall(function()
+								return moveItemRemote:InvokeServer(
+									{ containerId = "main", x = entryNow.x, y = entryNow.y },
+									{ containerId = "equipment", x = slotIndex, y = 0 }
+								)
+							end)
+						end)
+					end
+					return
+				end
 				beginDrag(entryNow, { containerId = "main", x = entryNow.x, y = entryNow.y }, tile)
 			end
 		end)
@@ -1157,15 +1216,31 @@ function InventoryUI.start()
 		render(inventory)
 	end
 
-	-- Equipment slots: drag out to unequip (and hover shows the name).
+	-- Equipment slots: drag out — or shift-click — to unequip (and hover
+	-- shows the name).
 	for slotName, slot in pairs(equipSlots) do
 		slot.frame.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1 and slot.entry then
-				beginDrag(
-					slot.entry,
-					{ containerId = "equipment", x = SLOT_INDEX[slotName], y = 0 },
-					slot.frame
-				)
+				local entryNow = slot.entry
+				local slotRef = { containerId = "equipment", x = SLOT_INDEX[slotName], y = 0 }
+				local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+					or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+				if shiftHeld and not drag then
+					-- Shift-click: unequip into the first free grid spot.
+					local spot = findFreeSpotFor(entryNow.itemId)
+					if not spot then
+						hoverLabel.Text = "No room to unequip"
+					elseif moveItemRemote then
+						hideTooltip()
+						task.spawn(function()
+							pcall(function()
+								return moveItemRemote:InvokeServer(slotRef, spot)
+							end)
+						end)
+					end
+					return
+				end
+				beginDrag(entryNow, slotRef, slot.frame)
 			end
 		end)
 		slot.frame.MouseEnter:Connect(function()
@@ -1372,12 +1447,8 @@ function InventoryUI.start()
 		end
 	end
 
-	local openBtn = UIKit.ghostButton(gui, "Inventory (B)")
+	local openBtn = TopRightMenu.addButton("Inventory (B)", 1, 34)
 	openBtn.Name = "InventoryButton"
-	openBtn.Size = UDim2.new(0, 120, 0, 34)
-	-- Top-right corner: the bottom corners hold the health/mana orbs (HudUI).
-	openBtn.Position = UDim2.new(1, -16, 0, 16)
-	openBtn.AnchorPoint = Vector2.new(1, 0)
 	openBtn.TextSize = Theme.Text.Body
 
 	openBtn.Activated:Connect(toggle)

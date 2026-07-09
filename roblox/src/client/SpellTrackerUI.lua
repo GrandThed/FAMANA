@@ -1,7 +1,8 @@
 -- TFT-style tracker. It renders in TWO places at once, one instance each:
---   * an always-on rail hugging the RIGHT screen edge — standalone
---     `SpellTrackerUI.start()` from init.client.lua (right, not left, so it
---     never clashes with the party frames), hover popouts open LEFTWARD;
+--   * an always-on rail in the shared top-right stack (TopRightMenu), right
+--     below the Inventory/Character/Craft buttons — standalone
+--     `SpellTrackerUI.start()` from init.client.lua, hover popouts open
+--     LEFTWARD;
 --   * the traits column inside the inventory panel —
 --     `SpellTrackerUI.start(hostFrame)` from InventoryUI, popouts open
 --     RIGHTWARD.
@@ -15,10 +16,12 @@
 --   * TRAITS — one entry per stat trait you have points in, points vs next
 --     threshold, lit once the first threshold is active. Hover → tooltip
 --     with every threshold's stats.
--- Two layouts, picked in the options menu (SettingsUI → PlayerSettings
--- "traitTracker", docs/traits_*_side.png):
+-- Two layouts (docs/traits_*_side.png):
 --   * compact — icon + name + count rows (the classic strip)
 --   * minimal — a narrow icon-only column with the count underneath
+-- The options menu (SettingsUI → PlayerSettings "traitTracker") picks the
+-- RAIL's layout only; the inventory-hosted column is ALWAYS compact — the
+-- two instances share aesthetics, but the inventory one is the detail view.
 -- The mouse is never locked in this game, so hover-to-bind works mid-play;
 -- ClientState.spellHover stops HudUI from also casting on the same keypress.
 
@@ -36,13 +39,13 @@ local SpellsClient = require(script.Parent.SpellsClient)
 local ClientState = require(script.Parent.ClientState)
 local PlayerSettings = require(script.Parent.PlayerSettings)
 local Theme = require(script.Parent.Theme)
+local TopRightMenu = require(script.Parent.TopRightMenu)
 local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
 
 local SpellTrackerUI = {}
 
-local PANEL_X = 10 -- rail inset from the right screen edge
 local ENTRY_W, ENTRY_H = 158, 36 -- compact rows
 local MINIMAL_W, MINIMAL_H = 48, 46 -- minimal (icon-only) entries
 local TOOLTIP_W = 260
@@ -76,11 +79,11 @@ local BIND_KEYS = {
 -- With `hostFrame` the tracker mounts inside it (the inventory's traits
 -- column — it inherits that panel's UIScale, so no autoScale, and the
 -- tooltip hangs off the panel's RIGHT edge). Without it, it builds the
--- always-on rail pinned to the right screen edge at default DisplayOrder
--- (created early in init, so the big windows draw and hit-test above the
--- rail when they overlap it); its tooltip opens LEFTWARD. Either way the
--- tooltip gets its own top-level ScreenGui — it must render above whatever
--- window is open.
+-- always-on rail as a row of the shared top-right stack (TopRightMenu,
+-- which owns the scale and whose ScreenGui is created early via this call
+-- in init, so the big windows draw and hit-test above the rail when they
+-- overlap it); its tooltip opens LEFTWARD. Either way the tooltip gets its
+-- own top-level ScreenGui — it must render above whatever window is open.
 function SpellTrackerUI.start(hostFrame)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "SpellTrackerTooltip"
@@ -89,8 +92,12 @@ function SpellTrackerUI.start(hostFrame)
 	gui.DisplayOrder = 50 -- the tooltip overlays any open panel
 	gui.Parent = player:WaitForChild("PlayerGui")
 
-	-- Layout mode from the options menu; the panel narrows in minimal.
-	local mode = PlayerSettings.get("traitTracker")
+	-- Layout mode: the options menu drives the rail; the inventory-hosted
+	-- column always shows the info-dense compact rows.
+	local function currentMode()
+		return hostFrame and "compact" or PlayerSettings.get("traitTracker")
+	end
+	local mode = currentMode()
 	local function panelWidth()
 		return mode == "minimal" and MINIMAL_W or ENTRY_W
 	end
@@ -102,15 +109,10 @@ function SpellTrackerUI.start(hostFrame)
 	if hostFrame then
 		panel.Parent = hostFrame
 	else
-		local railGui = Instance.new("ScreenGui")
-		railGui.Name = "SpellTrackerUI"
-		railGui.ResetOnSpawn = false
-		railGui.IgnoreGuiInset = true
-		railGui.Parent = player:WaitForChild("PlayerGui")
-		panel.AnchorPoint = Vector2.new(1, 0.5) -- right edge pinned; width changes grow leftward
-		panel.Position = UDim2.new(1, -PANEL_X, 0.42, 0)
-		panel.Parent = railGui
-		UIKit.autoScale(panel) -- right-edge anchored: scales in place (§9)
+		-- Right-aligned in the stack; compact rows overflow leftward.
+		panel.AnchorPoint = Vector2.new(1, 0)
+		panel.Position = UDim2.new(1, 0, 0, 0)
+		panel.Parent = TopRightMenu.addHost(50)
 	end
 
 	local layout = Instance.new("UIListLayout")
@@ -678,10 +680,11 @@ function SpellTrackerUI.start(hostFrame)
 	SpellsClient.changed:Connect(refreshTooltip)
 	HotbarBinds.changed:Connect(refreshTooltip)
 
-	-- Options menu: swap layouts live (the rebuilds pick up `mode`).
+	-- Options menu: swap layouts live (the rebuilds pick up `mode`). The
+	-- hosted column's mode never changes, so it skips the rebuild.
 	PlayerSettings.changed:Connect(function(key)
-		if key == "traitTracker" then
-			mode = PlayerSettings.get("traitTracker")
+		if key == "traitTracker" and currentMode() ~= mode then
+			mode = currentMode()
 			panel.Size = UDim2.new(0, panelWidth(), 0, 0)
 			rebuildEntries()
 			rebuildTraitEntries()

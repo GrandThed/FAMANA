@@ -29,6 +29,9 @@ roblox/src/server/Secret.lua
 *.rbxlx
 *.rbxm
 *.rbxmx
+# …except authored place maps — they ARE the deploy source (docs/MAP_AUTHORING.md)
+!roblox/maps/*.rbxm
+!roblox/maps/*.rbxmx
 
 # Build output
 dist/

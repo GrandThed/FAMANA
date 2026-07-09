@@ -5,18 +5,34 @@ import { getInventory, addItem } from "./inventory.js";
 import { STARTER_ITEMS, STARTER_EQUIPPABLES } from "./items.js";
 import { isValidClass, defaultClassLevels, DEFAULT_CLASS } from "./classes.js";
 
-// Grants any missing starter tools/weapons (idempotent). Lets existing players
-// pick up newly-added starter gear without wiping their profile.
-async function ensureStarterEquippables(client, playerId, inventory) {
-  const owned = new Set(inventory.map((entry) => entry.itemId));
-  let granted = false;
-  for (const item of STARTER_EQUIPPABLES) {
-    if (!owned.has(item.itemId)) {
-      await addItem(client, playerId, item.itemId, item.quantity);
-      granted = true;
+// Starter tools/weapons are granted ONCE per item id, recorded in
+// players.granted_starter_items — dropping or selling starter gear is
+// permanent, it never comes back on the next load. Items added to the kit
+// LATER still reach existing players (their id isn't recorded yet, so
+// they're granted — once — on the next load). Legacy profiles (empty list,
+// from the reconcile-on-every-load era) already own their kit: the current
+// ids are recorded without granting anything.
+async function ensureStarterEquippables(client, playerId, grantedRaw) {
+  const granted = new Set(Array.isArray(grantedRaw) ? grantedRaw : []);
+  const before = granted.size;
+
+  if (granted.size === 0) {
+    for (const item of STARTER_ITEMS) granted.add(item.itemId);
+  } else {
+    for (const item of STARTER_EQUIPPABLES) {
+      if (!granted.has(item.itemId)) {
+        await addItem(client, playerId, item.itemId, item.quantity);
+        granted.add(item.itemId);
+      }
     }
   }
-  return granted;
+
+  if (granted.size !== before) {
+    await client.query(
+      `UPDATE players SET granted_starter_items = $2::jsonb WHERE id = $1`,
+      [playerId, JSON.stringify([...granted])]
+    );
+  }
 }
 
 function rowToPlayer(row, inventory) {
@@ -54,10 +70,8 @@ export async function loadPlayer(playerId) {
   return withTransaction(async (client) => {
     const { rows } = await client.query(`SELECT * FROM players WHERE id = $1`, [playerId]);
     if (rows.length === 0) return null;
-    let inventory = await getInventory(client, playerId);
-    if (await ensureStarterEquippables(client, playerId, inventory)) {
-      inventory = await getInventory(client, playerId);
-    }
+    await ensureStarterEquippables(client, playerId, rows[0].granted_starter_items);
+    const inventory = await getInventory(client, playerId);
     return rowToPlayer(rows[0], inventory);
   });
 }
@@ -73,9 +87,15 @@ export async function createPlayer(playerId, username) {
     }
 
     const { rows } = await client.query(
-      `INSERT INTO players (id, username, current_class, class_levels)
-       VALUES ($1, $2, $3, $4::jsonb) RETURNING *`,
-      [playerId, username, DEFAULT_CLASS, JSON.stringify(defaultClassLevels())]
+      `INSERT INTO players (id, username, current_class, class_levels, granted_starter_items)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb) RETURNING *`,
+      [
+        playerId,
+        username,
+        DEFAULT_CLASS,
+        JSON.stringify(defaultClassLevels()),
+        JSON.stringify(STARTER_ITEMS.map((item) => item.itemId)),
+      ]
     );
     for (const item of STARTER_ITEMS) {
       await addItem(client, playerId, item.itemId, item.quantity);

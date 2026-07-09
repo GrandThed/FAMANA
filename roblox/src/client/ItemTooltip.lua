@@ -4,14 +4,18 @@
 -- one instance per ScreenGui:
 --
 --   local tooltip = ItemTooltip.create(gui, guard)
---   tooltip.schedule(entry, lines)  -- show after the hover delay
+--   tooltip.schedule(entry, lines, compareEntry)  -- show after the hover delay
 --   tooltip.hide()
 --
 -- `guard` (optional) runs when the delay fires — the host says whether
 -- showing still makes sense (panel open, not mid-drag). `lines` (optional)
 -- appends host-specific rows under the card ({ { text, color? } }) — the
--- store uses it for price and "not traded here" hints. The tooltip appears
--- instantly at the cursor with no tween so it tracks cleanly (UI.md §11).
+-- store uses it for price and "not traded here" hints. `compareEntry`
+-- (optional) is the equipped piece the hovered item would replace: the
+-- card's trait rows then carry a right-aligned green/red point delta
+-- against it, and traits only on the equipped piece show as "+0" rows
+-- with the full loss on the right. The tooltip appears instantly at the
+-- cursor with no tween so it tracks cleanly (UI.md §11).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -65,54 +69,61 @@ local function makeLabel(parent, text, size, color, font)
 end
 
 function ItemTooltip.create(gui, guard)
-	local tooltip = Instance.new("Frame")
-	tooltip.BackgroundColor3 = Theme.Semantic.PanelTop
-	tooltip.BorderSizePixel = 0
-	tooltip.AutomaticSize = Enum.AutomaticSize.Y
-	tooltip.Size = UDim2.new(0, ItemTooltip.WIDTH, 0, 0)
-	tooltip.Visible = false
-	tooltip.ZIndex = 60
-	tooltip.Parent = gui
-	UIKit.autoScale(tooltip) -- content scales; its Position stays screen-space
+	-- One card shell (frame + rarity stroke + list layout). The main card and
+	-- the compare card are two instances of the same recipe.
+	local function makeCard()
+		local frame = Instance.new("Frame")
+		frame.BackgroundColor3 = Theme.Semantic.PanelTop
+		frame.BorderSizePixel = 0
+		frame.AutomaticSize = Enum.AutomaticSize.Y
+		frame.Size = UDim2.new(0, ItemTooltip.WIDTH, 0, 0)
+		frame.Visible = false
+		frame.ZIndex = 60
+		frame.Parent = gui
+		UIKit.autoScale(frame) -- content scales; its Position stays screen-space
 
-	local tooltipGradient = Instance.new("UIGradient")
-	tooltipGradient.Rotation = 90
-	tooltipGradient.Color = ColorSequence.new(Theme.Semantic.PanelTop, Theme.Semantic.PanelBot)
-	tooltipGradient.Parent = tooltip
+		local gradient = Instance.new("UIGradient")
+		gradient.Rotation = 90
+		gradient.Color = ColorSequence.new(Theme.Semantic.PanelTop, Theme.Semantic.PanelBot)
+		gradient.Parent = frame
 
-	-- Retinted to the hovered item's rarity when the tooltip shows (§6.5).
-	local tooltipStroke = Instance.new("UIStroke")
-	tooltipStroke.Thickness = 1
-	tooltipStroke.Color = Theme.Semantic.BorderSlot
-	tooltipStroke.Parent = tooltip
+		-- Retinted to the item's rarity when the card shows (§6.5).
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 1
+		stroke.Color = Theme.Semantic.BorderSlot
+		stroke.Parent = frame
 
-	local tooltipPad = Instance.new("UIPadding")
-	tooltipPad.PaddingTop = UDim.new(0, 8)
-	tooltipPad.PaddingBottom = UDim.new(0, 8)
-	tooltipPad.PaddingLeft = UDim.new(0, 10)
-	tooltipPad.PaddingRight = UDim.new(0, 10)
-	tooltipPad.Parent = tooltip
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 8)
+		pad.PaddingBottom = UDim.new(0, 8)
+		pad.PaddingLeft = UDim.new(0, 10)
+		pad.PaddingRight = UDim.new(0, 10)
+		pad.Parent = frame
 
-	local tooltipLayout = Instance.new("UIListLayout")
-	tooltipLayout.Padding = UDim.new(0, 4)
-	tooltipLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	tooltipLayout.Parent = tooltip
+		local layout = Instance.new("UIListLayout")
+		layout.Padding = UDim.new(0, 4)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = frame
+
+		return { frame = frame, stroke = stroke, order = 0 }
+	end
+
+	local main = makeCard()
 
 	-- Rows are rebuilt per hover; UI components (gradient/stroke/padding/
 	-- layout) are not GuiObjects, so the clear below leaves them alone.
-	local tooltipOrder = 0
-	local function tooltipRow(height)
-		tooltipOrder += 1
+	local function cardRow(card, height)
+		card.order += 1
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, 0, 0, height)
 		row.BackgroundTransparency = 1
-		row.LayoutOrder = tooltipOrder
+		row.LayoutOrder = card.order
 		row.ZIndex = 61
-		row.Parent = tooltip
+		row.Parent = card.frame
 		return row
 	end
 
-	local function tooltipText(parent, text, size, color, font)
+	local function cardText(parent, text, size, color, font)
 		local label = makeLabel(parent, text, size, color, font)
 		label.ZIndex = 61
 		label.TextXAlignment = Enum.TextXAlignment.Left
@@ -157,34 +168,35 @@ function ItemTooltip.create(gui, guard)
 		return label
 	end
 
-	-- Rebuilds the tooltip rows for an entry (§6.5: name + Lv, rarity·kind +
+	-- Rebuilds a card's rows for an entry (§6.5: name + Lv, rarity·kind +
 	-- size, divider, stat line, trait grants with mini hexes, flavor), then
-	-- any host-provided extra lines.
-	local function buildTooltip(entry, lines)
-		for _, child in ipairs(tooltip:GetChildren()) do
+	-- any host-provided extra lines. `compareEntry` adds the equipped-piece
+	-- trait deltas to the trait rows.
+	local function buildCard(card, entry, lines, compareEntry)
+		for _, child in ipairs(card.frame:GetChildren()) do
 			if child:IsA("GuiObject") then
 				child:Destroy()
 			end
 		end
-		tooltipOrder = 0
+		card.order = 0
 
 		local function extraLines()
 			if not lines then
 				return
 			end
 			for _, extra in ipairs(lines) do
-				local row = tooltipRow(16)
-				local label = tooltipText(row, extra.text, Theme.Text.Sm, extra.color or Theme.Semantic.TextMuted)
+				local row = cardRow(card, 16)
+				local label = cardText(row, extra.text, Theme.Text.Sm, extra.color or Theme.Semantic.TextMuted)
 				label.Size = UDim2.new(1, 0, 1, 0)
 			end
 		end
 
 		local def = Items.get(entry.itemId)
 		local rarity = Rarity.forEntry(entry, def)
-		tooltipStroke.Color = rarity.color -- frame tints with the tier
+		card.stroke.Color = rarity.color -- frame tints with the tier
 		if not def then
-			local row = tooltipRow(20)
-			local name = tooltipText(row, entry.itemId, Theme.Text.Item, rarity.textColor, Theme.Font.DisplayBold)
+			local row = cardRow(card, 20)
+			local name = cardText(row, entry.itemId, Theme.Text.Item, rarity.textColor, Theme.Font.DisplayBold)
 			name.Size = UDim2.new(1, 0, 1, 0)
 			extraLines()
 			return
@@ -192,30 +204,30 @@ function ItemTooltip.create(gui, guard)
 
 		local itemLevel, itemTraits = Traits.entryInfo(entry, def)
 
-		local header = tooltipRow(20)
-		local name = tooltipText(header, def.name, Theme.Text.Item, rarity.textColor, Theme.Font.DisplayBold)
+		local header = cardRow(card, 20)
+		local name = cardText(header, def.name, Theme.Text.Item, rarity.textColor, Theme.Font.DisplayBold)
 		name.Size = UDim2.new(1, -36, 1, 0)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		if itemLevel > 0 then
-			local lv = tooltipText(header, ("Lv %d"):format(itemLevel), Theme.Text.Sm, Theme.Semantic.TextSecondary)
+			local lv = cardText(header, ("Lv %d"):format(itemLevel), Theme.Text.Sm, Theme.Semantic.TextSecondary)
 			lv.Size = UDim2.new(0, 34, 1, 0)
 			lv.Position = UDim2.new(1, -34, 0, 0)
 			lv.TextXAlignment = Enum.TextXAlignment.Right
 		end
 
-		local sub = tooltipRow(14)
+		local sub = cardRow(card, 14)
 		local kind =
-			tooltipText(sub, rarity.name .. " · " .. kindFor(def), Theme.Text.Xs, rarity.textColor, Theme.Font.Body)
+			cardText(sub, rarity.name .. " · " .. kindFor(def), Theme.Text.Xs, rarity.textColor, Theme.Font.Body)
 		kind.Size = UDim2.new(1, -54, 1, 0)
 		kind.TextTransparency = 0.25
 		local w, h = Items.sizeFor(entry.itemId, false)
 		local sizeLabel =
-			tooltipText(sub, ("Size %d×%d"):format(w, h), Theme.Text.Xs, Theme.Semantic.TextMuted, Theme.Font.Body)
+			cardText(sub, ("Size %d×%d"):format(w, h), Theme.Text.Xs, Theme.Semantic.TextMuted, Theme.Font.Body)
 		sizeLabel.Size = UDim2.new(0, 52, 1, 0)
 		sizeLabel.Position = UDim2.new(1, -52, 0, 0)
 		sizeLabel.TextXAlignment = Enum.TextXAlignment.Right
 
-		local dividerRow = tooltipRow(5)
+		local dividerRow = cardRow(card, 5)
 		local divider = Instance.new("Frame")
 		divider.Size = UDim2.new(1, 0, 0, 1)
 		divider.Position = UDim2.new(0, 0, 0.5, 0)
@@ -242,15 +254,15 @@ function ItemTooltip.create(gui, guard)
 			parts[#parts + 1] = ("Stack %d/%d"):format(entry.quantity, def.maxStack)
 		end
 		if #parts > 0 then
-			local statRow = tooltipRow(16)
-			local stats = tooltipText(statRow, table.concat(parts, "  ·  "), Theme.Text.Sm, Theme.Semantic.TextStrong)
+			local statRow = cardRow(card, 16)
+			local stats = cardText(statRow, table.concat(parts, "  ·  "), Theme.Text.Sm, Theme.Semantic.TextStrong)
 			stats.Size = UDim2.new(1, 0, 1, 0)
 		end
 
 		local playerLevel = player:GetAttribute("Level") or 1
 		if itemLevel > playerLevel then
-			local inertRow = tooltipRow(14)
-			local inert = tooltipText(
+			local inertRow = cardRow(card, 14)
+			local inert = cardText(
 				inertRow,
 				("INERT — needs class Lv %d"):format(itemLevel),
 				Theme.Text.Xs,
@@ -259,45 +271,80 @@ function ItemTooltip.create(gui, guard)
 			inert.Size = UDim2.new(1, 0, 1, 0)
 		end
 
+		-- The compared (equipped) piece's traits, for the delta column.
+		local diffTraits
+		if compareEntry then
+			local compareDef = Items.get(compareEntry.itemId)
+			if compareDef then
+				local _, t = Traits.entryInfo(compareEntry, compareDef)
+				diffTraits = t or {}
+			end
+		end
+
 		-- Trait grants, one row each with a mini hex (schools first — they
-		-- gate spells).
-		if itemTraits then
-			local function grantRow(id, displayName, color, emoji, points)
-				local row = tooltipRow(18)
+		-- gate spells). Equipped-only traits still get a row — "+0" on the
+		-- left, the full loss as the delta.
+		if itemTraits or diffTraits then
+			local ownTraits = itemTraits or {}
+			local function grantRow(id, displayName, color, emoji, points, delta)
+				local row = cardRow(card, 18)
 				local badge = miniHex(row, id, color, emoji)
 				badge.Position = UDim2.new(0, 0, 0.5, -8)
-				local label =
-					tooltipText(row, ("%s +%d"):format(displayName, points), Theme.Text.Sm, Theme.Semantic.TextStrong)
-				label.Size = UDim2.new(1, -22, 1, 0)
+				local showDelta = delta ~= nil and delta ~= 0
+				local label = cardText(
+					row,
+					("%s +%d"):format(displayName, points),
+					Theme.Text.Sm,
+					Theme.Semantic.TextStrong
+				)
+				label.Size = UDim2.new(1, showDelta and -60 or -22, 1, 0)
 				label.Position = UDim2.new(0, 22, 0, 0)
+				if showDelta then
+					local deltaLabel = cardText(
+						row,
+						(delta > 0 and "+%d" or "%d"):format(delta),
+						Theme.Text.Sm,
+						delta > 0 and Theme.Semantic.Good or Theme.Semantic.Bad
+					)
+					deltaLabel.Size = UDim2.new(0, 36, 1, 0)
+					deltaLabel.Position = UDim2.new(1, -36, 0, 0)
+					deltaLabel.TextXAlignment = Enum.TextXAlignment.Right
+				end
 			end
-			for _, schoolId in ipairs(Spells.schoolOrder) do
-				local points = itemTraits[schoolId]
+
+			local function traitRows(id, displayName, color, emoji)
+				local points = ownTraits[id]
+				local basePoints = diffTraits and diffTraits[id]
 				if points then
-					local school = Spells.schools[schoolId]
-					grantRow(schoolId, school.name, school.color, school.icon, points)
+					local delta = diffTraits and (points - (basePoints or 0)) or nil
+					grantRow(id, displayName, color, emoji, points, delta)
+				elseif basePoints then
+					grantRow(id, displayName, color, emoji, 0, -basePoints)
+				end
+			end
+
+			for _, schoolId in ipairs(Spells.schoolOrder) do
+				local school = Spells.schools[schoolId]
+				if school then
+					traitRows(schoolId, school.name, school.color, school.icon)
 				end
 			end
 			for _, traitId in ipairs(Traits.order) do
-				local points = itemTraits[traitId]
-				if points then
-					local traitDef = Traits.get(traitId)
-					grantRow(
-						traitId,
-						traitDef and traitDef.name or traitId,
-						traitDef and traitDef.color or Theme.Semantic.TextBody,
-						traitDef and traitDef.icon,
-						points
-					)
-				end
+				local traitDef = Traits.get(traitId)
+				traitRows(
+					traitId,
+					traitDef and traitDef.name or traitId,
+					traitDef and traitDef.color or Theme.Semantic.TextBody,
+					traitDef and traitDef.icon
+				)
 			end
 		end
 
 		-- Flavor, italic and quoted (only when the def carries one).
 		if typeof(def.flavor) == "string" and def.flavor ~= "" then
-			local flavorRow = tooltipRow(0)
+			local flavorRow = cardRow(card, 0)
 			flavorRow.AutomaticSize = Enum.AutomaticSize.Y
-			local flavor = tooltipText(
+			local flavor = cardText(
 				flavorRow,
 				"“" .. def.flavor .. "”",
 				Theme.Text.Xs,
@@ -318,26 +365,24 @@ function ItemTooltip.create(gui, guard)
 
 	function handle.hide()
 		hoverToken += 1
-		tooltip.Visible = false
+		main.frame.Visible = false
 	end
 
-	function handle.schedule(entry, lines)
+	function handle.schedule(entry, lines, compareEntry)
 		hoverToken += 1
 		local token = hoverToken
 		task.delay(ItemTooltip.DELAY, function()
 			if token ~= hoverToken or (guard and not guard()) then
 				return
 			end
-			buildTooltip(entry, lines)
-			local s = UIKit.scaleFactor() -- rendered tooltip size is design px × scale
+			buildCard(main, entry, lines, compareEntry)
+			local s = UIKit.scaleFactor() -- rendered card size is design px × scale
 			local guiSize = gui.AbsoluteSize
-			tooltip.Position = UDim2.new(
-				0,
+			main.frame.Position = UDim2.fromOffset(
 				math.min(mouse.X + 14, guiSize.X - (ItemTooltip.WIDTH + 16) * s),
-				0,
 				math.min(mouse.Y + 10, guiSize.Y - 220 * s)
 			)
-			tooltip.Visible = true
+			main.frame.Visible = true
 		end)
 	end
 

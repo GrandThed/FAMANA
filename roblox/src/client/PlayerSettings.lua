@@ -6,7 +6,8 @@
 --
 -- Keys and their values:
 --   traitTracker — "minimal" (icon-only column, the default) | "compact"
---                  (icon + name + count rows); read by SpellTrackerUI.
+--                  (icon + name + count rows); the layout of SpellTrackerUI's
+--                  RAIL instance (the inventory column is always compact).
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")

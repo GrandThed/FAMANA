@@ -1,156 +1,194 @@
--- Options menu: the gear button next to the Inventory button (top-right)
--- opens a small panel of player preferences. Values live in PlayerSettings
--- (pushed to the server, persisted with the profile).
+-- Options window: the gear button next to the Inventory button (top-right)
+-- toggles a real settings window (§6.1 panel treatment: title bar, close
+-- button, drop shadow). Values live in PlayerSettings (pushed to the
+-- server, persisted with the profile).
+--
+-- Settings are declared in the SETTINGS schema below — a list of sections,
+-- each with typed entries — and the window renders itself from it. To add
+-- an option: add its key to PlayerSettings.DEFAULTS (+ the server
+-- whitelist) and one entry here.
 --
 -- Current options:
---   * Trait tracker — Compact (icon + name rows) / Minimal (icon-only
---     column), the SpellTrackerUI layouts from docs/traits_*_side.png.
+--   * Interface / Trait rail — Compact (icon + name rows) / Minimal
+--     (icon-only column), the SpellTrackerUI rail layouts. Rail only: the
+--     inventory's traits column is always compact.
 
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 
 local PlayerSettings = require(script.Parent.PlayerSettings)
 local Theme = require(script.Parent.Theme)
+local TopRightMenu = require(script.Parent.TopRightMenu)
 local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
 
 local SettingsUI = {}
 
--- Aethelgard palette (client/Theme.lua).
-local COLORS = {
-	tile = Theme.Color.Ink650,
-	accent = Theme.Color.Ember500,
-	text = Theme.Semantic.TextBody,
-	textDim = Theme.Semantic.TextMuted,
+local PANEL_W = 400
+local PAD = 14 -- window inner padding
+local ROW_H = 30
+local CHOICE_W = 86 -- one segmented-choice button
+
+-- What the window shows, in order. Entry types: "choice" (mutually-
+-- exclusive segmented buttons over a PlayerSettings key).
+local SETTINGS = {
+	{
+		section = "Interface",
+		entries = {
+			{
+				type = "choice",
+				key = "traitTracker",
+				label = "Trait rail",
+				options = {
+					{ label = "Compact", value = "compact" },
+					{ label = "Minimal", value = "minimal" },
+				},
+			},
+		},
+	},
 }
 
-local PANEL_W = 240
+-- One segmented-choice row: setting label left, one button per option
+-- right-aligned; the selected option reads ember, the rest stone.
+local function buildChoiceRow(content, order, entry)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, ROW_H)
+	row.BackgroundTransparency = 1
+	row.LayoutOrder = order
+	row.ZIndex = content.ZIndex
+	row.Parent = content
 
-local function makeLabel(parent, text, size, color, font)
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.FontFace = font or Theme.Font.BodyBold
-	label.TextSize = size
-	label.TextColor3 = color or COLORS.text
-	label.Text = text
-	label.Parent = parent
-	return label
+	local groupW = #entry.options * CHOICE_W + (#entry.options - 1) * 4
+
+	local label = UIKit.label(row, entry.label, Theme.Text.Body)
+	label.Size = UDim2.new(1, -(groupW + 10), 1, 0)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.ZIndex = row.ZIndex
+
+	local buttons = {}
+	local function refresh()
+		local current = PlayerSettings.get(entry.key)
+		for value, widgets in pairs(buttons) do
+			local selected = value == current
+			widgets.button.BackgroundColor3 = selected and Theme.Color.Ember500 or Theme.Color.Ink650
+			widgets.button.TextColor3 = selected and Color3.fromRGB(255, 228, 200) or Theme.Semantic.TextMuted
+			widgets.stroke.Color = selected and Theme.Color.Ember400 or Theme.Semantic.BorderDivider
+		end
+	end
+
+	for index, option in ipairs(entry.options) do
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(0, CHOICE_W, 1, -4)
+		button.AnchorPoint = Vector2.new(1, 0.5)
+		button.Position = UDim2.new(1, -(#entry.options - index) * (CHOICE_W + 4), 0.5, 0)
+		button.BackgroundColor3 = Theme.Color.Ink650
+		button.BorderSizePixel = 0
+		button.AutoButtonColor = false
+		button.FontFace = Theme.Font.BodyBold
+		button.TextSize = Theme.Text.Sm
+		button.Text = option.label
+		button.ZIndex = row.ZIndex
+		button.Parent = row
+
+		local stroke = Instance.new("UIStroke")
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border -- TextButton
+		stroke.Thickness = 1
+		stroke.Color = Theme.Semantic.BorderDivider
+		stroke.Parent = button
+
+		-- Selection-aware hover (UIKit.hover would restore the unselected
+		-- tint onto a selected button).
+		button.MouseEnter:Connect(function()
+			if PlayerSettings.get(entry.key) ~= option.value then
+				TweenService:Create(button, Theme.Tween.Fast, { BackgroundColor3 = Theme.Color.Ink600 }):Play()
+			end
+		end)
+		button.MouseLeave:Connect(refresh)
+
+		button.Activated:Connect(function()
+			PlayerSettings.set(entry.key, option.value)
+		end)
+		buttons[option.value] = { button = button, stroke = stroke }
+	end
+
+	PlayerSettings.changed:Connect(function(key)
+		if key == entry.key then
+			refresh()
+		end
+	end)
+	refresh()
 end
+
+local ROW_BUILDERS = {
+	choice = buildChoiceRow,
+}
 
 function SettingsUI.start()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "SettingsUI"
 	gui.ResetOnSpawn = false
+	gui.DisplayOrder = 40 -- above the big windows, below tooltips (50)
 	gui.Parent = player:WaitForChild("PlayerGui")
 
-	-- Gear button, left of the Inventory (B) button (which sits at 1,-16).
-	local openBtn = UIKit.ghostButton(gui, "⚙")
-	openBtn.Size = UDim2.new(0, 34, 0, 34)
-	openBtn.Position = UDim2.new(1, -142, 0, 16)
-	openBtn.AnchorPoint = Vector2.new(1, 0)
+	-- Gear button, hanging left of the top-right stack's first row.
+	local openBtn = TopRightMenu.addAside("⚙")
 	openBtn.TextSize = 18
 
 	local panel = Instance.new("Frame")
 	panel.Size = UDim2.new(0, PANEL_W, 0, 0)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
-	-- Below the Inventory (y 16) and Character (y 56) buttons.
-	panel.Position = UDim2.new(1, -16, 0, 96)
-	panel.AnchorPoint = Vector2.new(1, 0)
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.new(0.5, 0, 0.4, 0)
 	panel.Visible = false
-	panel.ZIndex = 15
+	panel.ZIndex = 2
 	panel.Parent = gui
 	UIKit.stylePanel(panel)
+	UIKit.addShadow(panel)
+	UIKit.autoScale(panel) -- centered: grows in place (§9)
 
-	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 10)
-	pad.PaddingBottom = UDim.new(0, 12)
-	pad.PaddingLeft = UDim.new(0, 12)
-	pad.PaddingRight = UDim.new(0, 12)
-	pad.Parent = panel
+	UIKit.titleBar(panel, "Options")
+	local closeBtn = UIKit.closeButton(panel)
+	closeBtn.Position = UDim2.new(1, -5, 0, 5)
+	closeBtn.AnchorPoint = Vector2.new(1, 0)
+
+	-- Rows flow below the title bar; the window height follows them.
+	local content = Instance.new("Frame")
+	content.Position = UDim2.new(0, PAD, 0, 36 + 8)
+	content.Size = UDim2.new(1, -PAD * 2, 0, 0)
+	content.AutomaticSize = Enum.AutomaticSize.Y
+	content.BackgroundTransparency = 1
+	content.ZIndex = panel.ZIndex + 1
+	content.Parent = panel
+
+	local bottomPad = Instance.new("UIPadding")
+	bottomPad.PaddingBottom = UDim.new(0, PAD)
+	bottomPad.Parent = content
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 6)
-	layout.Parent = panel
+	layout.Padding = UDim.new(0, 8)
+	layout.Parent = content
 
-	local title =
-		makeLabel(panel, "Options", Theme.Text.Hero, Theme.Semantic.TextTitle, Theme.Font.DisplayBold)
-	title.Size = UDim2.new(1, 0, 0, 22)
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.LayoutOrder = 1
-	title.ZIndex = 16
+	local order = 0
+	for _, section in ipairs(SETTINGS) do
+		order += 1
+		local header = UIKit.sectionLabel(content, section.section)
+		header.Size = UDim2.new(1, 0, 0, 16)
+		header.TextXAlignment = Enum.TextXAlignment.Left
+		header.LayoutOrder = order
 
-	-- One choice row: a label over a set of mutually-exclusive buttons.
-	-- Extend by calling this again for future settings.
-	local function addChoice(order, labelText, settingKey, options)
-		local label = makeLabel(panel, string.upper(labelText), Theme.Text.Label, Theme.Semantic.TextLabel)
-		label.Size = UDim2.new(1, 0, 0, 16)
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.LayoutOrder = order
-		label.ZIndex = 16
-
-		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, 0, 0, 28)
-		row.BackgroundTransparency = 1
-		row.LayoutOrder = order + 1
-		row.ZIndex = 16
-		row.Parent = panel
-
-		local rowLayout = Instance.new("UIListLayout")
-		rowLayout.FillDirection = Enum.FillDirection.Horizontal
-		rowLayout.Padding = UDim.new(0, 6)
-		rowLayout.Parent = row
-
-		local buttons = {}
-		local function refresh()
-			local current = PlayerSettings.get(settingKey)
-			for value, widgets in pairs(buttons) do
-				local selected = value == current
-				widgets.button.BackgroundColor3 = selected and COLORS.accent or COLORS.tile
-				widgets.button.TextColor3 = selected and Color3.fromRGB(255, 228, 200) or COLORS.textDim
-				widgets.stroke.Color = selected and Theme.Color.Ember400 or Theme.Semantic.BorderDivider
-			end
+		for _, entry in ipairs(section.entries) do
+			order += 1
+			ROW_BUILDERS[entry.type](content, order, entry)
 		end
-
-		for _, option in ipairs(options) do
-			local button = Instance.new("TextButton")
-			button.Size = UDim2.new(0, (PANEL_W - 24 - (#options - 1) * 6) / #options, 1, 0)
-			button.BackgroundColor3 = COLORS.tile
-			button.BorderSizePixel = 0
-			button.AutoButtonColor = false
-			button.FontFace = Theme.Font.BodyBold
-			button.TextSize = 12
-			button.Text = option.label
-			button.ZIndex = 16
-			button.Parent = row
-
-			local stroke = Instance.new("UIStroke")
-			stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border -- TextButton
-			stroke.Thickness = 1
-			stroke.Color = Theme.Semantic.BorderDivider
-			stroke.Parent = button
-
-			button.Activated:Connect(function()
-				PlayerSettings.set(settingKey, option.value)
-			end)
-			buttons[option.value] = { button = button, stroke = stroke }
-		end
-
-		PlayerSettings.changed:Connect(function(key)
-			if key == settingKey then
-				refresh()
-			end
-		end)
-		refresh()
 	end
-
-	addChoice(10, "Trait tracker", "traitTracker", {
-		{ label = "Compact", value = "compact" },
-		{ label = "Minimal", value = "minimal" },
-	})
 
 	openBtn.Activated:Connect(function()
 		panel.Visible = not panel.Visible
+	end)
+	closeBtn.Activated:Connect(function()
+		panel.Visible = false
 	end)
 end
 

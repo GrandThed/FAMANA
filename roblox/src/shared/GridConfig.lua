@@ -33,6 +33,19 @@ GridConfig.cells = {
 -- you've filled in the ids). Lets you keep testing Cell A locally.
 GridConfig.defaultCell = "A"
 
+-- Non-cell places (instances: dungeons, housing, ...) register here by
+-- placeId; anything else — the grid cells and the Studio fallback — is role
+-- "cell". init.server.lua uses the role to skip cell-only services
+-- (borders, cell theming) in instance places.
+GridConfig.places = {
+	-- [123456789] = { role = "dungeon" },
+}
+
+function GridConfig.currentRole()
+	local entry = GridConfig.places[game.PlaceId]
+	return entry and entry.role or "cell"
+end
+
 -- Geometry (studs). Border walls sit at +/- HALF on the crossing axis; you
 -- arrive INSET studs inside the opposite border.
 GridConfig.HALF = 40

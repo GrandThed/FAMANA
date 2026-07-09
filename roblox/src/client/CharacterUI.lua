@@ -19,6 +19,7 @@ local Traits = require(Shared:WaitForChild("Traits"))
 local Spells = require(Shared:WaitForChild("Spells"))
 local Classes = require(Shared:WaitForChild("Classes"))
 local Theme = require(script.Parent.Theme)
+local TopRightMenu = require(script.Parent.TopRightMenu)
 local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
@@ -289,11 +290,7 @@ function CharacterUI.start()
 		end
 	end
 
-	local openBtn = UIKit.ghostButton(gui, "Character (C)")
-	openBtn.Size = UDim2.new(0, 120, 0, 30)
-	openBtn.Position = UDim2.new(1, -16, 0, 56) -- right under the Inventory button
-	openBtn.AnchorPoint = Vector2.new(1, 0)
-	openBtn.TextSize = Theme.Text.Sm
+	local openBtn = TopRightMenu.addButton("Character (C)", 2)
 
 	openBtn.Activated:Connect(function()
 		setOpen(not panel.Visible)

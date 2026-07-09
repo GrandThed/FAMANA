@@ -2,6 +2,8 @@
 -- into the player's inventory (persisted via the backend). Nodes deplete and
 -- regrow. In-memory per server (per the MVP spec). Node types are data-driven,
 -- so adding a resource is just a new entry in NODE_DEFS + its builder.
+-- Placement: authored maps use Node_<key> markers (see shared/MapMarkers);
+-- the defs' `spots` lists are the fallback for places without a map.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -13,6 +15,7 @@ local TargetService = require(script.Parent.TargetService)
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local ArtKit = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArtKit"))
 local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Items"))
+local MapMarkers = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MapMarkers"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local GatheringService = {}
@@ -305,9 +308,18 @@ function GatheringService.start()
 	resourceFolder.Name = "Resources"
 	resourceFolder.Parent = Workspace
 
-	for _, def in pairs(NODE_DEFS) do
-		for _, spot in ipairs(def.spots) do
-			table.insert(nodes, def.build(spot, def))
+	if MapMarkers.mapPresent() then
+		local markers = MapMarkers.takeFor("Node_", NODE_DEFS)
+		for key, def in pairs(NODE_DEFS) do
+			for _, marker in ipairs(markers[key] or {}) do
+				table.insert(nodes, def.build(marker.cframe.Position, def))
+			end
+		end
+	else
+		for _, def in pairs(NODE_DEFS) do
+			for _, spot in ipairs(def.spots) do
+				table.insert(nodes, def.build(spot, def))
+			end
 		end
 	end
 
