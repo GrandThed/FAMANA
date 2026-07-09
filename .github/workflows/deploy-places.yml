@@ -1,0 +1,74 @@
+# Deploys every Roblox place from the repo on push to main (docs/DEPLOYMENT.md).
+# Deploy = merge: rojo-builds each place in roblox/places.json and publishes it
+# via Open Cloud. Live servers keep the old version until they empty — trigger
+# this workflow manually with restart=true to migrate them immediately.
+#
+# Repo secrets required (Settings → Secrets and variables → Actions):
+#   ROBLOX_API_KEY — Open Cloud key: universe-places:write (+ universe write
+#                    for restarts). Its IP allowlist must be 0.0.0.0/0 —
+#                    GitHub runners have changing IPs.
+#   FAMANA_API_KEY — the game's backend API key (Railway API_KEY); rebuilt
+#                    into the gitignored Secret.lua and used for the ledger.
+
+name: Deploy places
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "roblox/**"
+      - "scripts/deploy-places.mjs"
+      - ".github/workflows/deploy-places.yml"
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: "Upload as Saved (draft), not Published"
+        type: boolean
+        default: false
+      restart:
+        description: "Restart outdated live servers after a full deploy"
+        type: boolean
+        default: false
+      places:
+        description: "Space-separated place names (empty = all)"
+        type: string
+        default: ""
+
+# One deploy at a time; a newer push waits for (and supersedes) a queued one.
+concurrency:
+  group: deploy-places
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rojo 7.7.0
+        run: |
+          curl -sL -o /tmp/rojo.zip https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-linux-x86_64.zip
+          sudo unzip -o /tmp/rojo.zip -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/rojo
+          rojo --version
+
+      # Secret.lua is gitignored; the built place needs it to reach the backend.
+      - name: Write Secret.lua
+        run: printf 'return "%s"\n' "$FAMANA_API_KEY" > roblox/src/server/Secret.lua
+        env:
+          FAMANA_API_KEY: ${{ secrets.FAMANA_API_KEY }}
+
+      - name: Build + publish
+        run: >
+          node scripts/deploy-places.mjs
+          ${{ github.event.inputs.draft == 'true' && '--draft' || '' }}
+          ${{ github.event.inputs.restart == 'true' && '--restart' || '' }}
+          ${{ github.event.inputs.places }}
+        env:
+          ROBLOX_API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          FAMANA_API_KEY: ${{ secrets.FAMANA_API_KEY }}

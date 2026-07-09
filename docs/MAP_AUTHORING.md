@@ -71,44 +71,18 @@ so a marker floating above a hill still builds on the ground.
    deploy (§4). Publishing from Studio (File → Publish) still works too for
    the one place you have open.
 
-## 4. Deploying with Open Cloud
+## 4. Deploying
 
-One-time setup:
+The full pipeline lives in [`DEPLOYMENT.md`](DEPLOYMENT.md). The short
+version: **commit the exported map (and any code) and push to `main`** —
+GitHub Actions builds every place from the repo and publishes it via Open
+Cloud. Manual runs still work
+(`node scripts/deploy-places.mjs [--draft] [--restart] [names…]`), with the
+Open Cloud key in the repo-root `.env`.
 
-1. create.roblox.com → **Open Cloud → API Keys** → Create API Key. Under
-   Access Permissions add the **`universe-places`** system, select the FAMANA
-   experience, and enable the **Write** operation (the key needs the
-   `universe-places:write` scope). Under Accepted IPs use your IP (or
-   `0.0.0.0/0`).
-2. Fill in `universeId` in [`roblox/places.json`](../roblox/places.json) —
-   run `print(game.GameId)` in the Studio command bar.
-
-3. Save the key in a **`.env` file at the repo root** (gitignored, so it can
-   never be committed):
-
-   ```
-   ROBLOX_API_KEY=your-key-here
-   ```
-
-Then, whenever code or maps changed:
-
-```powershell
-node scripts/deploy-places.mjs            # build + publish every place
-node scripts/deploy-places.mjs cellB      # just one
-node scripts/deploy-places.mjs --draft    # upload as Saved (test in Studio, don't go live)
-```
-
-The script `rojo build`s each place from its project file (code from `src/`,
-map from `maps/`, settings from the project json) and publishes it via
-`POST /universes/{universeId}/places/{placeId}/versions`. Live servers finish
-on the old version; new servers pick up the new one.
-
-**Adding a place** (new cell or instance): publish an empty place into the
-experience once (Studio → File → Publish to Roblox → this experience → new
-place), then register its placeId in `GridConfig.cells` (cells) or
-`GridConfig.places` (instances, with a `role`), add a
-`roblox/<name>.project.json` (copy cellA's and change the map path), and add
-it to `roblox/places.json`. From then on it deploys like the rest.
+Live servers keep the old version until they empty; migrate them explicitly
+with `--restart` (or the workflow's `restart: true` input). Adding a new
+place is a 5-step checklist in `DEPLOYMENT.md`.
 
 ## 5. Gotchas
 
