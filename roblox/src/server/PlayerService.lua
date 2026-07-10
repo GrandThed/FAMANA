@@ -173,6 +173,11 @@ local function loadProfile(player)
 	data.settings = sanitizeSettings(data.settings)
 	player:SetAttribute("PlayerSettings", HttpService:JSONEncode(data.settings))
 
+	-- Quest progress ({ [questId] = { status, objectives } }, same shape
+	-- QuestService used to keep purely in memory). Profiles saved before
+	-- this existed come back without it.
+	data.questProgress = typeof(data.questProgress) == "table" and data.questProgress or {}
+
 	-- This Place represents a specific cell; record it so saves reflect reality.
 	data.cell = GridConfig.currentCell()
 
@@ -466,6 +471,7 @@ local function buildSaveFields(player)
 		classLevels = profile.classLevels,
 		hotbarBinds = profile.hotbarBinds,
 		settings = profile.settings,
+		questProgress = profile.questProgress,
 		cell = profile.cell,
 		position = profile.position,
 	}

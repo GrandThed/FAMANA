@@ -22,6 +22,7 @@ local DropService = require(script:WaitForChild("DropService"))
 local ItemStandService = require(script:WaitForChild("ItemStandService"))
 local VendorService = require(script:WaitForChild("VendorService"))
 local CraftingService = require(script:WaitForChild("CraftingService"))
+local QuestService = require(script:WaitForChild("QuestService"))
 local BorderService = require(script:WaitForChild("BorderService"))
 local WorldService = require(script:WaitForChild("WorldService"))
 local AdminSyncService = require(script:WaitForChild("AdminSyncService"))
@@ -51,6 +52,7 @@ DropService.start()
 ItemStandService.start() -- after DropService: stands spawn drops
 VendorService.start()
 CraftingService.start()
+QuestService.start() -- after EnemyService/GatheringService: hooks their onKilled/onGathered
 if role == "cell" then
 	BorderService.start()
 end
