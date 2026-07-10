@@ -29,7 +29,7 @@ local player = Players.LocalPlayer
 
 local CharacterUI = {}
 
-local PANEL_W, PANEL_H = 560, 520
+local PANEL_W, PANEL_H = 600, 520
 local TOPBAR = 36
 local LEFT_W = 210
 
@@ -143,16 +143,30 @@ function CharacterUI.start()
 	goldLabel.Position = UDim2.new(0, 0, 1, -26)
 
 	-- ---- right column: combat stats + active traits --------------------------
-	local rightCol = Instance.new("Frame")
+	-- ScrollingFrame (not a plain Frame) so a long trait/school list scrolls
+	-- instead of overflowing the panel — draggable on touch, wheel on mouse.
+	local rightCol = Instance.new("ScrollingFrame")
 	rightCol.Size = UDim2.new(1, -(LEFT_W + 36), 1, -(TOPBAR + 24))
 	rightCol.Position = UDim2.new(0, LEFT_W + 24, 0, TOPBAR + 12)
 	rightCol.BackgroundTransparency = 1
+	rightCol.BorderSizePixel = 0
+	rightCol.ScrollBarThickness = 6
+	rightCol.ScrollBarImageColor3 = Theme.Semantic.BorderMuted
+	rightCol.ScrollingDirection = Enum.ScrollingDirection.Y
+	rightCol.CanvasSize = UDim2.new(0, 0, 0, 0)
+	rightCol.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	rightCol.Parent = panel
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 3)
 	layout.Parent = rightCol
+
+	-- Keeps rows clear of the scrollbar (ScrollBarThickness above) instead of
+	-- letting the value column sit underneath it.
+	local rightColPadding = Instance.new("UIPadding")
+	rightColPadding.PaddingRight = UDim.new(0, 14)
+	rightColPadding.Parent = rightCol
 
 	-- Trait totals from the server ({ [traitOrSchoolId] = points }).
 	local function traitTotals()
@@ -229,19 +243,45 @@ function CharacterUI.start()
 			string.format("%d / %d", player:GetAttribute("Mana") or 0, player:GetAttribute("MaxMana") or 0)
 		)
 
+		-- Regen rates (SynergyService.recompute publishes these). HP regen's
+		-- base tick only runs out of combat (Config.HP.regenDelay), so it's
+		-- labeled distinctly from the always-on Brawler trickle; mana regen
+		-- is always on, mirroring ManaService's own tick.
+		local hpRegen = player:GetAttribute("HpRegenPerSec") or 0
+		local hpRegenAlwaysOn = player:GetAttribute("HpRegenAlwaysOnPerSec") or 0
+		if hpRegenAlwaysOn > 0 then
+			addRow("HP Regen", string.format("+%.1f/s", hpRegen + hpRegenAlwaysOn))
+		else
+			addRow("HP Regen", string.format("+%.1f/s (out of combat)", hpRegen))
+		end
+		addRow("Mana Regen", string.format("+%.1f/s", player:GetAttribute("ManaRegenPerSec") or 0))
+
+		-- Trait totals up front — Combat needs them to show Armor/Magic Resist
+		-- INCLUDING trait bonuses (e.g. Bastion), not just the class base.
+		local totals = traitTotals()
+		local stats = Traits.statsFor(totals)
+
 		-- Class + level combat stats (see shared/Classes.lua statsAtLevel),
 		-- replicated by ClassService as plain attributes — same pattern as
-		-- Vitals above, no remote needed.
+		-- Vitals above, no remote needed. Armor/Magic Resist add the trait
+		-- bonus (Bastion, etc.) on top so the number shown is the player's
+		-- actual total, not just the class's base value.
 		addSection("Combat")
 		addRow("Attack Damage", tostring(player:GetAttribute("AttackDamage") or 0))
 		addRow("Ability Power", tostring(player:GetAttribute("AbilityPower") or 0))
-		addRow("Armor", tostring(player:GetAttribute("Armor") or 0))
-		addRow("Magic Resist", tostring(player:GetAttribute("MagicResist") or 0))
+		addRow("Armor", tostring((player:GetAttribute("Armor") or 0) + (stats.armor or 0)))
+		addRow("Magic Resist", tostring((player:GetAttribute("MagicResist") or 0) + (stats.mr or 0)))
+		addRow(
+			"Crit Chance",
+			string.format("%d%%", math.floor((player:GetAttribute("CritChance") or 0) * 100 + 0.5))
+		)
+		local dodge = player:GetAttribute("DodgeChance") or 0
+		if dodge > 0 then
+			addRow("Dodge Chance", string.format("%d%%", math.floor(dodge * 100 + 0.5)))
+		end
 
 		-- Combat bonuses granted by the equipped traits (school passives ride
 		-- the damage hooks server-side and aren't listed here).
-		local totals = traitTotals()
-		local stats = Traits.statsFor(totals)
 		addSection("Trait bonuses")
 		local any = false
 		for _, key in ipairs({ "crit", "attackSpeed", "duration", "hp", "regen", "armor", "dodge" }) do
@@ -331,6 +371,11 @@ function CharacterUI.start()
 		"AbilityPower",
 		"Armor",
 		"MagicResist",
+		"CritChance",
+		"DodgeChance",
+		"HpRegenPerSec",
+		"HpRegenAlwaysOnPerSec",
+		"ManaRegenPerSec",
 	}) do
 		player:GetAttributeChangedSignal(attribute):Connect(refresh)
 	end
