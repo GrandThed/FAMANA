@@ -245,7 +245,7 @@
     "crafting_table": {
       "id": "crafting_table",
       "name": "Crafting Table",
-      "flavor": "Placeholder, todavía no se puede poner en el mundo.",
+      "flavor": "Placeholder — cannot be placed in the world yet.",
       "type": "misc",
       "stackable": true,
       "maxStack": 5,
@@ -256,8 +256,8 @@
     },
     "simple_forge": {
       "id": "simple_forge",
-      "name": "Forja Sencilla",
-      "flavor": "Placeholder de nombre para la estación — ver roblox/src/server/CraftingService.lua.",
+      "name": "Simple Forge",
+      "flavor": "Name placeholder for the station — see roblox/src/server/CraftingService.lua.",
       "type": "misc",
       "stackable": true,
       "maxStack": 5,
@@ -523,9 +523,9 @@
         "berserker": 5
       }
     },
-    "emblem_sacerdote": {
-      "id": "emblem_sacerdote",
-      "name": "Sacerdote Emblem",
+    "emblem_light_priest": {
+      "id": "emblem_light_priest",
+      "name": "Light Priest Emblem",
       "type": "ring",
       "slot": "ring",
       "rarity": "epic",
@@ -537,12 +537,12 @@
       ],
       "itemLevel": 5,
       "traits": {
-        "sacerdote_luz": 5
+        "light_priest": 5
       }
     },
-    "emblem_vengador": {
-      "id": "emblem_vengador",
-      "name": "Vengador Emblem",
+    "emblem_holy_avenger": {
+      "id": "emblem_holy_avenger",
+      "name": "Holy Avenger Emblem",
       "type": "ring",
       "slot": "ring",
       "rarity": "epic",
@@ -554,12 +554,12 @@
       ],
       "itemLevel": 5,
       "traits": {
-        "vengador_sagrado": 5
+        "holy_avenger": 5
       }
     },
-    "emblem_oraculo": {
-      "id": "emblem_oraculo",
-      "name": "Oráculo Emblem",
+    "emblem_oracle": {
+      "id": "emblem_oracle",
+      "name": "Oracle Emblem",
       "type": "ring",
       "slot": "ring",
       "rarity": "epic",
@@ -571,7 +571,7 @@
       ],
       "itemLevel": 5,
       "traits": {
-        "oraculo": 5
+        "oracle": 5
       }
     }
   },
