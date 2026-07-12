@@ -260,6 +260,14 @@ EnemyService.registerReflect, hookedReflect = additiveHook()
 EnemyService.registerDebuffDurationBonus, hookedDebuffDurationBonus = additiveHook()
 EnemyService.registerSlowPotency, hookedSlowPotency = additiveHook()
 
+-- registerExtraRangedShot: fn(player) -> true to echo a successful bow shot
+-- with one extra arrow (Double Nock's primed charge — the hook CONSUMES it,
+-- so it's asked once per swing, only after a shot actually fired).
+local extraShotHooks = {}
+function EnemyService.registerExtraRangedShot(fn)
+	table.insert(extraShotHooks, fn)
+end
+
 -- Iframes (Iron Roll & friends): a brief window where enemy hits fully
 -- miss — checked before the dodge roll, popping the same "Dodge!" feedback.
 local iframes = {} -- [userId] = os.clock() expiry
@@ -310,23 +318,26 @@ end
 -- IGNORED: AD (melee + physical/bow) and AP (magic) alone determine
 -- outgoing damage now — the plan is for equipment to eventually carry no
 -- stats of its own. The param is kept so existing call sites (which still
--- pass def.damage) don't need to change.
+-- pass def.damage) don't need to change. Spells that hit harder or softer
+-- than a plain swing say so via opts.baseMult (a spell def's `powerMult`
+-- — Meteor's "400% magic" is baseMult 4); opts.critBonus adds to the crit
+-- MULTIPLIER on top of Executioner (One Shot, One Kill's +100%).
 function EnemyService.computePlayerDamage(player, baseDamage, damageKind, opts)
 	local stat = damageKind == "magic" and ClassService.getAP(player) or ClassService.getAD(player)
-	local damage = stat * hookedDamageMult(player, damageKind)
+	local damage = stat * (opts and opts.baseMult or 1) * hookedDamageMult(player, damageKind)
 
 	local isCrit = false
 	if opts and opts.forceCrit then
 		-- Guaranteed crits (True Shot on wounded prey) skip the roll but
 		-- still enjoy Executioner's multiplier.
 		isCrit = true
-		damage *= CRIT_MULTIPLIER + hookedCritDamageBonus(player)
+		damage *= CRIT_MULTIPLIER + hookedCritDamageBonus(player) + (opts.critBonus or 0)
 	elseif not (opts and opts.noCrit) then
 		local critChance = CRIT_CHANCE + ClassService.getCritBonus(player) + hookedCritBonus(player)
 		isCrit = math.random() < critChance
 		if isCrit then
 			-- Executioner's bonus rides the multiplier itself (x2 -> x2.4...).
-			damage *= CRIT_MULTIPLIER + hookedCritDamageBonus(player)
+			damage *= CRIT_MULTIPLIER + hookedCritDamageBonus(player) + (opts and opts.critBonus or 0)
 		end
 	end
 	return math.max(1, math.floor(damage + 0.5)), isCrit
@@ -1007,6 +1018,28 @@ function EnemyService.mark(ref, amp, duration, player)
 	end
 end
 
+-- Yanks the enemy to ~2 studs from `position` (Singularity's pull), ground-
+-- snapped and facing the center. A hop mid-flight is cancelled into its
+-- landing squash so the move sticks instead of the hop lerp fighting it.
+function EnemyService.pullTo(ref, position)
+	if not (ref and ref.enemy) or ref.enemy.dead then
+		return
+	end
+	local enemy = ref.enemy
+	local from = enemy.part.Position
+	local flat = Vector3.new(from.X - position.X, 0, from.Z - position.Z)
+	local offset = flat.Magnitude > 0.05 and flat.Unit * 2 or Vector3.new(2, 0, 0)
+	local target = position + offset
+	local y = groundY(target.X, target.Z) + enemy.def.size.Y / 2
+	enemy.part.CFrame = CFrame.lookAt(Vector3.new(target.X, y, target.Z), Vector3.new(position.X, y, position.Z))
+	if enemy.def.movement == "hop" then
+		enemy.hopFrom, enemy.hopTo = nil, nil
+		enemy.hopState = "squash"
+		enemy.hopT = 0
+		setSquash(enemy, 0.7)
+	end
+end
+
 -- Spawns a glowing magic missile that flies from `fromPos` to the target part,
 -- then runs `onArrive`. Anchored + non-colliding so it just replicates as a
 -- cosmetic projectile to every client.
@@ -1111,6 +1144,26 @@ local function onWeaponSwing(player, tool, def)
 			dealDamage(hitEntry, hitEnemy, damage, player, isCrit)
 			applyLifesteal()
 		end, damageKind)
+		-- Double Nock: a primed charge echoes the shot — a second arrow at the
+		-- same target with its own damage/crit roll, no extra mana.
+		for _, fn in ipairs(extraShotHooks) do
+			local ok, extra = pcall(fn, player)
+			if ok and extra == true then
+				task.delay(0.15, function()
+					if hitEnemy.dead or not root.Parent then
+						return
+					end
+					local echoDamage, echoCrit = EnemyService.computePlayerDamage(player, def.damage or 10, damageKind)
+					fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
+						dealDamage(hitEntry, hitEnemy, echoDamage, player, echoCrit)
+						local lifesteal = hookedLifesteal(player)
+						if lifesteal > 0 then
+							HealthService.heal(player, echoDamage * lifesteal)
+						end
+					end, damageKind)
+				end)
+			end
+		end
 	else
 		dealDamage(hitEntry, hitEnemy, damage, player, isCrit)
 		applyLifesteal()

@@ -130,26 +130,83 @@ local function effectDuration(player, def)
 	return def.duration * entry.mult
 end
 
--- Applies (or refreshes) an effect on the player.
+-- Applies (or refreshes) an effect on the player. Returns the duration it
+-- landed with (post duration-mult hooks) so casters that mirror the window
+-- in their own state (Prophecy's undying, Legion's empower) stay in sync
+-- with the HUD; nil if a longer active timer won.
 function EffectService.apply(player, effectId)
 	local def = Effects.get(effectId)
 	if not def then
 		warn("[EffectService] unknown effect: " .. tostring(effectId))
-		return
+		return nil
 	end
 	local effects = active[player.UserId]
 	if not effects then
 		effects = {}
 		active[player.UserId] = effects
 	end
-	local expiresAt = Workspace:GetServerTimeNow() + effectDuration(player, def)
+	local duration = effectDuration(player, def)
+	local expiresAt = Workspace:GetServerTimeNow() + duration
 	-- A diminished reapplication must never CUT SHORT a longer active timer.
 	if effects[effectId] and effects[effectId] > expiresAt then
-		return
+		return nil
 	end
 	effects[effectId] = expiresAt
 	player:SetAttribute(Effects.attributeFor(effectId), expiresAt)
 	applyWalkSpeed(player)
+	return duration
+end
+
+-- Whether an effect is currently running on the player (Bloodbath's kill
+-- window, Crusade's lifesteal — checked from hooks, not stored twice).
+function EffectService.isActive(player, effectId)
+	local effects = active[player.UserId]
+	local expiresAt = effects and effects[effectId]
+	return expiresAt ~= nil and Workspace:GetServerTimeNow() < expiresAt
+end
+
+-- Adds seconds onto an ACTIVE effect's timer (Bloodbath stretching Frenzy);
+-- no-op if it isn't running.
+function EffectService.extend(player, effectId, seconds)
+	local effects = active[player.UserId]
+	local expiresAt = effects and effects[effectId]
+	if not expiresAt or Workspace:GetServerTimeNow() >= expiresAt then
+		return
+	end
+	effects[effectId] = expiresAt + seconds
+	player:SetAttribute(Effects.attributeFor(effectId), expiresAt + seconds)
+end
+
+-- Strips every active DEBUFF (Miracle's cleanse). Buffs are untouched.
+function EffectService.cleanse(player)
+	local effects = active[player.UserId]
+	if not effects then
+		return
+	end
+	local changed = false
+	for effectId in pairs(effects) do
+		local def = Effects.get(effectId)
+		if def and def.kind == "debuff" then
+			effects[effectId] = nil
+			player:SetAttribute(Effects.attributeFor(effectId), nil)
+			changed = true
+		end
+	end
+	if changed then
+		applyWalkSpeed(player)
+	end
+end
+
+-- Removes an active effect ahead of its expiry — consumed "next X" primes
+-- (Double Nock, Overflow) clear their HUD marker the moment they're spent.
+-- Safe no-op if the effect isn't active.
+function EffectService.clear(player, effectId)
+	local effects = active[player.UserId]
+	if effects and effects[effectId] then
+		effects[effectId] = nil
+		player:SetAttribute(Effects.attributeFor(effectId), nil)
+		applyWalkSpeed(player)
+	end
 end
 
 local function sweepExpired()

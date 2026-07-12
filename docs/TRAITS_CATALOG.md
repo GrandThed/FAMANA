@@ -92,7 +92,8 @@ Passives = 0.6 × the pure-trait value at equal points (rebalanced grid
 - **Scout** (attack speed, 0.6 × Agile Hands): 1/5/14/26/39/✦55/✦72
 
 Base kit completes at 20; the 30-apex requires assembly or rebirth perm
-points. Apex spells are *(proposed)*; first-pass numbers in §5.
+points. Apex spells SHIPPED 2026-07-11 on the §5.6 first-pass numbers —
+`Spells.lua` is now their def source.
 
 | School | Passive | 1 | 10 | 20 | 30 — apex |
 |---|---|---|---|---|---|
@@ -110,8 +111,8 @@ points. Apex spells are *(proposed)*; first-pass numbers in §5.
 | **Oracle** | healing | Purify | Spirit Link | Intervention | *Prophecy* — no party member can die for ~3s |
 
 The three ranger schools' 10/20 spells existed on the spells board but were
-never written into `Spells.lua` (only their level-1s shipped) — this table
-is now their def source. The three ranger passives did not exist AT ALL;
+never written into `Spells.lua` (their level-1s and 30-apexes are shipped) —
+this table is now their def source. The three ranger passives did not exist AT ALL;
 stats proposed above (Scout's attack-speed passive needs no new hook;
 a Trapper "CC potency" stat would need one — physical is the safe default).
 
@@ -126,14 +127,18 @@ abilities come straight off the spells board's per-class lists (the old
 "classes without subclass" designs — they were never shipped; this is
 their home). Level 30 = ascended capstone, rebirth-only.
 
-> **Waves A+B1 shipped 2026-07-11** (via `Spells.innates`,
-> class-level-gated): all 1/5/12 slots are castable — Shield Bash, Iron
-> Roll, Defensive Stance, True Shot, Swift Step, Hunter's Mark, Energy
-> Bolt, Mana Shield, Overcharge, Minor Prayer, Minor Blessing. Movement =
-> client-executed dash + server iframes; shields = the Guardian-phase
-> temp-HP pool. Still pending: Sacred Circle (cleric 12 — ally zones) and
-> all 20/30 capstones. Minor Prayer shipped as an instant heal (the HoT
-> version waits on a heal-over-time effect).
+> **Waves A+B1+B2 shipped 2026-07-11** (via `Spells.innates`,
+> class-level-gated): every 1/5/12 slot AND the four level-20 capstones
+> are castable — Shield Bash, Iron Roll, Defensive Stance, Second Wind,
+> True Shot, Swift Step, Hunter's Mark, Double Nock, Energy Bolt, Mana
+> Shield, Overcharge, Overflow, Minor Prayer, Minor Blessing, Sacred
+> Circle, Sanctuary. Movement = client-executed dash + server iframes;
+> shields = the Guardian-phase temp-HP pool; Sacred Circle/Sanctuary =
+> the ally-facing `allyZone` behavior; Double Nock/Overflow = primed
+> "next X" charges shown as HUD effects and cleared on consume. Still
+> pending: the level-30 ascended capstones (rebirth-gated). Minor Prayer
+> shipped as an instant heal (the HoT version waits on a heal-over-time
+> effect).
 
 **Valor (Knight)** — armor 2/7/13/20/27/36 + phys 2/5/9/15/20/27% ·
 gathering: natural resources +10/29/53/82/114/150%
@@ -226,7 +231,8 @@ party-synergy triangle — the first deliberately multiplayer trait web.
    area-stun ultimate lives inside *Second Wind Ascended* (stagger + taunt
    on trigger).
 6. **Apex first-pass numbers** (all vs. player damage output at equal
-   points; tune in playtest):
+   points; tune in playtest — SHIPPED 2026-07-11 as `Spells.lua` defs,
+   damage percents via each def's `powerMult`):
 
 | Apex | First pass |
 |---|---|

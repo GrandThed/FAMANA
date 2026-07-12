@@ -15,11 +15,34 @@ local MeshAssets = {}
 -- (studs above the model's base) where the hand holds it; MeshAssetService
 -- adds an invisible Handle part there.
 MeshAssets.items = {
+	-- held weapons/tools (grip required: they become Tools)
 	sword_basic = { assetId = 127767149272624, grip = 0.7 },
+	sword_iron = { assetId = 97025410736955, grip = 0.7 },
+	sword_duelist = { assetId = 113061284197497, grip = 0.6 },
 	staff_basic = { assetId = 87600364107340, grip = 2.4 },
 	bow_basic = { assetId = 131363212695848, grip = 2.6 },
 	axe_basic = { assetId = 102257619570241, grip = 1.1 },
+	axe_copper = { assetId = 126935822934292, grip = 1.1 },
 	pickaxe_basic = { assetId = 71680183113559, grip = 1.1 },
+	pickaxe_copper = { assetId = 89911475912573, grip = 1.1 },
+	-- paper-doll gear (thumbnails, drops, item stands — never held)
+	helmet_leather = { assetId = 75707656342609 },
+	chest_leather = { assetId = 128783349712113 },
+	gloves_leather = { assetId = 119445448188951 },
+	legs_leather = { assetId = 137102745295444 },
+	boots_leather = { assetId = 122404557128536 },
+	helmet_bastion = { assetId = 120862809448577 },
+	chest_colossus = { assetId = 91602323140865 },
+	boots_evader = { assetId = 86564891630994 },
+	ring_vitality = { assetId = 73211628022695 },
+	ring_focus = { assetId = 101126665122368 },
+	ring_brawler = { assetId = 116557944733582 },
+	ring_lynx = { assetId = 94962801011904 },
+	emblem_pyromancer = { assetId = 100778249359982 },
+	emblem_berserker = { assetId = 129450135148808 },
+	emblem_light_priest = { assetId = 75104327537098 },
+	emblem_holy_avenger = { assetId = 76973174528352 },
+	emblem_oracle = { assetId = 115367282456462 },
 }
 
 -- World models land in ReplicatedStorage.MeshModels[<key>]; the enemy,
@@ -70,6 +93,13 @@ MeshAssets.palette = {
 	fam_slime_dark = Color3.new(0.22, 0.44, 0.20),
 	fam_fur = Color3.new(0.45, 0.42, 0.40),
 	fam_fur_dark = Color3.new(0.30, 0.28, 0.27),
+	fam_leather_dark = Color3.new(0.32, 0.22, 0.12),
+	fam_steel_dark = Color3.new(0.52, 0.55, 0.60),
+	fam_leaf_dark = Color3.new(0.20, 0.36, 0.15),
+	fam_ruby = Color3.new(0.85, 0.20, 0.20),
+	fam_sapphire = Color3.new(0.25, 0.45, 0.90),
+	fam_teal = Color3.new(0.20, 0.75, 0.65),
+	fam_ivory = Color3.new(0.93, 0.90, 0.80),
 }
 
 return MeshAssets

@@ -164,18 +164,21 @@ function MeshAssetService.start()
 
 	for itemId, def in pairs(MeshAssets.items) do
 		load(itemId, def, function(model)
-			-- Invisible Handle at the grip height: ToolService welds the mesh
-			-- parts to it and the hand holds its center; ItemModels pivots
-			-- display clones on it too.
-			local handle = Instance.new("Part")
-			handle.Name = "Handle"
-			handle.Size = Vector3.new(0.4, 0.4, 0.4)
-			handle.Transparency = 1
-			handle.CanCollide = false
-			handle.Anchored = true
-			handle.CFrame = CFrame.new(0, def.grip or 1, 0)
-			handle.Parent = model
-			model.PrimaryPart = handle
+			-- Held items get an invisible Handle at the grip height: ToolService
+			-- welds the mesh parts to it and the hand holds its center. Gear that
+			-- is never held (armor, rings) skips it — normalize's biggest-part
+			-- PrimaryPart is fine for thumbnails and drops.
+			if def.grip then
+				local handle = Instance.new("Part")
+				handle.Name = "Handle"
+				handle.Size = Vector3.new(0.4, 0.4, 0.4)
+				handle.Transparency = 1
+				handle.CanCollide = false
+				handle.Anchored = true
+				handle.CFrame = CFrame.new(0, def.grip, 0)
+				handle.Parent = model
+				model.PrimaryPart = handle
+			end
 			model.Parent = assetsFolder
 		end)
 	end
