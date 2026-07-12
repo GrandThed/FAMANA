@@ -59,8 +59,10 @@ local function normalize(container, name)
 		end
 		if string.find(lower, "_emit", 1, true) then
 			part.Material = Enum.Material.Neon
-			if string.find(lower, "orb", 1, true) then
-				part.Name = "Orb" -- held Orb parts get ToolService's PointLight
+			if string.find(lower, "ember", 1, true) then
+				part.Name = "Ember" -- campfire/lantern code hangs PointLights on this name
+			elseif string.find(lower, "orb", 1, true) or string.find(lower, "flame", 1, true) then
+				part.Name = "Orb" -- held Orb parts (staff, torch) get ToolService's PointLight
 			end
 		end
 		part.Parent = model

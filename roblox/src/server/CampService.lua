@@ -28,6 +28,7 @@ local Config = require(Shared:WaitForChild("Config"))
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
+local MeshAssetService = require(script.Parent.MeshAssetService)
 local PlayerService = require(script.Parent.PlayerService)
 local HealthService = require(script.Parent.HealthService)
 local DayNightService = require(script.Parent.DayNightService)
@@ -57,10 +58,15 @@ end
 -- buildCampModel). Every tier must keep a part named "Ember": buildCampModel
 -- attaches the PointLight to it by name, tier-agnostic. Placeholder
 -- proportions — a visual pass in Studio, not final art.
+-- `meshScale` sizes the Style-A campfire mesh per tier when it loaded;
+-- `meshKeep` lists the ArtKit dressing parts that still build AROUND the
+-- mesh (tier 2's tripod, tier 3's banners) — everything else in `parts` is
+-- the stones/logs/ember look the mesh replaces, kept as the fallback.
 local CAMPFIRE_TIERS = {
 	[0] = {
 		lightRange = 20,
 		lightBrightness = 2,
+		meshScale = 0.85,
 		parts = {
 			{ name = "LogA", size = Vector3.new(2, 0.5, 0.5), offset = Vector3.new(0, 0.4, 0), rot = Vector3.new(0, 35, 0), color = "trunk", canCollide = false },
 			{ name = "LogB", size = Vector3.new(2, 0.5, 0.5), offset = Vector3.new(0, 0.4, 0), rot = Vector3.new(0, -35, 0), color = "trunk", canCollide = false },
@@ -71,6 +77,7 @@ local CAMPFIRE_TIERS = {
 		-- Adds a ring of stones + a third log. Slightly bigger/brighter ember.
 		lightRange = 23,
 		lightBrightness = 2.3,
+		meshScale = 1.0,
 		parts = {
 			{ name = "StoneA", shape = "Ball", size = Vector3.new(0.9, 0.7, 0.9), offset = Vector3.new(1.7, 0.3, 0.6), color = "stone", canCollide = false },
 			{ name = "StoneB", shape = "Ball", size = Vector3.new(0.9, 0.7, 0.9), offset = Vector3.new(-1.7, 0.3, 0.6), color = "stone", canCollide = false },
@@ -88,6 +95,8 @@ local CAMPFIRE_TIERS = {
 		-- olla_campamento furniture piece, see docs/CAMP_TIERS.md §7).
 		lightRange = 25,
 		lightBrightness = 2.6,
+		meshScale = 1.1,
+		meshKeep = { TripodA = true, TripodB = true, TripodC = true, TripodRing = true },
 		parts = {
 			{ name = "StoneA", shape = "Ball", size = Vector3.new(1, 0.75, 1), offset = Vector3.new(1.8, 0.3, 0.7), color = "stone", canCollide = false },
 			{ name = "StoneB", shape = "Ball", size = Vector3.new(1, 0.75, 1), offset = Vector3.new(-1.8, 0.3, 0.7), color = "stone", canCollide = false },
@@ -107,6 +116,8 @@ local CAMPFIRE_TIERS = {
 		-- and widest light.
 		lightRange = 30,
 		lightBrightness = 3,
+		meshScale = 1.25,
+		meshKeep = { BannerPostA = true, BannerPostB = true, BannerA = true, BannerB = true },
 		parts = {
 			{ name = "StoneA", shape = "Ball", size = Vector3.new(1.1, 0.8, 1.1), offset = Vector3.new(2, 0.3, 0.8), color = "stone", canCollide = false },
 			{ name = "StoneB", shape = "Ball", size = Vector3.new(1.1, 0.8, 1.1), offset = Vector3.new(-2, 0.3, 0.8), color = "stone", canCollide = false },
@@ -269,13 +280,22 @@ local function buildCampModel(center, tier)
 	}
 
 	local fire = CAMPFIRE_TIERS[tier] or CAMPFIRE_TIERS[0]
+	-- Style-A campfire mesh at the center when its template loaded (scaled
+	-- per tier); the ArtKit stones/logs/ember stay as the fallback, and the
+	-- tier's meshKeep dressing (tripod/banners) builds around the mesh.
+	local fireMesh = MeshAssetService.place("campfire", origin, fire.meshScale)
 	for _, part in ipairs(fire.parts) do
-		table.insert(parts, part)
+		if not fireMesh or (fire.meshKeep and fire.meshKeep[part.name]) then
+			table.insert(parts, part)
+		end
 	end
 
 	local model = ArtKit.build("Acampada", origin, parts)
+	if fireMesh then
+		fireMesh.Parent = model
+	end
 
-	local ember = model:FindFirstChild("Ember")
+	local ember = (fireMesh and fireMesh:FindFirstChild("Ember", true)) or model:FindFirstChild("Ember")
 	if ember then
 		local light = Instance.new("PointLight")
 		light.Color = ArtKit.Palette.gold

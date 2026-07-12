@@ -206,6 +206,15 @@ end
 -- the regular Tree, so it visually reads as "needs a better axe" up front —
 -- same idea as IronRock vs. Rock.
 local function buildHardwoodTree(spot, def)
+	local meshNode = buildMeshNode(spot, def, "hardwood_tree", {
+		anchorSize = Vector3.new(2.6, 9, 2.6),
+		remnantSize = Vector3.new(2.6, 1.8, 2.6),
+		remnantColor = "stoneDark",
+	})
+	if meshNode then
+		return meshNode
+	end
+
 	local y = groundY(spot.X, spot.Z)
 	local origin = CFrame.new(spot.X, y, spot.Z)
 

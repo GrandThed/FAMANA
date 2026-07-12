@@ -395,11 +395,12 @@ end
 -- are equipment-earned exactly like traits — SynergyService splits the two
 -- families out of this one map. Returns { [traitOrSchoolId] = points }.
 --
--- HAND RULE (docs/TRAITS_V2.md §1.4): armor/rings always count, but the
--- paper doll's weapon/offhand slots (x = 0/1) count only while nothing
--- ELSE is wielded — pull a grid tool out (`heldItemId`) and the doll's
--- hand slots switch off while the held tool's traits switch on (first
--- matching grid entry; still inert-gated by its item level).
+-- HAND RULE (docs/TRAITS_V2.md §1.4): armor/rings always count, but a hand
+-- slot (the doll's weapon/offhand, x = 0/1) counts ONLY while that exact
+-- piece is the wielded Tool — a stowed hand item is a carried loadout, not
+-- worn stats, so holding nothing (or the other hand) contributes neither.
+-- Wielding a grid tool (`heldItemId` off the doll) contributes that tool's
+-- lines instead (first matching grid entry; still inert-gated).
 local WEAPON_SLOT_X, OFFHAND_SLOT_X = 0, 1
 
 local function addEntryTraits(totals, entry, level)
@@ -415,30 +416,28 @@ local function addEntryTraits(totals, entry, level)
 end
 
 function Traits.totalsFor(inventory, level, heldItemId)
-	-- Is the held item one of the doll's own hand slots? Then the doll is
-	-- the wielded loadout and counts as-is (the default combat stance —
-	-- also the nothing-held case, so traits don't flicker on unequip).
-	local handSlotsActive = true
+	-- The doll hand entry actually in hand, if any. The held Tool only knows
+	-- its itemId, so when both hands carry the same item the weapon slot
+	-- wins the tie deterministically.
+	local heldHandEntry
 	if heldItemId then
-		local heldIsDollHand = false
 		for _, entry in ipairs(inventory) do
 			if
 				entry.containerId == "equipment"
 				and (entry.x == WEAPON_SLOT_X or entry.x == OFFHAND_SLOT_X)
 				and entry.itemId == heldItemId
+				and (not heldHandEntry or entry.x < heldHandEntry.x)
 			then
-				heldIsDollHand = true
-				break
+				heldHandEntry = entry
 			end
 		end
-		handSlotsActive = heldIsDollHand
 	end
 
 	local totals = {}
 	for _, entry in ipairs(inventory) do
 		if entry.containerId == "equipment" then
 			local isHandSlot = entry.x == WEAPON_SLOT_X or entry.x == OFFHAND_SLOT_X
-			if handSlotsActive or not isHandSlot then
+			if not isHandSlot or entry == heldHandEntry then
 				addEntryTraits(totals, entry, level)
 			end
 		end
@@ -447,7 +446,7 @@ function Traits.totalsFor(inventory, level, heldItemId)
 	-- A wielded GRID item (hotbar-bound tool/weapon) contributes instead of
 	-- the stowed doll hands. First matching entry wins — with multiple
 	-- copies (e.g. rolled instances) the backend's stable order decides.
-	if heldItemId and not handSlotsActive then
+	if heldItemId and not heldHandEntry then
 		for _, entry in ipairs(inventory) do
 			if entry.containerId ~= "equipment" and entry.itemId == heldItemId then
 				addEntryTraits(totals, entry, level)

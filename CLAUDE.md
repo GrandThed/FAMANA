@@ -141,7 +141,10 @@ the damage hooks and same-stat passives SUM.
 See [`docs/TRAITS_AND_SPELLS.md`](docs/TRAITS_AND_SPELLS.md)) ·
 `SynergyService` (TFT-style equipment points from `shared/Traits`: sums the
 trait AND school points of every non-INERT equipped piece — an item whose
-`itemLevel` exceeds the active class level contributes nothing — replicates
+`itemLevel` exceeds the active class level contributes nothing, and the
+weapon/offhand slots follow the hand rule: they only count while that exact
+piece is the Tool in hand (stowed = no points; a wielded grid tool
+contributes instead) — replicates
 totals as the `TraitPoints` attribute, exposes `getSchoolPoints` +
 `onRecomputed` (SpellService re-derives knowns from them), and registers the
 stat hooks: crit + dodge + armor (EnemyService), swing cooldown

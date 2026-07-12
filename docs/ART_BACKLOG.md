@@ -47,13 +47,18 @@ leather set (helmet/chest/gloves/legs/boots) · `helmet_bastion` ·
 `chest_colossus` · `boots_evader` · all 6 rings/emblems + the 3 that had no
 model (`emblem_light_priest`, `emblem_holy_avenger`, `emblem_oracle`).
 
-## To create — content that still has NO model anywhere
+## Camp + resource catalog — DONE (uploaded + wired)
 
-- [ ] `hardwood` — resource chunk (darker wood log)
-- [ ] `copper_ore` — ore chunk (rock + copper flecks)
-- [ ] `copper_ingot` — ingot bar
-- [ ] `iron_ore` — ore chunk
-- [ ] `iron_ingot` — ingot bar
+Built 2026-07-12 in the .blend's `CampProps` collection (row y=-24): all camp
+furniture meshes (tent, crafting table, cauldron, rug, lantern, trophy — chest
+and forge reuse the earlier uploads), the tier-scaled campfire dressing, the
+`hardwood_tree` node, and every remaining item model: `wood`, `hardwood`,
+`stone`, `slime_goo`, `goblin_ear`, `torch`, `arrow`, `copper_ore`,
+`iron_ore`, `copper_ingot`, `iron_ingot`, plus thumbnails for all seven
+furniture items. Consumers wired mesh-first: CampFurnitureService (invisible
+anchors sized like the old ArtKit primaries), CampService's campfire
+(meshScale per tier; tier-2 tripod + tier-3 banners stay ArtKit accents),
+CraftingService.buildTable, GatheringService hardwood_tree.
 
 World content without a model:
 
@@ -61,12 +66,13 @@ World content without a model:
 - [ ] `crafting_table` station — has an ArtKit spec only; wants a Style-A mesh
 - [ ] **Marla the Trader** (`general_goods` vendor) — humanoid NPC, biggest missing piece
 
-## To upgrade — ArtKit specs that eventually want Style-A meshes
+## To upgrade — ArtKit remnants (all optional)
 
-- [ ] Resources/misc: `wood`, `stone`, `slime_goo`, `goblin_ear`, `torch`, `arrow`
-- [ ] Camp furniture (server/CampFurnitureService builds via ArtKit specs;
-  the Chest/Campfire/LogBench/Forge meshes are already uploaded — wire them
-  into its builders the same mesh-first way)
+- [ ] NPCs: **Marla the Trader** (vendor) + quest givers — humanoid meshes,
+  the last big visual identity piece (use the goblin's remesh pipeline)
+- [ ] ItemStandService's stone pedestal, CampService zone posts/rails,
+  BorderService/world dressing — minor procedural props, fine as ArtKit
+- [ ] `acampada` (camp kit item) thumbnail, slime enemy (kept ArtKit by choice)
 
 ## Nice-to-have world props (no game system yet, pure ambience)
 

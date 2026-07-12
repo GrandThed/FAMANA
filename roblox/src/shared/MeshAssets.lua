@@ -46,6 +46,27 @@ MeshAssets.items = {
 	emblem_light_priest = { assetId = 75104327537098 },
 	emblem_holy_avenger = { assetId = 76973174528352 },
 	emblem_oracle = { assetId = 115367282456462 },
+	-- resources & misc (thumbnails + drops)
+	wood = { assetId = 85179031784666 },
+	hardwood = { assetId = 79214490161481 },
+	stone = { assetId = 137079906928154 },
+	slime_goo = { assetId = 105386601119574 },
+	goblin_ear = { assetId = 78607455271862 },
+	torch = { assetId = 129057767919098, grip = 1.0 },
+	arrow = { assetId = 90864237135061 },
+	copper_ore = { assetId = 76596920715009 },
+	iron_ore = { assetId = 75509830043365 },
+	copper_ingot = { assetId = 84333363630588 },
+	iron_ingot = { assetId = 116281909258676 },
+	-- camp furniture ITEMS (thumbnails/drops share the world models below)
+	cofre_campamento = { assetId = 115944771848024 },
+	carpa_campamento = { assetId = 121085103547372 },
+	olla_campamento = { assetId = 109233509139950 },
+	alfombra_campamento = { assetId = 78239886476338 },
+	farol_campamento = { assetId = 117384952474171 },
+	trofeo_campamento = { assetId = 136523617486297 },
+	crafting_table = { assetId = 75265545325459 },
+	simple_forge = { assetId = 102893265088538 },
 }
 
 -- World models land in ReplicatedStorage.MeshModels[<key>]; the enemy,
@@ -56,9 +77,19 @@ MeshAssets.items = {
 MeshAssets.world = {
 	goblin = { assetId = 98715900781376 },
 	tree = { assetId = 96257985799628 },
+	hardwood_tree = { assetId = 87510773617298 },
 	rock = { assetId = 122513009887645 },
 	iron_rock = { assetId = 88791112606468 },
 	simple_forge = { assetId = 138958981450463 },
+	-- camp furniture + the tier-scaled campfire dressing
+	chest = { assetId = 115944771848024 },
+	tent = { assetId = 121085103547372 },
+	crafting_table = { assetId = 75265545325459 },
+	cauldron = { assetId = 109233509139950 },
+	rug = { assetId = 78239886476338 },
+	lantern = { assetId = 117384952474171 },
+	trophy = { assetId = 136523617486297 },
+	campfire = { assetId = 135244778048023 },
 }
 
 -- Flat colors by Blender material name (what each exported part is called).

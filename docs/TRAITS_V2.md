@@ -300,11 +300,14 @@ derived at read time. `sanitizeMeta` already accepts arbitrary trait ids
    craftDouble via CraftingService's double-craft hook gated on
    `recipe.potion`, Cleric herbYield gated on the `sickle` toolType).
    The **hand rule** shipped with it: ToolService tracks the held Tool
-   (`getHeldItemId`/`onHeldChanged`), `Traits.totalsFor` counts the doll's
-   weapon/offhand only while nothing else is wielded and swaps in the held
-   grid tool's lines (first matching entry, inert-gated), SynergyService
-   recomputes on equip/unequip. Still content-pending: herb nodes +
-   sickle, potion recipes (hooks no-op until they exist).
+   (`getHeldItemId`/`onHeldChanged`), `Traits.totalsFor` counts a doll hand
+   slot ONLY while that exact piece is the wielded Tool (tightened
+   2026-07-12 to match §1.4 — stowed hand items and the nothing-held case
+   contribute nothing; before, both hand slots counted unless a grid tool
+   was out) and swaps in a held grid tool's lines (first matching entry,
+   inert-gated), SynergyService recomputes on equip/unequip. Still
+   content-pending: herb nodes + sickle, potion recipes (hooks no-op until
+   they exist).
 5. ~~**Guardian**~~ — SHIPPED 2026-07-11: temp-HP shield pool in
    HealthService (`addShield`, absorbs before HP, `Shield` attribute for
    the HUD), Guardian trait live in the armor pool (proc shields the most

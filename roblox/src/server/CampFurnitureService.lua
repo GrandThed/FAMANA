@@ -47,6 +47,7 @@ local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
+local MeshAssetService = require(script.Parent.MeshAssetService)
 local PlayerService = require(script.Parent.PlayerService)
 local CampService = require(script.Parent.CampService)
 local CraftingService = require(script.Parent.CraftingService)
@@ -337,6 +338,44 @@ end
 
 -- ---- building ---------------------------------------------------------------
 
+-- Style-A mesh per furniture kind (shared/MeshAssets world keys) + the
+-- invisible anchor that stands in for the old ArtKit primary part: prompts,
+-- distance checks and station registration all hang off model.PrimaryPart.
+-- Sizes mirror each spec's primary so placement/spacing feel unchanged.
+local MESH_LOOK = {
+	chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
+	tent = { key = "tent", anchor = Vector3.new(0.6, 2.2, 0.6), collide = false },
+	crafting_table = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
+	forge = { key = "simple_forge", anchor = Vector3.new(2.6, 1.8, 2.2), collide = true },
+	cauldron = { key = "cauldron", anchor = Vector3.new(1.2, 2.2, 1.2), collide = true },
+	rug = { key = "rug", anchor = Vector3.new(2.6, 0.15, 1.8), collide = false },
+	lantern = { key = "lantern", anchor = Vector3.new(0.4, 2, 0.4), collide = true },
+	trophy = { key = "trophy", anchor = Vector3.new(1.3, 1.7, 0.3), collide = true },
+}
+
+-- Mesh-first furniture model; falls back to the ArtKit specs when the mesh
+-- template didn't load (same pattern as the world builders elsewhere).
+local function buildFurnitureModel(kind, artName, specs, origin)
+	local look = MESH_LOOK[kind]
+	local mesh = look and MeshAssetService.place(look.key, origin)
+	if not mesh then
+		return ArtKit.build(artName, origin, specs)
+	end
+	local model = Instance.new("Model")
+	model.Name = artName
+	mesh.Parent = model
+	local anchor = Instance.new("Part")
+	anchor.Name = "Anchor"
+	anchor.Size = look.anchor
+	anchor.CFrame = origin * CFrame.new(0, look.anchor.Y / 2, 0)
+	anchor.Transparency = 1
+	anchor.Anchored = true
+	anchor.CanCollide = look.collide
+	anchor.Parent = model
+	model.PrimaryPart = anchor
+	return model
+end
+
 local function buildPiece(kind, itemId, center, ownerId)
 	nextPieceId += 1
 	local id = nextPieceId
@@ -344,7 +383,7 @@ local function buildPiece(kind, itemId, center, ownerId)
 	local piece = { id = id, itemId = itemId, kind = kind, center = center, ownerId = ownerId }
 
 	if kind == "chest" then
-		local model = ArtKit.build("Cofre", origin, CHEST_SPECS)
+		local model = buildFurnitureModel(kind, "Cofre", CHEST_SPECS, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
 		piece.storage = {
@@ -379,7 +418,7 @@ local function buildPiece(kind, itemId, center, ownerId)
 
 		attachManagePrompt(piece, model)
 	elseif kind == "tent" then
-		local model = ArtKit.build("Carpa", origin, TENT_SPECS)
+		local model = buildFurnitureModel(kind, "Carpa", TENT_SPECS, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
 
@@ -394,7 +433,7 @@ local function buildPiece(kind, itemId, center, ownerId)
 			specs = CAULDRON_SPECS
 			artName = "Olla"
 		end
-		local model = ArtKit.build(artName, origin, specs)
+		local model = buildFurnitureModel(kind, artName, specs, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
 
@@ -416,18 +455,28 @@ local function buildPiece(kind, itemId, center, ownerId)
 			specs = TROPHY_SPECS
 			artName = "Trofeo"
 		end
-		local model = ArtKit.build(artName, origin, specs)
+		local model = buildFurnitureModel(kind, artName, specs, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
 
 		if kind == "lantern" then
-			local ember = model:FindFirstChild("Ember")
-			if ember then
+			-- ArtKit lantern has an "Ember" part; the mesh's glass is just
+			-- the first Neon part — light either, in its own color.
+			local glow = model:FindFirstChild("Ember")
+			if not glow then
+				for _, p in ipairs(model:GetDescendants()) do
+					if p:IsA("BasePart") and p.Material == Enum.Material.Neon then
+						glow = p
+						break
+					end
+				end
+			end
+			if glow then
 				local light = Instance.new("PointLight")
-				light.Color = ArtKit.Palette.slime
+				light.Color = glow.Color
 				light.Range = 12
 				light.Brightness = 1.5
-				light.Parent = ember
+				light.Parent = glow
 			end
 		end
 

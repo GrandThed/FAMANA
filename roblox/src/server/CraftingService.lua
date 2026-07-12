@@ -54,6 +54,28 @@ local function buildTable(def)
 	local y = groundY(def.position.X, def.position.Z)
 	local origin = CFrame.new(def.position.X, y, def.position.Z) * CFrame.Angles(0, math.rad(def.facing or 0), 0)
 
+	-- Style-A table mesh when its template loaded; invisible anchor keeps
+	-- collision + the station position registration (same as buildForge).
+	local mesh = MeshAssetService.place("crafting_table", origin)
+	if mesh then
+		local model = Instance.new("Model")
+		model.Name = "Workbench_" .. def.station
+		mesh.Parent = model
+		local anchor = Instance.new("Part")
+		anchor.Name = "Anchor"
+		anchor.Size = Vector3.new(3.2, 1.7, 1.8)
+		anchor.CFrame = origin * CFrame.new(0, 0.85, 0)
+		anchor.Transparency = 1
+		anchor.Anchored = true
+		anchor.Parent = model
+		model.PrimaryPart = anchor
+		model.Parent = workbenchFolder
+
+		stationsByType[def.station] = stationsByType[def.station] or {}
+		table.insert(stationsByType[def.station], { position = anchor.Position })
+		return
+	end
+
 	local model = ArtKit.build("Workbench_" .. def.station, origin, {
 		{ name = "Top", size = Vector3.new(3.2, 0.3, 1.8), offset = Vector3.new(0, 1.55, 0), color = "trunk", primary = true },
 		{ name = "LegA", size = Vector3.new(0.3, 1.5, 0.3), offset = Vector3.new(-1.3, 0.7, -0.7), color = "trunkDark" },

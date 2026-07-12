@@ -77,8 +77,9 @@ recompute = function(player)
 	end
 	-- One aggregation pass; school ids and trait ids split into their
 	-- families here (Traits.statsFor already ignores school ids). The held
-	-- item drives the hand rule: wielding a grid tool swaps the doll's
-	-- weapon/offhand contribution for the tool's own lines.
+	-- item drives the hand rule: a doll hand slot (weapon/offhand) counts
+	-- only while that piece is the wielded Tool; a wielded grid tool
+	-- contributes its own lines instead.
 	local totals = Traits.totalsFor(profile.inventory, profile.level, ToolService.getHeldItemId(player))
 	local schoolPoints = {}
 	for id, points in pairs(totals) do
