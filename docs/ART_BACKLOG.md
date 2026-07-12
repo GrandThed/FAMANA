@@ -39,15 +39,16 @@ eyes/teeth/cloth/gear stay separate colored parts, joined at the end.
 Also in the .blend but not exported: **Wolf** (~1.8k tris, `StyleA_Expanded`) —
 ready if a wolf enemy gets added; v1/v2 goblins kept for reference only.
 
-## To create — content that has NO model anywhere
+## Equipment catalog — DONE (uploaded + wired via MeshAssets.lua)
 
-From `backend/content/items.json` vs `shared/ItemModels.lua`:
+All 21 built 2026-07-11 in the .blend's `Equipment` collection (row y=-18):
+`axe_copper` · `pickaxe_copper` · `sword_iron` · `sword_duelist` · the full
+leather set (helmet/chest/gloves/legs/boots) · `helmet_bastion` ·
+`chest_colossus` · `boots_evader` · all 6 rings/emblems + the 3 that had no
+model (`emblem_light_priest`, `emblem_holy_avenger`, `emblem_oracle`).
 
-- [ ] `axe_copper` — copper-headed axe (recolor/variant of Axe)
-- [ ] `pickaxe_copper` — copper-headed pickaxe (variant of Pickaxe)
-- [ ] `emblem_light_priest` (ring)
-- [ ] `emblem_holy_avenger` (ring)
-- [ ] `emblem_oracle` (ring)
+## To create — content that still has NO model anywhere
+
 - [ ] `hardwood` — resource chunk (darker wood log)
 - [ ] `copper_ore` — ore chunk (rock + copper flecks)
 - [ ] `copper_ingot` — ingot bar
@@ -62,15 +63,10 @@ World content without a model:
 
 ## To upgrade — ArtKit specs that eventually want Style-A meshes
 
-Existing `ItemModels.lua` block-built specs, in priority order:
-
-- [ ] Weapons: `sword_iron`, `sword_duelist` (distinct silhouettes/tiers vs Sword)
-- [ ] Armor (paper doll + item stands): leather set (`helmet_leather`,
-  `chest_leather`, `gloves_leather`, `legs_leather`, `boots_leather`),
-  `helmet_bastion`, `chest_colossus`, `boots_evader`
-- [ ] Rings/emblems: `ring_vitality`, `ring_focus`, `ring_brawler`, `ring_lynx`,
-  `emblem_pyromancer`, `emblem_berserker`
 - [ ] Resources/misc: `wood`, `stone`, `slime_goo`, `goblin_ear`, `torch`, `arrow`
+- [ ] Camp furniture (server/CampFurnitureService builds via ArtKit specs;
+  the Chest/Campfire/LogBench/Forge meshes are already uploaded — wire them
+  into its builders the same mesh-first way)
 
 ## Nice-to-have world props (no game system yet, pure ambience)
 

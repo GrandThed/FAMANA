@@ -38,7 +38,7 @@ Spells.schools = {
 			stat = "magic",
 			thresholds = { { 1, 0.01 }, { 5, 0.06 }, { 10, 0.16 }, { 15, 0.29 }, { 20, 0.44 }, { 25, 0.62 }, { 30, 0.81 } },
 		},
-		spells = { { "fireball", 1 }, { "flame_wall", 10 }, { "supernova", 20 } },
+		spells = { { "fireball", 1 }, { "flame_wall", 10 }, { "supernova", 20 }, { "meteor", 30 } },
 	},
 	arcanist = {
 		id = "arcanist",
@@ -50,7 +50,7 @@ Spells.schools = {
 			stat = "magic",
 			thresholds = { { 1, 0.01 }, { 5, 0.05 }, { 10, 0.14 }, { 15, 0.25 }, { 20, 0.38 }, { 25, 0.52 }, { 30, 0.69 } },
 		},
-		spells = { { "arcane_missile", 1 }, { "arcane_rain", 10 }, { "arcane_storm", 20 } },
+		spells = { { "arcane_missile", 1 }, { "arcane_rain", 10 }, { "arcane_storm", 20 }, { "singularity", 30 } },
 	},
 	invoker = {
 		id = "invoker",
@@ -66,9 +66,10 @@ Spells.schools = {
 			thresholds = { { 1, 0.01 }, { 5, 0.04 }, { 10, 0.11 }, { 15, 0.20 }, { 20, 0.31 }, { 25, 0.43 }, { 30, 0.57 } },
 		},
 		-- Level 10 is the second familiar (see familiars below), level 15
-		-- borrows Arcane Rain per the board.
-		spells = { { "summon_familiar", 1 }, { "arcane_rain", 15 }, { "grand_familiar", 20 } },
-		familiars = { { 1, 1 }, { 10, 2 } },
+		-- borrows Arcane Rain per the board; Legion (30) brings the third
+		-- familiar with it.
+		spells = { { "summon_familiar", 1 }, { "arcane_rain", 15 }, { "grand_familiar", 20 }, { "legion", 30 } },
+		familiars = { { 1, 1 }, { 10, 2 }, { 30, 3 } },
 	},
 
 	-- ---- Knight --------------------------------------------------------------
@@ -82,7 +83,7 @@ Spells.schools = {
 			stat = "physical",
 			thresholds = { { 1, 0.01 }, { 5, 0.06 }, { 10, 0.16 }, { 15, 0.29 }, { 20, 0.44 }, { 25, 0.62 }, { 30, 0.81 } },
 		},
-		spells = { { "battle_cry", 1 }, { "savage_strike", 10 }, { "frenzy", 20 } },
+		spells = { { "battle_cry", 1 }, { "savage_strike", 10 }, { "frenzy", 20 }, { "bloodbath", 30 } },
 	},
 	sentinel = {
 		id = "sentinel",
@@ -94,7 +95,7 @@ Spells.schools = {
 			stat = "armor",
 			thresholds = { { 1, 1 }, { 5, 7 }, { 10, 21 }, { 15, 38 }, { 20, 59 }, { 25, 82 }, { 30, 108 } },
 		},
-		spells = { { "provoke", 1 }, { "steel_loyalty", 10 }, { "bulwark", 20 } },
+		spells = { { "provoke", 1 }, { "steel_loyalty", 10 }, { "bulwark", 20 }, { "aegis", 30 } },
 	},
 	justicar = {
 		id = "justicar",
@@ -106,7 +107,7 @@ Spells.schools = {
 			stat = "physical",
 			thresholds = { { 1, 0.01 }, { 5, 0.05 }, { 10, 0.14 }, { 15, 0.25 }, { 20, 0.38 }, { 25, 0.52 }, { 30, 0.69 } },
 		},
-		spells = { { "stunning_strike", 1 }, { "judgment", 10 }, { "verdict", 20 } },
+		spells = { { "stunning_strike", 1 }, { "judgment", 10 }, { "verdict", 20 }, { "tribunal", 30 } },
 	},
 
 	-- ---- Ranger ----------------------------------------------------------------
@@ -114,8 +115,8 @@ Spells.schools = {
 	-- template; Scout's attack speed sums with Agile Hands into the same
 	-- swing-cooldown hook; Trapper's "control" is the NEW slow-potency stat
 	-- (your slows are X% stronger — EnemyService.registerSlowPotency).
-	-- The 10/20 spells are still board-only (see the catalog) — only each
-	-- school's level-1 spell exists as a def today.
+	-- The 10/20 spells are still board-only (see the catalog) — each school
+	-- has its level-1 spell and its 30-point apex today.
 	sniper = {
 		id = "sniper",
 		name = "Sniper",
@@ -126,7 +127,7 @@ Spells.schools = {
 			stat = "physical",
 			thresholds = { { 1, 0.01 }, { 5, 0.06 }, { 10, 0.16 }, { 15, 0.29 }, { 20, 0.44 }, { 25, 0.62 }, { 30, 0.81 } },
 		},
-		spells = { { "deadeye_shot", 1 } },
+		spells = { { "deadeye_shot", 1 }, { "one_shot_one_kill", 30 } },
 	},
 	trapper = {
 		id = "trapper",
@@ -138,7 +139,7 @@ Spells.schools = {
 			stat = "control",
 			thresholds = { { 1, 0.01 }, { 5, 0.06 }, { 10, 0.16 }, { 15, 0.28 }, { 20, 0.44 }, { 25, 0.61 }, { 30, 0.80 } },
 		},
-		spells = { { "snare_trap", 1 } },
+		spells = { { "snare_trap", 1 }, { "master_trapper", 30 } },
 	},
 	scout = {
 		id = "scout",
@@ -150,7 +151,7 @@ Spells.schools = {
 			stat = "attackSpeed",
 			thresholds = { { 1, 0.01 }, { 5, 0.05 }, { 10, 0.14 }, { 15, 0.26 }, { 20, 0.39 }, { 25, 0.55 }, { 30, 0.72 } },
 		},
-		spells = { { "sprint", 1 } },
+		spells = { { "sprint", 1 }, { "arrow_rain", 30 } },
 	},
 
 	-- ---- Cleric ---------------------------------------------------------------
@@ -172,7 +173,7 @@ Spells.schools = {
 			stat = "healing",
 			thresholds = { { 1, 0.01 }, { 5, 0.06 }, { 10, 0.16 }, { 15, 0.29 }, { 20, 0.44 }, { 25, 0.62 }, { 30, 0.81 } },
 		},
-		spells = { { "healing_touch", 1 }, { "blessing", 10 }, { "revival", 20 } },
+		spells = { { "healing_touch", 1 }, { "blessing", 10 }, { "revival", 20 }, { "miracle", 30 } },
 	},
 	holy_avenger = {
 		id = "holy_avenger",
@@ -184,7 +185,7 @@ Spells.schools = {
 			stat = "magic",
 			thresholds = { { 1, 0.01 }, { 5, 0.05 }, { 10, 0.14 }, { 15, 0.25 }, { 20, 0.38 }, { 25, 0.52 }, { 30, 0.69 } },
 		},
-		spells = { { "holy_strike", 1 }, { "reprisal", 10 }, { "divine_judgment", 20 } },
+		spells = { { "holy_strike", 1 }, { "reprisal", 10 }, { "divine_judgment", 20 }, { "crusade", 30 } },
 	},
 	oracle = {
 		id = "oracle",
@@ -196,7 +197,7 @@ Spells.schools = {
 			stat = "healing",
 			thresholds = { { 1, 0.01 }, { 5, 0.05 }, { 10, 0.14 }, { 15, 0.25 }, { 20, 0.38 }, { 25, 0.52 }, { 30, 0.69 } },
 		},
-		spells = { { "purify", 1 }, { "spirit_link", 10 }, { "intervention", 20 } },
+		spells = { { "purify", 1 }, { "spirit_link", 10 }, { "intervention", 20 }, { "prophecy", 30 } },
 	},
 }
 
@@ -270,6 +271,24 @@ Spells.defs = {
 		color = Color3.fromRGB(255, 160, 60),
 		hotbarPriority = 50,
 	},
+	meteor = {
+		id = "meteor",
+		name = "Meteor",
+		school = "pyromancer",
+		icon = "☄️",
+		description = "Apex: calls a meteor down on the target — a burning telegraph, then colossal damage to whoever stays in it.",
+		behavior = "delayedAoe",
+		damageKind = "magic",
+		manaCost = 90,
+		cooldown = 45,
+		range = 45,
+		radius = 12,
+		telegraph = 1.5,
+		damage = 80,
+		powerMult = 4,
+		color = Color3.fromRGB(255, 120, 50),
+		hotbarPriority = 60,
+	},
 
 	-- ---- Arcanist ---------------------------------------------------------------
 	arcane_missile = {
@@ -325,6 +344,24 @@ Spells.defs = {
 		color = Color3.fromRGB(110, 60, 220),
 		hotbarPriority = 51,
 	},
+	singularity = {
+		id = "singularity",
+		name = "Singularity",
+		school = "arcanist",
+		icon = "🕳️",
+		description = "Apex: rips open a singularity that drags every nearby enemy into its center, then detonates and stuns them.",
+		behavior = "pullBurst",
+		damageKind = "magic",
+		manaCost = 85,
+		cooldown = 40,
+		range = 45,
+		pullRadius = 15,
+		damage = 60,
+		powerMult = 2.5,
+		stunDuration = 1,
+		color = Color3.fromRGB(110, 60, 220),
+		hotbarPriority = 61,
+	},
 
 	-- ---- Invoker -----------------------------------------------------------------
 	summon_familiar = {
@@ -332,7 +369,7 @@ Spells.defs = {
 		name = "Summon Familiar",
 		school = "invoker",
 		icon = "👻",
-		description = "Summons a familiar that follows you and attacks your enemies (two from level 10).",
+		description = "Summons a familiar that follows you and attacks your enemies (two from 10 points, three from 30).",
 		behavior = "summon",
 		damageKind = "magic",
 		manaCost = 40,
@@ -352,6 +389,20 @@ Spells.defs = {
 		cooldown = 60,
 		summon = { variant = "gran", duration = 30, damage = 15, shotEvery = 1.2, range = 35 },
 		hotbarPriority = 52,
+	},
+	legion = {
+		id = "legion",
+		name = "Legion",
+		school = "invoker",
+		icon = "👥",
+		description = "Apex: your familiars surge with power for a while. (At 30 points a third familiar also joins your summons.)",
+		behavior = "empowerFamiliars",
+		manaCost = 60,
+		cooldown = 40,
+		empowerDuration = 10,
+		empowerMult = 2,
+		effectId = "legion",
+		hotbarPriority = 62,
 	},
 
 	-- ---- Berserker ------------------------------------------------------------
@@ -392,6 +443,20 @@ Spells.defs = {
 		cooldown = 60,
 		effectId = "frenzy",
 		hotbarPriority = 50,
+	},
+	bloodbath = {
+		id = "bloodbath",
+		name = "Bloodbath",
+		school = "berserker",
+		icon = "🗡️",
+		description = "Apex: open the floodgates — for a few seconds every kill heals you and extends an active Frenzy.",
+		behavior = "buff",
+		manaCost = 50,
+		cooldown = 50,
+		effectId = "bloodbath",
+		killHealPercent = 0.1,
+		frenzyExtend = 1.5,
+		hotbarPriority = 63,
 	},
 
 	-- ---- Sentinel ---------------------------------------------------------------
@@ -434,6 +499,20 @@ Spells.defs = {
 		effectId = "bulwark",
 		allyRadius = 20,
 		hotbarPriority = 55,
+	},
+	aegis = {
+		id = "aegis",
+		name = "Aegis",
+		school = "sentinel",
+		icon = "🛡️",
+		description = "Apex: throws a massive ward over you and nearby allies — each gains a shield of a quarter of their max HP.",
+		behavior = "shieldAllies",
+		manaCost = 70,
+		cooldown = 45,
+		allyRadius = 20,
+		shieldPercent = 0.25,
+		shieldDuration = 6,
+		hotbarPriority = 64,
 	},
 
 	-- ---- Justicar ------------------------------------------------------------------
@@ -482,6 +561,20 @@ Spells.defs = {
 		damage = 80,
 		stunDuration = 2.5,
 		hotbarPriority = 53,
+	},
+	tribunal = {
+		id = "tribunal",
+		name = "Tribunal",
+		school = "justicar",
+		icon = "🏛️",
+		description = "Apex: judges every enemy around you — the marked take extra damage from EVERYONE while it lasts.",
+		behavior = "massMark",
+		manaCost = 60,
+		cooldown = 40,
+		radius = 12,
+		markAmp = 0.3,
+		markDuration = 6,
+		hotbarPriority = 65,
 	},
 
 	-- ---- Ranger (proposals — the board only names the fantasy) --------------------
@@ -533,12 +626,70 @@ Spells.defs = {
 		effectId = "sprint",
 		hotbarPriority = 40,
 	},
+	one_shot_one_kill = {
+		id = "one_shot_one_kill",
+		name = "One Shot, One Kill",
+		school = "sniper",
+		icon = "☠️",
+		description = "Apex: a perfect shot at your locked target — always crits, hits far harder, and executes wounded prey outright.",
+		behavior = "projectile",
+		damageKind = "physical",
+		manaCost = 60,
+		cooldown = 45,
+		range = 80,
+		damage = 30,
+		requiresFocus = true,
+		forceCrit = true,
+		critDamageBonus = 1, -- +100% crit damage on top of Executioner
+		executeBelowFraction = 0.15,
+		missile = { size = 0.7, color = Color3.fromRGB(230, 230, 240), speed = 160 },
+		hotbarPriority = 66,
+	},
+	master_trapper = {
+		id = "master_trapper",
+		name = "Master Trapper",
+		school = "trapper",
+		icon = "🕸️",
+		description = "Apex: lays three armed snare traps in a lane across the ground ahead of you.",
+		behavior = "multiZone",
+		damageKind = "physical",
+		manaCost = 55,
+		cooldown = 40,
+		trapDistances = { 8, 14, 20 },
+		radius = 4,
+		duration = 15,
+		tickInterval = 0.5,
+		tickDamage = 0,
+		slow = { mult = 0.45, duration = 1.5 },
+		color = Color3.fromRGB(160, 130, 80),
+		hotbarPriority = 67,
+	},
+	arrow_rain = {
+		id = "arrow_rain",
+		name = "Arrow Rain",
+		school = "scout",
+		icon = "🌧️",
+		description = "Apex: darkens the sky — arrows hammer the target area for several seconds.",
+		behavior = "zone",
+		damageKind = "physical",
+		manaCost = 70,
+		cooldown = 45,
+		placement = "target",
+		range = 45,
+		radius = 14,
+		duration = 4,
+		tickInterval = 0.5,
+		tickDamage = 10,
+		powerMult = 0.44, -- 8 ticks ≈ 350% total
+		color = Color3.fromRGB(90, 210, 230),
+		hotbarPriority = 68,
+	},
 
 	-- ---- Cleric -----------------------------------------------------------------
-	-- Only the level-1 spell per school is implemented this pass (enough to
-	-- test the new "healing" passive stat + heal/line behaviors). The rest
-	-- are full defs so thresholds/tooltips are correct, just not castable
-	-- yet — see docs/TRAITS_AND_SPELLS.md "open questions" for the plan.
+	-- Each school's level-1 spell and 30-point apex are implemented; the
+	-- 10/20 spells are full defs so thresholds/tooltips are correct, just
+	-- not castable yet (`implemented = false`) — see
+	-- docs/TRAITS_AND_SPELLS.md "open questions" for the plan.
 	healing_touch = {
 		id = "healing_touch",
 		name = "Healing Touch",
@@ -573,6 +724,20 @@ Spells.defs = {
 		range = 20,
 		healPercent = 0.5,
 		hotbarPriority = 50,
+	},
+	miracle = {
+		id = "miracle",
+		name = "Miracle",
+		school = "light_priest",
+		icon = "🌟",
+		description = "Apex: an instant surge of light — massively heals you and every nearby ally and cleanses their debuffs.",
+		behavior = "healAllies",
+		manaCost = 90,
+		cooldown = 60,
+		allyRadius = 20,
+		healPercent = 0.4,
+		cleanse = true,
+		hotbarPriority = 69,
 	},
 	holy_strike = {
 		id = "holy_strike",
@@ -609,6 +774,21 @@ Spells.defs = {
 		implemented = false,
 		hotbarPriority = 51,
 	},
+	crusade = {
+		id = "crusade",
+		name = "Crusade",
+		school = "holy_avenger",
+		icon = "⚜️",
+		description = "Apex: leads a crusade — nearby allies' weapon hits steal life while your own damage surges.",
+		behavior = "buff",
+		manaCost = 70,
+		cooldown = 50,
+		effectId = "crusade_leader",
+		allyEffectId = "crusade",
+		allyRadius = 20,
+		lifesteal = 0.15, -- read by SpellService's lifesteal hook while active
+		hotbarPriority = 70,
+	},
 	purify = {
 		id = "purify",
 		name = "Purify",
@@ -636,14 +816,26 @@ Spells.defs = {
 		implemented = false,
 		hotbarPriority = 52,
 	},
+	prophecy = {
+		id = "prophecy",
+		name = "Prophecy",
+		school = "oracle",
+		icon = "🔮",
+		description = "Apex: a vision of survival — for a few seconds, you and nearby allies cannot drop below 1 HP.",
+		behavior = "undying",
+		manaCost = 80,
+		cooldown = 90,
+		allyRadius = 20,
+		undyingDuration = 3,
+		effectId = "prophecy",
+		hotbarPriority = 71,
+	},
 
 	-- ---- Innate class abilities (docs/TRAITS_CATALOG.md §3) --------------------
 	-- The class's OWN buttons, gated by CLASS LEVEL via Spells.innates below
 	-- (not school points — the one non-equipment source, like the class
-	-- passive). Wave A ships the behavior-compatible slots; Swift Step /
-	-- Iron Roll wait on the movement system, Mana Shield / Minor Blessing /
-	-- Sacred Circle on shields + ally zones, the 20/30 capstones on the
-	-- abilities pass.
+	-- passive). Every 1/5/12 slot and the four level-20 capstones are
+	-- castable; the level-30 ascended capstones wait on the rebirth system.
 	shield_bash = {
 		id = "shield_bash",
 		name = "Shield Bash",
@@ -797,17 +989,93 @@ Spells.defs = {
 		effectId = "minor_blessing",
 		hotbarPriority = 15,
 	},
+	sacred_circle = {
+		id = "sacred_circle",
+		name = "Sacred Circle",
+		classId = "cleric",
+		icon = "🔆",
+		description = "Consecrate the ground around you: allies inside take less damage and slowly heal.",
+		behavior = "allyZone",
+		manaCost = 30,
+		cooldown = 25,
+		radius = 8,
+		duration = 8,
+		tickInterval = 1,
+		tickHeal = 6,
+		effectId = "sacred_circle",
+		color = Color3.fromRGB(255, 235, 170),
+		hotbarPriority = 26,
+	},
+
+	-- ---- Level-20 innate capstones (docs/TRAITS_CATALOG.md §3) -----------------
+	second_wind = {
+		id = "second_wind",
+		name = "Second Wind",
+		classId = "knight",
+		icon = "💗",
+		description = "Capstone: dig deep and instantly recover a quarter of your max HP. Only usable below half health.",
+		behavior = "selfHeal",
+		manaCost = 0,
+		cooldown = 90,
+		healPercent = 0.25,
+		requiresHpBelow = 0.5,
+		hotbarPriority = 45,
+	},
+	double_nock = {
+		id = "double_nock",
+		name = "Double Nock",
+		classId = "archer",
+		icon = "🏹",
+		description = "Capstone: nock a second arrow — your next bow shot fires twice.",
+		behavior = "primeShot",
+		manaCost = 15,
+		cooldown = 30,
+		charges = 1,
+		armDuration = 10,
+		effectId = "double_nock",
+		hotbarPriority = 45,
+	},
+	overflow = {
+		id = "overflow",
+		name = "Overflow",
+		classId = "mage",
+		icon = "🌊",
+		description = "Capstone: mana wells over — your next spell costs no mana.",
+		behavior = "primeFreeCast",
+		manaCost = 0,
+		cooldown = 45,
+		armDuration = 10,
+		effectId = "overflow",
+		hotbarPriority = 45,
+	},
+	sanctuary = {
+		id = "sanctuary",
+		name = "Sanctuary",
+		classId = "cleric",
+		icon = "⛪",
+		description = "Capstone: hallow the ground — allies inside take no damage at all for a few seconds.",
+		behavior = "allyZone",
+		manaCost = 50,
+		cooldown = 90,
+		radius = 8,
+		duration = 5,
+		tickInterval = 0.5,
+		tickHeal = 0,
+		effectId = "sanctuary",
+		color = Color3.fromRGB(255, 245, 200),
+		hotbarPriority = 46,
+	},
 }
 
 -- ---- innate ability grants ------------------------------------------------
 -- { classId = { {spellId, unlockLevel} } } — folded into knownFor for the
 -- ACTIVE class only; switching class swaps which innate buttons you know.
--- (Cleric's level-12 Sacred Circle is wave B: it needs ally-facing zones.)
+-- Level 30 (the ascended capstones) is rebirth-gated and not granted yet.
 Spells.innates = {
-	knight = { { "shield_bash", 1 }, { "iron_roll", 5 }, { "defensive_stance", 12 } },
-	archer = { { "true_shot", 1 }, { "swift_step", 5 }, { "hunters_mark", 12 } },
-	mage = { { "energy_bolt", 1 }, { "mana_shield", 5 }, { "overcharge", 12 } },
-	cleric = { { "minor_prayer", 1 }, { "minor_blessing", 5 } },
+	knight = { { "shield_bash", 1 }, { "iron_roll", 5 }, { "defensive_stance", 12 }, { "second_wind", 20 } },
+	archer = { { "true_shot", 1 }, { "swift_step", 5 }, { "hunters_mark", 12 }, { "double_nock", 20 } },
+	mage = { { "energy_bolt", 1 }, { "mana_shield", 5 }, { "overcharge", 12 }, { "overflow", 20 } },
+	cleric = { { "minor_prayer", 1 }, { "minor_blessing", 5 }, { "sacred_circle", 12 }, { "sanctuary", 20 } },
 }
 
 -- ---- lookups -------------------------------------------------------------------

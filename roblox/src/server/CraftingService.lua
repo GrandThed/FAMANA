@@ -94,7 +94,7 @@ local function buildForge(def)
 		model.Parent = workbenchFolder
 
 		stationsByType[def.station] = stationsByType[def.station] or {}
-		table.insert(stationsByType[def.station], anchor.Position)
+		table.insert(stationsByType[def.station], { position = anchor.Position })
 		return
 	end
 

@@ -128,7 +128,11 @@ duration, never cutting an active timer; slimes inflict `slow` on hit via
 the `CastSpell` remote — known → target → mana → cooldown, nothing charged on
 a whiff — with behaviors projectile/zone/strike/aoe/buff/taunt/summon
 (familiars orbit + auto-attack; zones tick damage and/or slows — Snare Trap
-is a pure-slow zone); cooldowns replicate as `SpellCd_<id>` attributes.
+is a pure-slow zone), plus ally-facing zones (`allyZone`: Sacred Circle /
+Sanctuary refresh a protective effect + heal tick onto allies inside) and
+primed "next X" capstones (Double Nock's echo arrow via
+`EnemyService.registerExtraRangedShot`, Overflow's free next cast consumed
+in the mana step); cooldowns replicate as `SpellCd_<id>` attributes.
 Knowns/passives/familiar counts derive from EQUIPMENT-earned school points
 (`SynergyService.getSchoolPoints`; re-pushed via `onRecomputed` on every
 inventory/Level/Class change — the class never feeds points), pushed as

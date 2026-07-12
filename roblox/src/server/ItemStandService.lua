@@ -58,8 +58,10 @@ local function groundY(x, z)
 end
 
 local function buildStand(def)
-	local specs = ItemModels.get(def.itemId)
-	if not specs then
+	-- Mesh override or ArtKit spec model — whatever ItemModels.build returns
+	-- (mesh-only items like the school emblems have no spec at all).
+	local display = ItemModels.build(def.itemId)
+	if not display then
 		warn("[ItemStandService] no model for item " .. tostring(def.itemId))
 		return
 	end
@@ -77,11 +79,9 @@ local function buildStand(def)
 	pedestal.Parent = standFolder
 
 	-- Fit the item copy into DISPLAY_SIZE and center it above the cap. The
-	-- model's bounds center isn't its origin (grips sit at the origin), so
+	-- model's bounds center isn't its pivot (grips sit at the pivot), so
 	-- the root is offset to make the turntable spin around the visual center.
-	local probe = ItemModels.build(def.itemId)
-	local boundsCFrame, boundsSize = probe:GetBoundingBox()
-	probe:Destroy()
+	local boundsCFrame, boundsSize = display:GetBoundingBox()
 	local scale = DISPLAY_SIZE / math.max(boundsSize.X, boundsSize.Y, boundsSize.Z)
 	local offset = boundsCFrame.Position * scale -- bounds center relative to the root
 	local center = (origin * CFrame.new(0, PEDESTAL_TOP + (boundsSize.Y * scale) / 2 + 0.4, 0)).Position
@@ -94,7 +94,23 @@ local function buildStand(def)
 	root.CanCollide = false
 	root.CanQuery = false
 	root.CFrame = CFrame.new(center - offset)
-	ArtKit.weld(root, specs, scale)
+	-- Scale about the pivot (so `offset` stays true), drop the pivot onto the
+	-- root and weld every part to it — ArtKit.weld conventions, mesh or spec.
+	display:ScaleTo(scale)
+	display:PivotTo(root.CFrame)
+	for _, p in ipairs(display:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.Anchored = false
+			p.CanCollide = false
+			p.CanQuery = false
+			p.Massless = true
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = root
+			weld.Part1 = p
+			weld.Parent = p
+		end
+	end
+	display.Parent = root
 	root.Parent = pedestal
 
 	table.insert(displays, { root = root, center = center, offset = offset })

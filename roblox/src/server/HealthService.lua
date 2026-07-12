@@ -249,6 +249,16 @@ function HealthService.addShield(player, amount, duration)
 	end)
 end
 
+-- Undying window (Prophecy): while it lasts, damage can bring the player TO
+-- 1 HP but never below — no downing, no death. Mirrors grantIframes' shape.
+local undying = {} -- [userId] = os.clock() expiry
+function HealthService.grantUndying(player, duration)
+	local expires = os.clock() + duration
+	if (undying[player.UserId] or 0) < expires then
+		undying[player.UserId] = expires
+	end
+end
+
 function HealthService.damagePlayer(player, amount)
 	if isDamageImmune(player) then
 		return
@@ -276,6 +286,13 @@ function HealthService.damagePlayer(player, amount)
 		if amount <= 0 then
 			return
 		end
+	end
+	if (undying[player.UserId] or 0) > os.clock() then
+		amount = math.min(amount, humanoid.Health - 1)
+		if amount > 0 then
+			humanoid:TakeDamage(amount)
+		end
+		return
 	end
 	if amount >= humanoid.Health then
 		humanoid.Health = 1
@@ -461,6 +478,7 @@ function HealthService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		lastDamage[player.UserId] = nil
 		shields[player.UserId] = nil
+		undying[player.UserId] = nil
 		local state = downed[player.UserId]
 		if state then
 			downed[player.UserId] = nil

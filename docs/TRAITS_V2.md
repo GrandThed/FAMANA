@@ -323,8 +323,34 @@ derived at read time. `sanitizeMeta` already accepts arbitrary trait ids
    - Cleric: Minor Prayer (1) · Minor Blessing (5 — ally shield + guard)
    Movement shipped as server-validated + CLIENT-executed dashes
    (InnateDash remote — the character is client-owned) with server-side
-   iframes in EnemyService. STILL PENDING: Sacred Circle (ally zones), the
-   20/30 capstones, and the 12 school apex spells.
+   iframes in EnemyService. WAVE B2 SHIPPED 2026-07-11: Sacred Circle
+   (cleric 12) via the new ally-facing `allyZone` behavior — a ground
+   circle that refreshes a protective effect + slow heal onto allies
+   standing inside — and all four level-20 capstones: Second Wind
+   (`selfHeal`, only castable below half HP), Double Nock (`primeShot` +
+   `EnemyService.registerExtraRangedShot` — the next bow shot echoes a
+   second arrow with its own damage roll), Overflow (`primeFreeCast` —
+   the next mana-costing cast is free, consumed in tryCast's mana step),
+   Sanctuary (`allyZone` again, at 0× damage taken). Primed capstones show
+   as HUD effects cleared early on consume (`EffectService.clear`).
+   WAVE B3 SHIPPED 2026-07-11: the 12 school apex spells at 30 points,
+   on the TRAITS_CATALOG §5.6 first-pass numbers. Spell damage percents
+   ride the new `opts.baseMult` in `EnemyService.computePlayerDamage`
+   (a def's `powerMult` — Meteor's "400%" is baseMult 4). New machinery:
+   `delayedAoe` (Meteor's telegraph), `pullBurst` + `EnemyService.pullTo`
+   (Singularity), `massMark` (Tribunal), `multiZone` over the extracted
+   `runZone` core (Master Trapper), `shieldAllies` (Aegis), `healAllies`
+   + `EffectService.cleanse` (Miracle), `undying` +
+   `HealthService.grantUndying` (Prophecy), familiar empower + the 3rd
+   familiar threshold (Legion), a Bloodbath kill-window via
+   `EffectService.isActive`/`extend` (stretches Frenzy), Crusade's
+   leader/ally effect split (`allyEffectId`) + a lifesteal hook, and
+   projectile `forceCrit`/`critDamageBonus`/`executeBelowFraction`
+   (One Shot, One Kill); Arrow Rain is a plain zone with `powerMult`.
+   "Party-wide" apexes target nearby allies, same as Bulwark's radius
+   pattern. STILL PENDING: the level-30 ascended capstones
+   (rebirth-gated) and the ranger/cleric 10/20 school spells (defs are
+   board-only / `implemented = false`).
 7. **Class innate traits** — confirmed (§5); SynergyService merges innate
    points into totals on the Level/Class recompute it already does.
 

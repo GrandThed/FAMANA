@@ -57,6 +57,40 @@ Effects.defs = {
 		damageTakenMult = 0.85,
 		color = Color3.fromRGB(255, 235, 170),
 	},
+	-- Zone auras (SpellService's allyZone behavior refreshes these every tick
+	-- while an ally stands inside the circle; stepping out lets them lapse).
+	sacred_circle = {
+		id = "sacred_circle",
+		name = "Sacred Circle",
+		kind = "buff",
+		duration = 2,
+		damageTakenMult = 0.85,
+		color = Color3.fromRGB(255, 235, 170),
+	},
+	sanctuary = {
+		id = "sanctuary",
+		name = "Sanctuary",
+		kind = "buff",
+		duration = 1,
+		damageTakenMult = 0, -- inside the circle nothing hurts at all
+		color = Color3.fromRGB(255, 245, 200),
+	},
+	-- Primed-capstone markers: no gameplay fields — the HUD icon is the whole
+	-- point. SpellService clears them early once the charge is consumed.
+	double_nock = {
+		id = "double_nock",
+		name = "Double Nock",
+		kind = "buff",
+		duration = 10,
+		color = Color3.fromRGB(90, 200, 90),
+	},
+	overflow = {
+		id = "overflow",
+		name = "Overflow",
+		kind = "buff",
+		duration = 10,
+		color = Color3.fromRGB(120, 170, 255),
+	},
 
 	-- ---- spell buffs (see shared/Spells.lua) --------------------------------
 	battle_cry = {
@@ -107,6 +141,44 @@ Effects.defs = {
 		duration = 6,
 		walkSpeedMult = 1.35,
 		color = Color3.fromRGB(90, 210, 230),
+	},
+
+	-- ---- apex spell buffs (school 30-point ultimates) --------------------------
+	legion = {
+		id = "legion",
+		name = "Legion",
+		kind = "buff",
+		duration = 10, -- HUD mirror of the familiar-empower window
+		color = Color3.fromRGB(120, 220, 180),
+	},
+	bloodbath = {
+		id = "bloodbath",
+		name = "Bloodbath",
+		kind = "buff",
+		duration = 8, -- the kill window itself: SpellService checks isActive
+		color = Color3.fromRGB(170, 30, 30),
+	},
+	crusade = {
+		id = "crusade",
+		name = "Crusade",
+		kind = "buff",
+		duration = 8, -- ally side: lifesteal via SpellService's hook
+		color = Color3.fromRGB(230, 190, 90),
+	},
+	crusade_leader = {
+		id = "crusade_leader",
+		name = "Crusade (Leader)",
+		kind = "buff",
+		duration = 8, -- caster side: same lifesteal + the damage surge
+		damageMults = { melee = 1.25, physical = 1.25, magic = 1.25 },
+		color = Color3.fromRGB(230, 190, 90),
+	},
+	prophecy = {
+		id = "prophecy",
+		name = "Prophecy",
+		kind = "buff",
+		duration = 3, -- HUD mirror of HealthService's undying window
+		color = Color3.fromRGB(140, 210, 220),
 	},
 }
 
