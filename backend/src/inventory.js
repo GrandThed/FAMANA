@@ -277,8 +277,16 @@ export async function removeItem(client, playerId, itemId, quantity) {
     throw err("quantity must be a positive integer", "bad_quantity");
   }
 
+  // Equippable-and-consumable items (acampada, crafting_table, simple_forge,
+  // ...) get moved to the "equipment" container the moment they're equipped
+  // — placing one has to find it there too, not just in the main grid, or
+  // an equipped-but-not-yet-placed piece looks "missing" to this check even
+  // though it's sitting right there in the weapon/offhand slot.
   const rows = (await loadRows(client, playerId)).filter(
-    (r) => r.containerId === "main" && r.itemId === itemId && !r.meta
+    (r) =>
+      (r.containerId === "main" || r.containerId === "equipment") &&
+      r.itemId === itemId &&
+      !r.meta
   );
   const total = rows.reduce((sum, r) => sum + r.quantity, 0);
   if (total < quantity) {

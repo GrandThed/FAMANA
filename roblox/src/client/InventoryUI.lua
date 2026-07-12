@@ -964,6 +964,258 @@ function InventoryUI.start()
 		dragStepConn = RunService.RenderStepped:Connect(updateDrag)
 	end
 
+	-- ---- right-click context menu -------------------------------------------
+	-- Right-clicking a grid tile (main container only — equipped items still
+	-- use shift-click to unequip) pops a small action list next to the
+	-- cursor. Which actions show depends on the item's type:
+	--   weapon/tool/armor/ring -> "Usar"     (equip into the first free slot)
+	--   placeable              -> "Colocar"  (same equip call — once it's a
+	--                                          held Tool, FurniturePlacementUI
+	--                                          drives the actual placement)
+	--   consumable              -> "Consumir" (no consumable items exist yet,
+	--                                          so this never actually renders
+	--                                          today; ConsumeItem isn't wired
+	--                                          up server-side either — see
+	--                                          consumeEntry below)
+	--   (anything else, e.g. resource/misc) -> nothing to use
+	-- Every type also gets "Soltar" (throw it on the ground).
+	local ACTION_LABELS = {
+		use = "Usar",
+		place = "Colocar",
+		consume = "Consumir",
+		drop = "Soltar",
+		unequip = "Desequipar",
+	}
+
+	local function actionIdsFor(entry, def)
+		if entry.containerId == "equipment" then
+			return { "unequip" }
+		end
+		if not def then
+			return { "drop" }
+		end
+		if def.type == "weapon" or def.type == "tool" or def.type == "armor" or def.type == "ring" then
+			return { "use", "drop" }
+		end
+		if def.type == "placeable" then
+			return { "place", "drop" }
+		end
+		if def.type == "consumable" then
+			return { "consume", "drop" }
+		end
+		return { "drop" } -- resources/misc: nothing to use or equip
+	end
+
+	-- Equip the entry into the first free accepting slot; does nothing if
+	-- every accepting slot is taken. Used by the shift-click shortcut, which
+	-- is intentionally "never swap" (see its own comment below).
+	local function equipEntry(entry)
+		local def = Items.get(entry.itemId)
+		local slotIndex = def and shiftEquipSlot(def)
+		if not (slotIndex and moveItemRemote) then
+			return
+		end
+		hideTooltip()
+		task.spawn(function()
+			local ok, result = pcall(function()
+				return moveItemRemote:InvokeServer(
+					{ containerId = entry.containerId, x = entry.x, y = entry.y },
+					{ containerId = "equipment", x = slotIndex, y = 0 }
+				)
+			end)
+			if ok and typeof(result) == "table" and result.ok == true then
+				Sfx.play("equip")
+			end
+		end)
+	end
+
+	-- Equip for the "Usar"/"Colocar" context menu actions: prefer a free
+	-- accepting slot like equipEntry above, but when every accepting slot is
+	-- full, swap into the first one instead of doing nothing — equipFromGrid
+	-- (the 1/2-key shortcut's logic) already unequips that occupant into a
+	-- free grid spot first, or bails with a "No room to unequip" hint if
+	-- there isn't one.
+	local function equipEntrySwap(entry)
+		local def = Items.get(entry.itemId)
+		if not def then
+			return
+		end
+		local slotIndex = shiftEquipSlot(def)
+		if not slotIndex then
+			for i, slotName in ipairs(Items.EQUIPMENT_SLOTS) do
+				if Items.slotAccepts(slotName, def) then
+					slotIndex = i - 1
+					break
+				end
+			end
+		end
+		if not slotIndex then
+			return
+		end
+		hideTooltip()
+		equipFromGrid(entry, slotIndex)
+	end
+
+	-- Throw the entry onto the ground. Shared logic with drag-to-world-drop
+	-- (endDrag's isWorldDrop branch): optimistic removal now, revert only if
+	-- the server rejects it.
+	local function dropEntry(entry)
+		local from = { containerId = entry.containerId, x = entry.x, y = entry.y }
+		local snapshot = applyOptimisticDrop(from)
+		if not snapshot then
+			return
+		end
+		render(currentInventory)
+		local generationAtMove = serverGeneration
+		task.spawn(function()
+			local ok, result = false, nil
+			if dropItemRemote then
+				ok, result = pcall(function()
+					return dropItemRemote:InvokeServer(from)
+				end)
+			end
+			local accepted = ok and typeof(result) == "table" and result.ok == true
+			if not accepted and serverGeneration == generationAtMove then
+				currentInventory = snapshot
+				render(snapshot)
+			end
+		end)
+	end
+
+	-- No consumable items exist yet, so this action id is currently
+	-- unreachable from actionIdsFor — kept as the one place to wire up once
+	-- food/potions land and a "ConsumeItem" RemoteFunction exists server-side.
+	local function consumeEntry(entry)
+		local consumeRemote = Remotes.getFunction("ConsumeItem")
+		if not consumeRemote then
+			return
+		end
+		hideTooltip()
+		task.spawn(function()
+			pcall(function()
+				return consumeRemote:InvokeServer({ containerId = entry.containerId, x = entry.x, y = entry.y })
+			end)
+		end)
+	end
+
+	-- Unequip: move the entry (from an equipment slot) into the first free
+	-- grid spot. Same move the equipment slot's shift-click already does —
+	-- factored out so the "Desequipar" context menu action can share it.
+	local function unequipEntry(entry)
+		local spot = findFreeSpotFor(entry.itemId)
+		if not spot then
+			hoverLabel.Text = "No room to unequip"
+			return
+		end
+		if not moveItemRemote then
+			return
+		end
+		hideTooltip()
+		local slotRef = { containerId = entry.containerId, x = entry.x, y = entry.y }
+		task.spawn(function()
+			local ok, result = pcall(function()
+				return moveItemRemote:InvokeServer(slotRef, spot)
+			end)
+			if ok and typeof(result) == "table" and result.ok == true then
+				Sfx.play("unequip")
+			end
+		end)
+	end
+
+	local ACTION_HANDLERS =
+		{ use = equipEntrySwap, place = equipEntrySwap, consume = consumeEntry, drop = dropEntry, unequip = unequipEntry }
+
+	local contextMenu = Instance.new("Frame")
+	contextMenu.Name = "ItemContextMenu"
+	contextMenu.AutomaticSize = Enum.AutomaticSize.Y
+	contextMenu.Size = UDim2.new(0, 130, 0, 0)
+	contextMenu.BackgroundColor3 = COLORS.section
+	contextMenu.BorderSizePixel = 0
+	contextMenu.Visible = false
+	contextMenu.ZIndex = 70
+	contextMenu.Parent = gui
+
+	local contextMenuStroke = Instance.new("UIStroke")
+	contextMenuStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	contextMenuStroke.Thickness = 1
+	contextMenuStroke.Color = Theme.Semantic.BorderDivider
+	contextMenuStroke.Parent = contextMenu
+
+	UIKit.addShadow(contextMenu, 10)
+
+	local contextMenuLayout = Instance.new("UIListLayout")
+	contextMenuLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	contextMenuLayout.Parent = contextMenu
+
+	local contextMenuEntry = nil -- the inventory entry the open menu targets
+
+	local function closeContextMenu()
+		contextMenu.Visible = false
+		contextMenuEntry = nil
+	end
+
+	local function openContextMenu(entry, screenX, screenY)
+		if drag then
+			return
+		end
+		hideTooltip()
+		contextMenuEntry = entry
+
+		for _, child in ipairs(contextMenu:GetChildren()) do
+			if child:IsA("TextButton") then
+				child:Destroy()
+			end
+		end
+
+		local def = Items.get(entry.itemId)
+		local actionIds = actionIdsFor(entry, def)
+		for _, actionId in ipairs(actionIds) do
+			local button = Instance.new("TextButton")
+			button.AutoButtonColor = false
+			button.BackgroundColor3 = COLORS.section
+			button.BorderSizePixel = 0
+			button.Size = UDim2.new(1, 0, 0, 30)
+			button.FontFace = Theme.Font.BodyBold
+			button.TextSize = Theme.Text.Sm
+			button.TextColor3 = actionId == "drop" and COLORS.bad or COLORS.text
+			button.Text = ACTION_LABELS[actionId]
+			button.ZIndex = 71
+			button.Parent = contextMenu
+			UIKit.hover(button, COLORS.section, Theme.Color.Ink650)
+
+			button.Activated:Connect(function()
+				local targetEntry = contextMenuEntry
+				closeContextMenu()
+				local handler = targetEntry and ACTION_HANDLERS[actionId]
+				if handler then
+					handler(targetEntry)
+				end
+			end)
+		end
+
+		local s = UIKit.scaleFactor() -- rendered menu size is design px × scale
+		local guiSize = gui.AbsoluteSize
+		local menuH = #actionIds * 30 * s
+		contextMenu.Position = UDim2.fromOffset(
+			math.min(screenX, guiSize.X - 130 * s),
+			math.min(screenY, guiSize.Y - menuH)
+		)
+		contextMenu.Visible = true
+	end
+
+	-- Any click outside the open menu dismisses it (both mouse buttons —
+	-- right-clicking a different tile should close-then-reopen cleanly).
+	UserInputService.InputBegan:Connect(function(input)
+		if not contextMenu.Visible then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
+			if not pointIn(contextMenu, mouse.X, mouse.Y) then
+				closeContextMenu()
+			end
+		end
+	end)
+
 	-- ---- grid tiles (diffed: reused across renders, thumbnails built once) ---
 	-- records: array of { frame, thumb, qty, badge, itemId, entry, used }
 	local tileRecords = {}
@@ -1062,6 +1314,19 @@ function InventoryUI.start()
 			hideTooltip()
 		end)
 		tile.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton2 then
+				local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+					or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+				if shiftHeld and not drag then
+					-- Shift+right-click: same as picking "Usar"/"Colocar" from
+					-- the menu, but immediate — swaps the equipped item if
+					-- every accepting slot is already full.
+					equipEntrySwap(record.entry)
+					return
+				end
+				openContextMenu(record.entry, mouse.X, mouse.Y)
+				return
+			end
 			if input.UserInputType == Enum.UserInputType.MouseButton1 then
 				local entryNow = record.entry
 				local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
@@ -1069,22 +1334,7 @@ function InventoryUI.start()
 				if shiftHeld and not drag then
 					-- Shift-click: equip into a free accepting slot; occupied
 					-- (or not equippable) → do nothing, and never start a drag.
-					local def = Items.get(entryNow.itemId)
-					local slotIndex = def and shiftEquipSlot(def)
-					if slotIndex and moveItemRemote then
-						hideTooltip()
-						task.spawn(function()
-							local ok, result = pcall(function()
-								return moveItemRemote:InvokeServer(
-									{ containerId = "main", x = entryNow.x, y = entryNow.y },
-									{ containerId = "equipment", x = slotIndex, y = 0 }
-								)
-							end)
-							if ok and typeof(result) == "table" and result.ok == true then
-								Sfx.play("equip")
-							end
-						end)
-					end
+					equipEntry(entryNow)
 					return
 				end
 				beginDrag(entryNow, { containerId = "main", x = entryNow.x, y = entryNow.y }, tile)
@@ -1123,6 +1373,7 @@ function InventoryUI.start()
 		hovered = nil
 		hoverLabel.Text = ""
 		hideTooltip()
+		closeContextMenu()
 
 		-- A re-render mid-drag means the world changed under us; cancel cleanly.
 		if drag then
@@ -1236,10 +1487,14 @@ function InventoryUI.start()
 		render(inventory)
 	end
 
-	-- Equipment slots: drag out — or shift-click — to unequip (and hover
-	-- shows the name).
+	-- Equipment slots: drag out, shift-click, or right-click → "Desequipar"
+	-- to unequip (and hover shows the name).
 	for slotName, slot in pairs(equipSlots) do
 		slot.frame.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton2 and slot.entry then
+				openContextMenu(slot.entry, mouse.X, mouse.Y)
+				return
+			end
 			if input.UserInputType == Enum.UserInputType.MouseButton1 and slot.entry then
 				local entryNow = slot.entry
 				local slotRef = { containerId = "equipment", x = SLOT_INDEX[slotName], y = 0 }
@@ -1247,20 +1502,7 @@ function InventoryUI.start()
 					or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 				if shiftHeld and not drag then
 					-- Shift-click: unequip into the first free grid spot.
-					local spot = findFreeSpotFor(entryNow.itemId)
-					if not spot then
-						hoverLabel.Text = "No room to unequip"
-					elseif moveItemRemote then
-						hideTooltip()
-						task.spawn(function()
-							local ok, result = pcall(function()
-								return moveItemRemote:InvokeServer(slotRef, spot)
-							end)
-							if ok and typeof(result) == "table" and result.ok == true then
-								Sfx.play("unequip")
-							end
-						end)
-					end
+					unequipEntry(entryNow)
 					return
 				end
 				beginDrag(entryNow, slotRef, slot.frame)
@@ -1468,6 +1710,7 @@ function InventoryUI.start()
 		else
 			endDrag(false)
 			hideTooltip()
+			closeContextMenu()
 		end
 		TweenService:Create(panel, SLIDE_TWEEN, { Position = isOpen and OPEN_POS or CLOSED_POS }):Play()
 	end
