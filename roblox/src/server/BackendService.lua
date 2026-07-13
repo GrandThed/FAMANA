@@ -213,6 +213,16 @@ function BackendService.getGuildForPlayer(userId)
 	return nil, true
 end
 
+-- Full guild by id (roster included), or nil if it doesn't exist / on
+-- failure. Used by GuildService.getGuildInfo for the panel's roster read.
+function BackendService.getGuildById(guildId)
+	local ok, data = request("GET", "/guild/" .. tostring(guildId))
+	if ok and data then
+		return data.guild
+	end
+	return nil
+end
+
 -- Returns (guild) on success, (nil, errorCode) on failure — errorCode is the
 -- backend's reason string ("name_taken", "already_in_guild", ...) on a 4xx,
 -- nil on transport failure.

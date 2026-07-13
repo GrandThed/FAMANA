@@ -1360,7 +1360,7 @@ function InventoryUI.start()
 			hideTooltip()
 		end)
 		tile.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if input.UserInputType == Enum.UserInputType.MouseButton2 then
 				local shiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
 					or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 				if shiftHeld and not drag then
