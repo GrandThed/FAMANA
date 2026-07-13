@@ -21,14 +21,12 @@ local SOUNDS = {
 	panelOpen = { id = "rbxassetid://134352981124286", volume = 0.2 },
 	panelClose = { id = "rbxassetid://134352981124286", volume = 0.2 },
 	swing = { id = "rbxassetid://138283030240531", volume = 0.45 }, -- herramientas (hacha/pico, styleName "chop")
-	swingMelee = { id = "rbxassetid://135315310485417", volume = 0.45 }, -- espadas (styleName "slash")
-	swingRanged = { id = "rbxassetid://123925235254965", volume = 0.5 }, -- arcos (styleName "draw") — placeholder
-	swingMagic = { id = "rbxassetid://81276928984693", volume = 0.5 }, -- varitas/staffs (styleName "cast") — placeholder
+	swingMelee = { id = "rbxassetid://135315310485417", volume = 0.45 }, 
+	swingRanged = { id = "rbxassetid://123925235254965", volume = 0.5 },
+	swingMagic = { id = "rbxassetid://81276928984693", volume = 0.5 }, 
+	hurt = { id = "rbxassetid://1471213022", volume = 0.55 },
 	hit = { id = "rbxassetid://139520673393967", volume = 0.5 },
 	critHit = { id = "rbxassetid://137392628136734", volume = 0.65 },
-	
-	-- Muertes de enemigo, por lootSource (mismo id que EnemyService.lua)
-	-- ver ENEMY_TYPE_SOUND en CombatSfx.lua) para el bicho que sea
 	slimeDeath = { id = "rbxassetid://9119990528", volume = 0.5 },
 	goblinDeath = { id = "rbxassetid://83502215419926", volume = 0.6 }, -- <- este me causa mucha gracia pq es "AHHH"
 	enemyDeath = { id = "rbxassetid://7099132141", volume = 0.5 }, -- <- este está zarpado pq es el sonido de morir en terrariaxd
