@@ -43,6 +43,9 @@ Stores.defs = {
 			{ itemId = "stone", sellPrice = 2, barter = { { itemId = "wood", qty = 2 } } },
 			{ itemId = "slime_goo", sellPrice = 3 },
 			{ itemId = "goblin_ear", sellPrice = 5 },
+			{ itemId = "arrow", buyPrice = 1 },
+			{ itemId = "arrow_fire", buyPrice = 4 },
+			{ itemId = "arrow_poison", buyPrice = 4 },
 		},
 	},
 }

@@ -42,6 +42,24 @@ Recipes.defs = {
 			{ itemId = "stone", quantity = 1 },
 		},
 	},
+	arrow_fire = {
+		id = "arrow_fire",
+		name = "Fire Arrows",
+		result = { itemId = "arrow_fire", quantity = 4 },
+		ingredients = {
+			{ itemId = "arrow", quantity = 4 },
+			{ itemId = "torch", quantity = 1 },
+		},
+	},
+	arrow_poison = {
+		id = "arrow_poison",
+		name = "Poison Arrows",
+		result = { itemId = "arrow_poison", quantity = 4 },
+		ingredients = {
+			{ itemId = "arrow", quantity = 4 },
+			{ itemId = "slime_goo", quantity = 3 },
+		},
+	},
 	simple_forge = {
 		id = "simple_forge",
 		name = "Simple Forge",

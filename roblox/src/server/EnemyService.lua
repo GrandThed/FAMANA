@@ -25,6 +25,7 @@ local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Classes = require(Shared:WaitForChild("Classes"))
+local Items = require(Shared:WaitForChild("Items"))
 
 local V = Vector3.new
 
@@ -657,6 +658,10 @@ local STATUS_MARKS = {
 	-- Sits in its own row above stun/slow so it doesn't overlap when an
 	-- enemy is both winding up an attack AND slowed/stunned at once.
 	telegraph = { text = "❗", offsetX = 0, offsetY = 3.7, spin = false, barColor = Color3.fromRGB(255, 70, 50) },
+	-- Arrow damage-over-time (see applyArrowEffect below). Own row so it
+	-- doesn't collide with stun/slow or the attack telegraph.
+	burn = { text = "🔥", offsetX = -0.9, offsetY = 4.4, spin = false, barColor = Color3.fromRGB(255, 130, 60) },
+	poison = { text = "☠️", offsetX = 0.9, offsetY = 4.4, spin = false, barColor = Color3.fromRGB(120, 200, 90) },
 }
 
 local function setStatusMark(enemy, kind, active)
@@ -784,6 +789,33 @@ local function updateEnemy(entry, dt)
 	end
 	if slowed then
 		updateMarkBar(enemy, "slow", enemy.slowedUntil - now, enemy.slowTotal)
+	end
+
+	-- Arrow damage-over-time (burn/poison from special arrows — see
+	-- applyArrowEffect). Ticks regardless of stun/movement state, same as a
+	-- real DoT should. A tick can kill the enemy mid-loop (dealDamage ->
+	-- killEnemy destroys enemy.part), so bail out immediately after that
+	-- happens instead of touching the now-dead enemy's marks again.
+	if enemy.dots then
+		for kind, dot in pairs(enemy.dots) do
+			if enemy.dead then
+				break
+			end
+			if now >= dot.untilTime then
+				enemy.dots[kind] = nil
+				setStatusMark(enemy, kind, false)
+			else
+				setStatusMark(enemy, kind, true)
+				updateMarkBar(enemy, kind, dot.untilTime - now, dot.totalDuration)
+				if now >= dot.nextTick then
+					dot.nextTick = now + dot.interval
+					dealDamage(entry, enemy, dot.baseDmg * (dot.stacks or 1), dot.source, false, "physical")
+				end
+			end
+		end
+	end
+	if enemy.dead then
+		return
 	end
 	if enemy.windingUp then
 		updateMarkBar(enemy, "telegraph", math.max(0, enemy.windupEndsAt - now), enemy.windupTotal)
@@ -1169,21 +1201,21 @@ local PROJECTILE_VISUALS = {
 	physical = { name = "Arrow", shape = Enum.PartType.Cylinder, size = Vector3.new(0.15, 0.15, 3), color = Color3.fromRGB(120, 85, 45), material = Enum.Material.Wood, glow = false },
 }
 
-local function fireMissile(fromPos, targetPart, onArrive, damageKind)
+local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverride)
 	local visual = PROJECTILE_VISUALS[damageKind] or PROJECTILE_VISUALS.magic
 
 	local missile = Instance.new("Part")
 	missile.Name = visual.name
 	missile.Shape = visual.shape
 	missile.Size = visual.size
-	missile.Color = visual.color
+	missile.Color = colorOverride or visual.color
 	missile.Material = visual.material
 	missile.Anchored = true
 	missile.CanCollide = false
 	missile.CanQuery = false
 	missile.Position = fromPos
 
-	if visual.glow then
+	if visual.glow or colorOverride then
 		local light = Instance.new("PointLight")
 		light.Color = missile.Color
 		light.Range = 8
@@ -1203,6 +1235,112 @@ local function fireMissile(fromPos, targetPart, onArrive, damageKind)
 		onArrive()
 	end)
 	tween:Play()
+end
+
+-- ---- Arrow ammo (bows only — def.usesArrows; see shared/Items.lua) --------
+-- Bows need a matching arrow-type item in the inventory to fire at all; the
+-- shot consumes one. Live-only per-player state (not persisted), same
+-- treatment as ManaService: it just resets to the basic arrow on rejoin.
+
+-- Canonical rotation order for the cycle key (client/ArrowSelectUI.lua). The
+-- plain arrow always comes first so a fresh player without crafting
+-- materials for the fancy ones can still shoot.
+local ARROW_ORDER = { "arrow", "arrow_fire", "arrow_poison" }
+
+local selectedArrow = {} -- [userId] = itemId
+local lastArrowCycle = {} -- [userId] = os.clock(), debounces the cycle key
+local lastArrowWarn = {} -- [userId] = os.clock(), debounces the "no arrows" toast
+local ARROW_CYCLE_COOLDOWN = 0.25
+
+local function ownsArrow(player, itemId)
+	return PlayerService.getItemCount(player, itemId) > 0
+end
+
+-- The arrow itemId to fire with right now: the player's selection if they
+-- still have some in the inventory, otherwise the first type in ARROW_ORDER
+-- they DO have. Returns nil if the quiver is completely empty.
+local function resolveArrow(player)
+	local want = selectedArrow[player.UserId] or ARROW_ORDER[1]
+	if ownsArrow(player, want) then
+		return want
+	end
+	for _, itemId in ipairs(ARROW_ORDER) do
+		if ownsArrow(player, itemId) then
+			return itemId
+		end
+	end
+	return nil
+end
+
+-- Advances the player's selection to the next arrow type they actually own
+-- (wrapping around ARROW_ORDER), and toasts the new pick. Called from the
+-- CycleArrow remote (client fires it on a keypress while a bow is equipped).
+local function cycleArrow(player)
+	local now = os.clock()
+	if now - (lastArrowCycle[player.UserId] or 0) < ARROW_CYCLE_COOLDOWN then
+		return
+	end
+	lastArrowCycle[player.UserId] = now
+
+	local current = selectedArrow[player.UserId] or ARROW_ORDER[1]
+	local startIndex = 1
+	for i, itemId in ipairs(ARROW_ORDER) do
+		if itemId == current then
+			startIndex = i
+			break
+		end
+	end
+	for step = 1, #ARROW_ORDER do
+		local index = ((startIndex - 1 + step) % #ARROW_ORDER) + 1
+		local itemId = ARROW_ORDER[index]
+		if ownsArrow(player, itemId) then
+			selectedArrow[player.UserId] = itemId
+			if notifyRemote then
+				local itemDef = Items.get(itemId)
+				notifyRemote:FireClient(player, "Flecha: " .. (itemDef and itemDef.name or itemId))
+			end
+			return
+		end
+	end
+	selectedArrow[player.UserId] = current
+	if notifyRemote then
+		notifyRemote:FireClient(player, "No te quedan flechas")
+	end
+end
+
+-- Tinted missile trail per arrow effect, purely cosmetic (the enemy still
+-- gets the normal wooden-arrow model from PROJECTILE_VISUALS otherwise).
+local ARROW_EFFECT_COLORS = {
+	burn = Color3.fromRGB(255, 110, 40),
+	poison = Color3.fromRGB(110, 220, 90),
+}
+
+-- Applies (or refreshes/stacks) a bow ammo's damage-over-time onto the hit
+-- enemy. `effect` is an arrow item's `arrowEffect` table (shared/Items.lua):
+--   { kind, damagePerTick, interval, duration, maxStacks? }
+-- Effects without maxStacks (e.g. burn) just refresh their timer on repeat
+-- hits; effects with maxStacks (e.g. poison) also add a stack, multiplying
+-- the per-tick damage, up to the cap. Ticked in updateEnemy above.
+local function applyArrowEffect(enemy, effect, player)
+	if not enemy or enemy.dead or not effect then
+		return
+	end
+	enemy.dots = enemy.dots or {}
+	local now = os.clock()
+	local existing = enemy.dots[effect.kind]
+	local stacks = 1
+	if effect.maxStacks then
+		stacks = math.min((existing and existing.stacks or 0) + 1, effect.maxStacks)
+	end
+	enemy.dots[effect.kind] = {
+		untilTime = math.max(existing and existing.untilTime or 0, now + effect.duration),
+		totalDuration = effect.duration,
+		nextTick = (existing and existing.nextTick) or (now + effect.interval),
+		interval = effect.interval,
+		baseDmg = effect.damagePerTick,
+		stacks = stacks,
+		source = player,
+	}
 end
 
 -- Called by ToolService when a "weapon" item is activated. Melee weapons hit
@@ -1259,12 +1397,35 @@ local function onWeaponSwing(player, tool, def)
 			end
 			return
 		end
+
+		-- Bows need an arrow in the inventory to fire; consumed 1 per shot
+		-- (the free Double Nock echo below does NOT consume a second one).
+		local arrowId
+		if def.usesArrows then
+			arrowId = resolveArrow(player)
+			if not arrowId then
+				local now = os.clock()
+				if notifyRemote and now - (lastArrowWarn[player.UserId] or 0) >= MANA_WARN_COOLDOWN then
+					lastArrowWarn[player.UserId] = now
+					notifyRemote:FireClient(player, "No te quedan flechas")
+				end
+				return
+			end
+			PlayerService.removeItem(player, arrowId, 1)
+		end
+		local arrowDef = arrowId and Items.get(arrowId)
+		local arrowEffect = arrowDef and arrowDef.arrowEffect
+		local arrowColor = arrowEffect and ARROW_EFFECT_COLORS[arrowEffect.kind]
+
 		fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
 			dealDamage(hitEntry, hitEnemy, damage, player, isCrit, damageKind)
 			applyLifesteal()
-		end, damageKind)
+			if arrowEffect then
+				applyArrowEffect(hitEnemy, arrowEffect, player)
+			end
+		end, damageKind, arrowColor)
 		-- Double Nock: a primed charge echoes the shot — a second arrow at the
-		-- same target with its own damage/crit roll, no extra mana.
+		-- same target with its own damage/crit roll, no extra mana or ammo.
 		for _, fn in ipairs(extraShotHooks) do
 			local ok, extra = pcall(fn, player)
 			if ok and extra == true then
@@ -1279,7 +1440,10 @@ local function onWeaponSwing(player, tool, def)
 						if lifesteal > 0 then
 							HealthService.heal(player, echoDamage * lifesteal)
 						end
-					end, damageKind)
+						if arrowEffect then
+							applyArrowEffect(hitEnemy, arrowEffect, player)
+						end
+					end, damageKind, arrowColor)
 				end)
 			end
 		end
@@ -1294,8 +1458,17 @@ function EnemyService.start()
 	damageIndicatorRemote = Remotes.get("DamageIndicator")
 	enemyDiedRemote = Remotes.get("EnemyDied")
 
+	-- Client (ArrowSelectUI) fires this on a keypress while a bow is
+	-- equipped to cycle which owned arrow type gets fired next.
+	Remotes.get("CycleArrow").OnServerEvent:Connect(function(player)
+		cycleArrow(player)
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		lastManaWarn[player.UserId] = nil
+		lastArrowWarn[player.UserId] = nil
+		lastArrowCycle[player.UserId] = nil
+		selectedArrow[player.UserId] = nil
 	end)
 
 	enemyFolder = Instance.new("Folder")

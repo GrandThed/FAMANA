@@ -255,6 +255,14 @@ ItemModels.defs = {
 		{ name = "Shaft", size = V(0.08, 1.4, 0.08), color = "trunk" },
 		{ name = "Head", shape = "Wedge", size = V(0.1, 0.28, 0.1), offset = V(0, 0.84, 0), color = "steel" },
 	},
+	arrow_fire = {
+		{ name = "Shaft", size = V(0.08, 1.4, 0.08), color = "trunkDark" },
+		{ name = "Head", shape = "Wedge", size = V(0.1, 0.28, 0.1), offset = V(0, 0.84, 0), color = "ruby", material = Enum.Material.Neon },
+	},
+	arrow_poison = {
+		{ name = "Shaft", size = V(0.08, 1.4, 0.08), color = "trunkDark" },
+		{ name = "Head", shape = "Wedge", size = V(0.1, 0.28, 0.1), offset = V(0, 0.84, 0), color = "slime", material = Enum.Material.Neon },
+	},
 
 	acampada = {
 		{ name = "Grip", size = V(0.3, 1.0, 0.3), color = "trunkDark" },

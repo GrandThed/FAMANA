@@ -122,6 +122,7 @@ Items.defs = {
 		type = "weapon",
 		weaponType = "ranged",
 		damageKind = "physical", -- ranged but not magic: no mana cost
+		usesArrows = true, -- consumes 1 arrow-type item per shot; see EnemyService.onWeaponSwing
 		stackable = false,
 		maxStack = 1,
 		damage = 12,
@@ -265,13 +266,37 @@ Items.defs = {
 		orbLightRange = 18,
 		orbLightBrightness = 3,
 	},
+	-- ---- ammo (consumed 1-per-shot by bows; see EnemyService.onWeaponSwing) --
 	arrow = {
 		id = "arrow",
 		name = "Arrow",
-		type = "misc",
+		type = "ammo",
 		stackable = true,
 		maxStack = 99,
 		size = { 1, 1 },
+	},
+	arrow_fire = {
+		id = "arrow_fire",
+		name = "Fire Arrow",
+		flavor = "Pitch-wrapped and lit — sets the target ablaze on impact.",
+		type = "ammo",
+		stackable = true,
+		maxStack = 99,
+		size = { 1, 1 },
+		-- Refreshing burn: reapplying just extends the timer, doesn't stack.
+		arrowEffect = { kind = "burn", damagePerTick = 3, interval = 1, duration = 4 },
+	},
+	arrow_poison = {
+		id = "arrow_poison",
+		name = "Poison Arrow",
+		flavor = "Tipped in slime toxin — repeated hits build up a nastier dose.",
+		type = "ammo",
+		stackable = true,
+		maxStack = 99,
+		size = { 1, 1 },
+		-- Stacking poison: each hit within the window adds a stack (up to
+		-- maxStacks), multiplying the per-tick damage.
+		arrowEffect = { kind = "poison", damagePerTick = 2, interval = 1, duration = 5, maxStacks = 5 },
 	},
 
 	-- ---- armor (paper-doll equipment; combat stats come later) -------------

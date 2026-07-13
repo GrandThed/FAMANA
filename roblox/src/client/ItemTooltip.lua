@@ -43,6 +43,7 @@ local TYPE_NAMES = {
 	ring = "Ring",
 	consumable = "Consumable",
 	backpack = "Backpack",
+	ammo = "Ammo",
 }
 local PRETTY_SLOT = { head = "Head", chest = "Chest", hands = "Hands", legs = "Legs", feet = "Feet" }
 

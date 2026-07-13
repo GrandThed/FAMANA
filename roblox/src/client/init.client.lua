@@ -40,6 +40,7 @@ local FurnitureManageUI = require(script:WaitForChild("FurnitureManageUI"))
 local CampTimerUI = require(script:WaitForChild("CampTimerUI"))
 local ChestUI = require(script:WaitForChild("ChestUI"))
 local MarkerUI = require(script:WaitForChild("MarkerUI"))
+local ArrowSelectUI = require(script:WaitForChild("ArrowSelectUI"))
 
 ContentSync.start() -- first: overlays backend item defs onto the mirror
 SpellsClient.start() -- seeds/auto-places spell hotbar binds (HudUI renders them)
@@ -80,3 +81,4 @@ FurnitureManageUI.start()
 CampTimerUI.start()
 ChestUI.start()
 MarkerUI.start() -- click medio: marcar enemigo/loot/piso (solo o para la party con Shift)
+ArrowSelectUI.start() -- T key: cycle bow ammo type between owned arrows
