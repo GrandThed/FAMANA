@@ -51,9 +51,25 @@ return {
 		-- base hp/damage/xp reward by these fractions (linear, not compounding).
 		mobLevel = {
 			hpPerLevel = 0.15, -- +15% hp per level above 1
-			damagePerLevel = 0.10, -- +10% damage per level above 1
+			damagePerLevel = 0.10, -- +10% damage per level above 1 (legacy)
+			adPerLevel = 0.10, -- +10% AD per level above 1
+			apPerLevel = 0.10, -- +10% AP per level above 1
 			xpPerLevel = 0.20, -- +20% xp reward per level above 1
+			armorPerLevel = 0.12, -- +12% armor per level above 1
+			magicResistPerLevel = 0.12, -- +12% magic resist per level above 1
 		},
+
+		-- Telegraph de ataque enemigo: en vez de pegar apenas entra en rango y
+		-- se cumple el cooldown, el enemigo "carga" el golpe por una fracción
+		-- de su attackCooldown (ver EnemyService.lua) — durante esa ventana
+		-- se le muestra una marca flotante ❗ con barrita de cuenta regresiva
+		-- (mismo sistema que las marcas de stun/slow), para avisar que el
+		-- golpe viene. No agrega tiempo extra entre ataques, solo lo reparte:
+		-- el reloj de cooldown arranca al empezar la carga, no al conectar
+		-- el golpe.
+		attackWindupFraction = 0.35, -- % del attackCooldown gastado en la carga
+		attackWindupMin = 0.2, -- segundos — piso, para que bichos rápidos no avisen "instantáneo"
+		attackWindupMax = 0.6, -- segundos — techo, para que bichos lentos no tarden una eternidad
 	},
 
 	-- Player leveling curve. xpToNext(level) = baseXp + (level-1)*xpPerLevel.
@@ -71,6 +87,23 @@ return {
 		inviteTimeout = 30, -- las invitaciones sn validas por 30 segs
 		xpShareRadius = 60, -- radio para compartir xp entre miembros de party
 	},
+
+	-- Gremios: persistidos en el backend (tabla `guilds`), a diferencia de
+	-- Party. Roles son solo leader/member para el MVP — ver GuildService.
+	Guild = {
+		nameMinLen = 3,
+		nameMaxLen = 24,
+		tagMinLen = 2,
+		tagMaxLen = 5,
+		inviteTimeout = 30, -- mismo criterio que Party.inviteTimeout
+	},
+
+	-- Sfx.lua no tiene sonido posicional (sin rolloff por distancia real),
+	-- así que el radio de "quién lo escucha" se controla acá: cualquier
+	-- jugador con su HumanoidRootPart a esta distancia o menos del origen
+	-- del sonido (swing, hit/crit, muerte de enemigo) lo recibe, no solo
+	-- quien lo generó. Mismo orden de magnitud que xpShareRadius arriba.
+	CombatSfxHearRadius = 60,
 
 	-- Acampada: zona segura + respawn craftable por el jugador (ver
 	-- shared/Recipes.lua y server/CampService.lua). Solo en memoria del
@@ -179,5 +212,12 @@ return {
 		minSpacing = 4, -- studs mínimos entre dos muebles del mismo campamento
 		chestColumns = 6, -- ancho de la grilla del cofre (mismo componente ItemGrid)
 		chestRows = 6,
+	},
+
+	-- Marcadores de ping (click medio sobre enemigo/loot/piso). En memoria
+	-- del server, un marcador activo por jugador — ver server/MarkerService.lua.
+	Markers = {
+		maxDistance = 150, -- distancia máxima jugador -> punto marcado (anti-exploit)
+		groundDuration = 8, -- segundos que dura un marcador de piso antes de expirar solo
 	},
 }

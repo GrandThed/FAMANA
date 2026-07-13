@@ -40,7 +40,11 @@ local MISSILE_SPEED = 90 -- studs/second the magic missile travels
 local CRIT_CHANCE = Config.Combat.critChance
 local CRIT_MULTIPLIER = Config.Combat.critMultiplier
 local HP_PER_LEVEL = Config.Combat.mobLevel.hpPerLevel
-local DAMAGE_PER_LEVEL = Config.Combat.mobLevel.damagePerLevel
+local DAMAGE_PER_LEVEL = Config.Combat.mobLevel.damagePerLevel or 0.10
+local AD_PER_LEVEL = Config.Combat.mobLevel.adPerLevel or DAMAGE_PER_LEVEL
+local AP_PER_LEVEL = Config.Combat.mobLevel.apPerLevel or DAMAGE_PER_LEVEL
+local ARMOR_PER_LEVEL = Config.Combat.mobLevel.armorPerLevel
+local MR_PER_LEVEL = Config.Combat.mobLevel.magicResistPerLevel
 local XP_PER_LEVEL = Config.Combat.mobLevel.xpPerLevel
 local XP_SHARE_RADIUS = Config.Party.xpShareRadius
 
@@ -76,7 +80,11 @@ local ENEMY_DEFS = {
 	slime = {
 		name = "Slime",
 		hp = 30,
-		damage = 5,
+		ad = 5,
+		ap = 0,
+		damageKind = "physical",
+		armor = 5, -- squishy against weapons
+		magicResist = 15, -- but its gooey body shrugs off magic
 		minLevel = 1,
 		maxLevel = 3,
 		nightLevelBonus = 1, -- placeholder; added to the rolled level while it's night (see DayNightService)
@@ -111,7 +119,11 @@ local ENEMY_DEFS = {
 	goblin = {
 		name = "Goblin",
 		hp = 60,
-		damage = 10,
+		ad = 10,
+		ap = 0,
+		damageKind = "physical",
+		armor = 15, -- wears scraps of armor, tougher against weapons
+		magicResist = 5, -- has no answer for magic
 		minLevel = 2,
 		maxLevel = 5,
 		nightLevelBonus = 2, -- placeholder; goblins get meaner faster at night than slimes
@@ -401,7 +413,10 @@ local function buildEnemy(pos, def)
 		level += def.nightLevelBonus or 0
 	end
 	local maxHp = math.floor(def.hp * (1 + (level - 1) * HP_PER_LEVEL) + 0.5)
-	local damage = math.floor(def.damage * (1 + (level - 1) * DAMAGE_PER_LEVEL) + 0.5)
+	local ad = math.floor((def.ad or def.damage or 0) * (1 + (level - 1) * AD_PER_LEVEL) + 0.5)
+	local ap = math.floor((def.ap or 0) * (1 + (level - 1) * AP_PER_LEVEL) + 0.5)
+	local armor = math.floor((def.armor or 0) * (1 + (level - 1) * ARMOR_PER_LEVEL) + 0.5)
+	local magicResist = math.floor((def.magicResist or 0) * (1 + (level - 1) * MR_PER_LEVEL) + 0.5)
 
 	local part = Instance.new("Part")
 	part.Name = def.name
@@ -415,6 +430,15 @@ local function buildEnemy(pos, def)
 	-- level (see client/EnemyLevelUI.lua), instead of everyone seeing the
 	-- same absolute-level color this file paints below as a placeholder.
 	part:SetAttribute("Level", level)
+	-- Exposed for EnemyInspectUI's click-to-inspect stat card — read-only
+	-- flavor info for the client, no gameplay logic depends on these being
+	-- attributes (the server always uses its own `enemy` table).
+	part:SetAttribute("MaxHp", maxHp)
+	part:SetAttribute("AttackDamage", ad)
+	part:SetAttribute("AbilityPower", ap)
+	part:SetAttribute("Damage", ad > ap and ad or ap)
+	part:SetAttribute("Armor", armor)
+	part:SetAttribute("MagicResist", magicResist)
 
 	-- Style-A mesh visual when its template loaded: the body part stays the
 	-- physics/targeting object and goes invisible underneath it. Otherwise
@@ -432,6 +456,9 @@ local function buildEnemy(pos, def)
 	nameTag.Size = UDim2.new(0, 140, 0, 20)
 	nameTag.StudsOffsetWorldSpace = Vector3.new(0, def.size.Y / 2 + 1.9, 0)
 	nameTag.AlwaysOnTop = true
+	-- Only readable up close; otherwise players could scout an enemy's
+	-- name/level from across the map before deciding whether to engage.
+	nameTag.MaxDistance = 30
 	nameTag.Parent = part
 
 	local nameLabel = Instance.new("TextLabel")
@@ -467,6 +494,8 @@ local function buildEnemy(pos, def)
 	billboard.Size = UDim2.new(0, 64, 0, 10)
 	billboard.StudsOffsetWorldSpace = Vector3.new(0, def.size.Y / 2 + 1, 0)
 	billboard.AlwaysOnTop = true
+	-- Only visible up close, matching the name tag limit.
+	billboard.MaxDistance = 30
 	billboard.Parent = part
 
 	local bg = Instance.new("Frame")
@@ -516,7 +545,11 @@ local function buildEnemy(pos, def)
 		ghost = ghost,
 		hp = maxHp,
 		maxHp = maxHp,
-		damage = damage,
+		ad = ad,
+		ap = ap,
+		damage = ad, -- legacy fallback
+		armor = armor,
+		magicResist = magicResist,
 		level = level,
 		lastAttack = 0,
 		dead = false,
@@ -611,12 +644,19 @@ local function updateHop(enemy, dt, root, def, speedMult)
 	end
 end
 
--- Floating status marks over an enemy (stun stars, slow snail) so CC reads at
--- a glance, each with a bar draining down the remaining duration.
--- Server-side BillboardGuis, same as the name tag / health bar.
+-- Floating status marks over an enemy (stun stars, slow snail, attack
+-- telegraph) so CC + incoming-attack state reads at a glance, each with a
+-- bar draining down the remaining duration. Server-side BillboardGuis, same
+-- as the name tag / health bar — deliberately NOT a client Highlight: those
+-- render unreliably on parts that already have their own Transparency > 0
+-- (slimes are the only enemy built that way), so anything meant to show on
+-- every enemy type goes through this proven mechanism instead.
 local STATUS_MARKS = {
-	stun = { text = "💫", offsetX = -0.9, spin = true, barColor = Color3.fromRGB(255, 220, 120) },
-	slow = { text = "🐌", offsetX = 0.9, spin = false, barColor = Color3.fromRGB(120, 190, 255) },
+	stun = { text = "💫", offsetX = -0.9, offsetY = 3, spin = true, barColor = Color3.fromRGB(255, 220, 120) },
+	slow = { text = "🐌", offsetX = 0.9, offsetY = 3, spin = false, barColor = Color3.fromRGB(120, 190, 255) },
+	-- Sits in its own row above stun/slow so it doesn't overlap when an
+	-- enemy is both winding up an attack AND slowed/stunned at once.
+	telegraph = { text = "❗", offsetX = 0, offsetY = 3.7, spin = false, barColor = Color3.fromRGB(255, 70, 50) },
 }
 
 local function setStatusMark(enemy, kind, active)
@@ -627,7 +667,7 @@ local function setStatusMark(enemy, kind, active)
 		local gui = Instance.new("BillboardGui")
 		gui.Name = "Mark_" .. kind
 		gui.Size = UDim2.new(0, 26, 0, 32)
-		gui.StudsOffsetWorldSpace = Vector3.new(look.offsetX, enemy.def.size.Y / 2 + 3, 0)
+		gui.StudsOffsetWorldSpace = Vector3.new(look.offsetX, enemy.def.size.Y / 2 + (look.offsetY or 3), 0)
 		gui.AlwaysOnTop = true
 		gui.Parent = enemy.part
 
@@ -745,11 +785,21 @@ local function updateEnemy(entry, dt)
 	if slowed then
 		updateMarkBar(enemy, "slow", enemy.slowedUntil - now, enemy.slowTotal)
 	end
+	if enemy.windingUp then
+		updateMarkBar(enemy, "telegraph", math.max(0, enemy.windupEndsAt - now), enemy.windupTotal)
+	end
 	local speedMult = slowed and (enemy.slowMult or 0.5) or 1
 
 	-- Stunned: no chasing, no winding up new hops, no attacking. A hop already
 	-- in flight still lands (freezing mid-air reads as a bug, not a stun).
+	-- A committed attack windup, though, gets cancelled — getting stunned
+	-- mid-swing interrupting the hit reads as fair, not a bug.
 	if stunned then
+		if enemy.windingUp then
+			enemy.windingUp = false
+			enemy.windupTarget = nil
+			setStatusMark(enemy, "telegraph", false)
+		end
 		if def.movement == "hop" then
 			updateHop(enemy, dt, nil, def, speedMult)
 		end
@@ -772,32 +822,60 @@ local function updateEnemy(entry, dt)
 		end
 	end
 
-	-- Attack if in range and off cooldown.
-	if root and (root.Position - enemy.part.Position).Magnitude <= def.attackRange then
-		if now - enemy.lastAttack >= def.attackCooldown then
-			enemy.lastAttack = now
-			local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid.Health > 0 then
-				-- Evasion: a dodged hit deals nothing and applies no on-hit
-				-- effects (the enemy still spent its attack).
-				if (iframes[target.UserId] or 0) > now or math.random() < hookedDodgeChance(target) then
-					dodgePopup(target.Character)
-				else
-					local mitigation = Classes.mitigation(ClassService.getArmor(target))
-					local taken = enemy.damage * (1 - mitigation) * hookedDamageTakenMult(target)
-					HealthService.damagePlayer(target, taken)
-					HealthService.registerDamage(target) -- pause the player's regen
-					-- Retribution: melee attackers eat a share of what they
-					-- dealt (post-mitigation — what actually landed).
-					local reflect = hookedReflect(target)
-					if reflect > 0 then
-						dealDamage(entry, enemy, math.max(1, math.floor(taken * reflect + 0.5)), target, false)
-					end
-					for _, fn in ipairs(EnemyService.playerHitHandlers) do
-						task.spawn(fn, def.lootSource, target)
-					end
+	-- Resolve a pending windup first (independent of the current range
+	-- check below) — the swing already committed and the client is showing
+	-- the telegraph, so it lands on schedule. "Dodging" a committed swing
+	-- means being gone entirely (dead/downed/evasion roll), not stepping
+	-- one stud back over the attackRange line.
+	if enemy.windingUp and now >= enemy.windupEndsAt then
+		enemy.windingUp = false
+		setStatusMark(enemy, "telegraph", false)
+		local swingTarget = enemy.windupTarget
+		enemy.windupTarget = nil
+		local humanoid = swingTarget and swingTarget.Character and swingTarget.Character:FindFirstChildOfClass("Humanoid")
+		if swingTarget and humanoid and humanoid.Health > 0 and not HealthService.isDowned(swingTarget) then
+			-- Evasion: a dodged hit deals nothing and applies no on-hit
+			-- effects (the enemy still spent its attack).
+			if (iframes[swingTarget.UserId] or 0) > now or math.random() < hookedDodgeChance(swingTarget) then
+				dodgePopup(swingTarget.Character)
+			else
+				local isMagic = def.damageKind == "magic"
+				local baseDmg = isMagic and enemy.ap or enemy.ad
+				local mitigation = Classes.mitigation(isMagic and ClassService.getMR(swingTarget) or ClassService.getArmor(swingTarget))
+				local taken = baseDmg * (1 - mitigation) * hookedDamageTakenMult(swingTarget)
+				HealthService.damagePlayer(swingTarget, taken)
+				HealthService.registerDamage(swingTarget) -- pause the player's regen
+				-- Retribution: melee attackers eat a share of what they
+				-- dealt (post-mitigation — what actually landed).
+				local reflect = hookedReflect(swingTarget)
+				if reflect > 0 then
+					dealDamage(entry, enemy, math.max(1, math.floor(taken * reflect + 0.5)), swingTarget, false)
+				end
+				for _, fn in ipairs(EnemyService.playerHitHandlers) do
+					task.spawn(fn, def.lootSource, swingTarget)
 				end
 			end
+		end
+	end
+
+	-- Start a new windup if in range and off cooldown (and not already mid-
+	-- swing). lastAttack advances here, at the START of the wind-up, so the
+	-- overall attack cadence (attackCooldown) is unchanged from before —
+	-- the windup eats into the existing gap between hits, it doesn't add on
+	-- top of it.
+	if not enemy.windingUp and root and (root.Position - enemy.part.Position).Magnitude <= def.attackRange then
+		if now - enemy.lastAttack >= def.attackCooldown then
+			enemy.lastAttack = now
+			local windup = math.clamp(
+				def.attackCooldown * Config.Combat.attackWindupFraction,
+				Config.Combat.attackWindupMin,
+				Config.Combat.attackWindupMax
+			)
+			enemy.windingUp = true
+			enemy.windupTarget = target
+			enemy.windupTotal = windup
+			enemy.windupEndsAt = now + windup
+			setStatusMark(enemy, "telegraph", true)
 		end
 	end
 end
@@ -814,12 +892,12 @@ local function killEnemy(entry, enemy, killer)
 	enemy.part:Destroy()
 	entry.enemy = nil
 
-	-- Solo al killer, no a todos: el resto del audio de combate (swing,
-	-- hit/crit) ya es 2D-solo-para-el-atacante (Sfx.lua no tiene sonido
-	-- posicional todavía), así que un muerte "audible para todo el mundo"
-	-- desentonaría siendo la única excepción.
-	if killer and enemyDiedRemote then
-		enemyDiedRemote:FireClient(killer, lootSource)
+	-- Antes solo lo escuchaba el killer. Ahora, como el resto del audio de
+	-- combate (swing, hit/crit — ver ToolService/EnemyService abajo), llega
+	-- a cualquier jugador dentro de Config.CombatSfxHearRadius, aunque no
+	-- haya sido quien remató al enemigo.
+	if enemyDiedRemote then
+		Remotes.fireNearby("EnemyDied", position, Config.CombatSfxHearRadius, lootSource)
 	end
 
 	if killer and enemy.def.xpReward then
@@ -875,7 +953,12 @@ local function targetFor(player, root, reach)
 	return hitEntry, hitEnemy
 end
 
-dealDamage = function(entry, enemy, damage, killer, isCrit)
+-- damageKind ("melee" | "physical" | "magic"), when provided, picks which of
+-- the enemy's resist stats mitigates this hit — armor for melee/physical,
+-- magicResist for magic — using the same MOBA-style curve as player armor/MR
+-- (Classes.mitigation). Omitted (nil) for hits that intentionally bypass
+-- resistances (e.g. Retribution's reflect damage).
+dealDamage = function(entry, enemy, damage, killer, isCrit, damageKind)
 	if not enemy or enemy.dead then
 		return
 	end
@@ -883,6 +966,12 @@ dealDamage = function(entry, enemy, damage, killer, isCrit)
 	if killer then
 		enemy.aggroBy = killer
 		enemy.aggroUntil = os.clock() + AGGRO_DURATION
+	end
+	if damageKind then
+		local resist = damageKind == "magic" and enemy.magicResist or enemy.armor
+		if resist and resist > 0 then
+			damage = math.max(1, math.floor(damage * (1 - Classes.mitigation(resist)) + 0.5))
+		end
 	end
 	-- Hunter's Mark: amplified damage from everyone while it lasts.
 	if enemy.markedUntil then
@@ -954,9 +1043,13 @@ function EnemyService.enemiesNear(position, radius)
 end
 
 -- Applies already-rolled damage (see computePlayerDamage) to a ref.
-function EnemyService.dealSpellDamage(ref, damage, player, isCrit)
+-- damageKind ("melee" | "physical" | "magic") picks the enemy's mitigating
+-- resist stat, same as dealDamage — pass the spell/weapon's own damageKind
+-- (def.damageKind) so zone/AoE hits mitigate correctly per-target even when
+-- the raw damage number was rolled once and applied to several enemies.
+function EnemyService.dealSpellDamage(ref, damage, player, isCrit, damageKind)
 	if ref and ref.enemy then
-		dealDamage(ref.entry, ref.enemy, damage, player, isCrit == true)
+		dealDamage(ref.entry, ref.enemy, damage, player, isCrit == true, damageKind)
 	end
 end
 
@@ -1167,7 +1260,7 @@ local function onWeaponSwing(player, tool, def)
 			return
 		end
 		fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
-			dealDamage(hitEntry, hitEnemy, damage, player, isCrit)
+			dealDamage(hitEntry, hitEnemy, damage, player, isCrit, damageKind)
 			applyLifesteal()
 		end, damageKind)
 		-- Double Nock: a primed charge echoes the shot — a second arrow at the
@@ -1181,7 +1274,7 @@ local function onWeaponSwing(player, tool, def)
 					end
 					local echoDamage, echoCrit = EnemyService.computePlayerDamage(player, def.damage or 10, damageKind)
 					fireMissile(root.Position + Vector3.new(0, 2, 0), hitEnemy.part, function()
-						dealDamage(hitEntry, hitEnemy, echoDamage, player, echoCrit)
+						dealDamage(hitEntry, hitEnemy, echoDamage, player, echoCrit, damageKind)
 						local lifesteal = hookedLifesteal(player)
 						if lifesteal > 0 then
 							HealthService.heal(player, echoDamage * lifesteal)
@@ -1191,7 +1284,7 @@ local function onWeaponSwing(player, tool, def)
 			end
 		end
 	else
-		dealDamage(hitEntry, hitEnemy, damage, player, isCrit)
+		dealDamage(hitEntry, hitEnemy, damage, player, isCrit, damageKind)
 		applyLifesteal()
 	end
 end
