@@ -66,6 +66,15 @@ World content without a model:
 - [ ] `crafting_table` station — has an ArtKit spec only; wants a Style-A mesh
 - [ ] **Marla the Trader** (`general_goods` vendor) — humanoid NPC, biggest missing piece
 
+## Tree pack + variant pools — DONE (2026-07-12)
+
+The externally-generated `new_art_style/` pack (4 species) is conformed,
+uploaded and wired: `tree` node = green oak ×3 variants, `hardwood_tree` =
+autumn oak ×3; `conifer_tree` and `dead_tree` pools (×3 each) are loaded but
+unwired — use them via authored-map decoration or future nodes/biomes.
+World defs support `assetIds` variant arrays + random yaw per placement.
+Style rules: [`ART_STYLE.md`](ART_STYLE.md).
+
 ## To upgrade — ArtKit remnants (all optional)
 
 - [ ] NPCs: **Marla the Trader** (vendor) + quest givers — humanoid meshes,

@@ -44,6 +44,15 @@ code. The map just says *where*, using **marker parts**:
 | `Vendor_general_goods` | Vendor NPC | `VENDOR_DEFS` storeId (VendorService) |
 | `Workbench_crafting_table`, `Workbench_simple_forge` | Crafting station | `WORKBENCH_DEFS` station (CraftingService) |
 | `ItemStand_<itemId>` | Item display stand | any item id with a model |
+| `QuestGiver_quest_giver_village` | Quest giver NPC | `GIVER_DEFS` giverId (QuestService) |
+| `CampArchitect_npc` | Camp architect NPC | CampArchitectService |
+
+**Marker kit:** instead of hand-tagging parts, paste
+[`roblox/tools/marker_kit.lua`](../roblox/tools/marker_kit.lua) into the
+Command Bar once — it builds `ReplicatedStorage.MapMarkerKit` with a
+pre-tagged, labeled template per marker type. Copy one into `Workspace.Map`,
+then Ctrl+D-duplicate it around (duplicates keep the tag). The kit lives in
+ReplicatedStorage so the templates themselves never spawn anything.
 
 The switch between markers and the hardcoded fallback is the **`Map` folder**:
 if `Workspace.Map` exists, services spawn ONLY from markers (`shared/MapMarkers`);

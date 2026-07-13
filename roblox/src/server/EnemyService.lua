@@ -21,6 +21,7 @@ local PartyService = require(script.Parent.PartyService)
 local DayNightService = require(script.Parent.DayNightService)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Classes = require(Shared:WaitForChild("Classes"))
@@ -1208,11 +1209,25 @@ function EnemyService.start()
 	enemyFolder.Name = "Enemies"
 	enemyFolder.Parent = Workspace
 
-	for _, def in pairs(ENEMY_DEFS) do
-		for _, pos in ipairs(def.spots) do
-			local entry = { def = def, pos = pos, enemy = nil }
-			table.insert(spawns, entry)
-			spawnAt(entry)
+	-- Authored maps place spawn points via Enemy_<key> markers (same pattern
+	-- as GatheringService's Node_ markers, docs/MAP_AUTHORING.md); the defs'
+	-- `spots` lists stay the fallback for places without a map.
+	if MapMarkers.mapPresent() then
+		local markers = MapMarkers.takeFor("Enemy_", ENEMY_DEFS)
+		for key, def in pairs(ENEMY_DEFS) do
+			for _, marker in ipairs(markers[key] or {}) do
+				local entry = { def = def, pos = marker.cframe.Position, enemy = nil }
+				table.insert(spawns, entry)
+				spawnAt(entry)
+			end
+		end
+	else
+		for _, def in pairs(ENEMY_DEFS) do
+			for _, pos in ipairs(def.spots) do
+				local entry = { def = def, pos = pos, enemy = nil }
+				table.insert(spawns, entry)
+				spawnAt(entry)
+			end
 		end
 	end
 

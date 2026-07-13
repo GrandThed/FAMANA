@@ -14,7 +14,10 @@ local MeshAssets = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 
 local MeshAssetService = {}
 
-local templates = {} -- [key] = Model, world models only
+local templates = {} -- [key] = { Model, ... } — world variant pools; most
+-- keys hold one model, gathering trees hold several (same species, small
+-- differences) and every placement draws a random one
+local worldScale = {} -- [key] = default placement scale (MeshAssets def.scale)
 
 local LOAD_TIMEOUT = 15 -- seconds before boot proceeds with fallbacks
 
@@ -96,7 +99,8 @@ local function canonicalize(model, yawDeg)
 end
 
 function MeshAssetService.get(key)
-	return templates[key]
+	local pool = templates[key]
+	return pool and pool[1]
 end
 
 -- The mesh pipeline lands our baked -Z fronts on +Z, so both placement
@@ -108,12 +112,13 @@ local FRONT_FLIP = CFrame.Angles(0, math.pi, 0)
 -- CFrame; its rotation carries into the model, front lands on its -Z).
 -- Returns nil when the template didn't load.
 function MeshAssetService.place(key, origin, scale)
-	local template = templates[key]
-	if not template then
+	local pool = templates[key]
+	if not pool or #pool == 0 then
 		return nil
 	end
-	local clone = template:Clone()
-	if scale and scale ~= 1 then
+	local clone = pool[math.random(#pool)]:Clone()
+	scale = scale or worldScale[key] or 1
+	if scale ~= 1 then
 		clone:ScaleTo(scale)
 	end
 	local bounds, size = clone:GetBoundingBox()
@@ -125,11 +130,11 @@ end
 -- to `part`'s footprint and welds it on (ArtKit.weld conventions: massless,
 -- non-colliding, no raycast hits). Returns the visual Model, or nil.
 function MeshAssetService.weldVisual(part, key, targetHeight)
-	local template = templates[key]
-	if not template then
+	local pool = templates[key]
+	if not pool or #pool == 0 then
 		return nil
 	end
-	local visual = template:Clone()
+	local visual = pool[math.random(#pool)]:Clone()
 	local _, size = visual:GetBoundingBox()
 	if targetHeight and size.Y > 0 then
 		visual:ScaleTo(targetHeight / size.Y)
@@ -204,11 +209,16 @@ function MeshAssetService.start()
 		end)
 	end
 	for key, def in pairs(MeshAssets.world) do
-		load(key, def, function(model)
-			canonicalize(model, 0)
-			templates[key] = model
-			model.Parent = worldFolder
-		end)
+		worldScale[key] = def.scale
+		local ids = def.assetIds or { def.assetId }
+		for index, assetId in ipairs(ids) do
+			load(("%s#%d"):format(key, index), { assetId = assetId }, function(model)
+				canonicalize(model, 0)
+				templates[key] = templates[key] or {}
+				table.insert(templates[key], model)
+				model.Parent = worldFolder
+			end)
+		end
 	end
 
 	-- Boot blocks here: the world builders (nodes, enemies, workbenches) read

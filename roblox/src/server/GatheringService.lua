@@ -102,7 +102,9 @@ local function buildMeshNode(spot, def, key, look)
 
 	local model = Instance.new("Model")
 	model.Name = key
-	local visual = MeshAssetService.place(key, origin)
+	-- Random yaw per node (on top of the random variant the pool picks) so
+	-- identical trees never stand in the same orientation twice.
+	local visual = MeshAssetService.place(key, origin * CFrame.Angles(0, math.rad(math.random(0, 359)), 0))
 	visual.Parent = model
 
 	local anchor = Instance.new("Part")
@@ -151,9 +153,10 @@ local function buildMeshNode(spot, def, key, look)
 end
 
 local function buildTree(spot, def)
+	-- Anchor sized for the 1.5x mesh scale (MeshAssets.world.tree.scale).
 	local meshNode = buildMeshNode(spot, def, "tree", {
-		anchorSize = Vector3.new(1.8, 8, 1.8),
-		remnantSize = Vector3.new(1.8, 1.6, 1.8),
+		anchorSize = Vector3.new(2.7, 12, 2.7),
+		remnantSize = Vector3.new(2.7, 2.4, 2.7),
 		remnantColor = "trunkDark",
 	})
 	if meshNode then
@@ -206,9 +209,10 @@ end
 -- the regular Tree, so it visually reads as "needs a better axe" up front —
 -- same idea as IronRock vs. Rock.
 local function buildHardwoodTree(spot, def)
+	-- Anchor sized for the 1.5x mesh scale (MeshAssets.world.hardwood_tree.scale).
 	local meshNode = buildMeshNode(spot, def, "hardwood_tree", {
-		anchorSize = Vector3.new(2.6, 9, 2.6),
-		remnantSize = Vector3.new(2.6, 1.8, 2.6),
+		anchorSize = Vector3.new(3.9, 13.5, 3.9),
+		remnantSize = Vector3.new(3.9, 2.7, 3.9),
 		remnantColor = "stoneDark",
 	})
 	if meshNode then

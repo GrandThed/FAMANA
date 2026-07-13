@@ -76,8 +76,16 @@ MeshAssets.items = {
 -- ArtKit look by choice — its mesh stays uploaded but unwired.)
 MeshAssets.world = {
 	goblin = { assetId = 98715900781376 },
-	tree = { assetId = 96257985799628 },
-	hardwood_tree = { assetId = 87510773617298 },
+	-- Gathering trees are VARIANT POOLS (new_art_style/variants — 5 authored
+	-- structural variants per species: branch layout, height, tier/limb
+	-- counts, palette bias); every placed node draws a random one so forests
+	-- read less regular.
+	-- `scale` multiplies the mesh at placement (MeshAssetService.place).
+	tree = { scale = 1.5, assetIds = { 72344195310639, 107593124794028, 117032412913468, 79125791269192, 105236673635744 } }, -- green oak 01-05
+	hardwood_tree = { scale = 1.5, assetIds = { 138632698344179, 127398703088981, 74528344057829, 71595350168403, 104059734104173 } }, -- autumn oak 01-05
+	-- No node yet: for authored-map decoration / future content.
+	conifer_tree = { assetIds = { 104417345453937, 80497554894490, 112725607111965, 70891102488617, 128070011856338 } },
+	dead_tree = { assetIds = { 97161715709820, 82951960226063, 76183893695357, 119450274004031, 94378359347271 } },
 	rock = { assetId = 122513009887645 },
 	iron_rock = { assetId = 88791112606468 },
 	simple_forge = { assetId = 138958981450463 },
@@ -134,6 +142,21 @@ MeshAssets.palette = {
 	fam_sapphire = Color3.new(0.25, 0.45, 0.90),
 	fam_teal = Color3.new(0.20, 0.75, 0.65),
 	fam_ivory = Color3.new(0.93, 0.90, 0.80),
+	-- new_art_style tree pack materials (M_Tree_* in the source GLBs)
+	m_tree_bark = Color3.new(0.252, 0.181, 0.139),
+	m_tree_deadbark = Color3.new(0.325, 0.332, 0.351),
+	m_tree_leaf_dark = Color3.new(0.234, 0.344, 0.181),
+	m_tree_leaf_mid = Color3.new(0.336, 0.475, 0.195),
+	m_tree_leaf_light = Color3.new(0.452, 0.622, 0.245),
+	m_tree_leaf_pale = Color3.new(0.556, 0.700, 0.296),
+	m_tree_leaf_rust = Color3.new(0.653, 0.299, 0.174),
+	m_tree_leaf_orange = Color3.new(0.779, 0.452, 0.181),
+	m_tree_leaf_amber = Color3.new(0.847, 0.595, 0.198),
+	m_tree_leaf_gold = Color3.new(0.827, 0.684, 0.259),
+	m_tree_palewood = Color3.new(0.684, 0.645, 0.564),
+	m_tree_pine_dark = Color3.new(0.241, 0.400, 0.329),
+	m_tree_pine_mid = Color3.new(0.310, 0.494, 0.400),
+	m_tree_snow = Color3.new(0.927, 0.947, 0.964),
 }
 
 return MeshAssets
