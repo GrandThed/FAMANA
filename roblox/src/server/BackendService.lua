@@ -202,4 +202,56 @@ function BackendService.pollEvents(userIds)
 	return nil
 end
 
+-- Guild currently held by `userId`, or nil if they're not in one. Second
+-- return is true only on an actual transport/decode failure (so callers can
+-- tell "no guild" apart from "backend unreachable, don't overwrite state").
+function BackendService.getGuildForPlayer(userId)
+	local ok, data = request("GET", "/guild/player/" .. tostring(userId))
+	if ok and data then
+		return data.guild, false
+	end
+	return nil, true
+end
+
+-- Returns (guild) on success, (nil, errorCode) on failure — errorCode is the
+-- backend's reason string ("name_taken", "already_in_guild", ...) on a 4xx,
+-- nil on transport failure.
+function BackendService.createGuild(leaderId, name, tag)
+	local ok, data = request("POST", "/guild", { leaderId = leaderId, name = name, tag = tag })
+	if ok and data then
+		return data.guild
+	end
+	return nil, data and data.error or nil
+end
+
+function BackendService.joinGuild(guildId, userId)
+	local ok, data = request("POST", "/guild/" .. tostring(guildId) .. "/join", { playerId = userId })
+	if ok and data then
+		return data.guild
+	end
+	return nil, data and data.error or nil
+end
+
+function BackendService.kickFromGuild(guildId, requesterId, targetId)
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/kick",
+		{ requesterId = requesterId, targetId = targetId }
+	)
+	if ok and data then
+		return data.guild
+	end
+	return nil, data and data.error or nil
+end
+
+-- Returns (disbanded: bool, guild: table?) on success, (nil, errorCode) on
+-- failure. `guild` is nil when disbanded is true.
+function BackendService.leaveGuild(guildId, userId)
+	local ok, data = request("POST", "/guild/" .. tostring(guildId) .. "/leave", { playerId = userId })
+	if ok and data then
+		return data.disbanded == true, data.guild
+	end
+	return nil, data and data.error or nil
+end
+
 return BackendService

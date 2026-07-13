@@ -12,6 +12,7 @@ local HealthService = require(script:WaitForChild("HealthService"))
 local ManaService = require(script:WaitForChild("ManaService"))
 local ClassService = require(script:WaitForChild("ClassService"))
 local PartyService = require(script:WaitForChild("PartyService"))
+local GuildService = require(script:WaitForChild("GuildService"))
 local ToolService = require(script:WaitForChild("ToolService"))
 local TargetService = require(script:WaitForChild("TargetService"))
 local GatheringService = require(script:WaitForChild("GatheringService"))
@@ -49,6 +50,7 @@ HealthService.start()
 ManaService.start()
 ClassService.start() -- after ManaService: overrides its CharacterAdded refill with class-scaled caps
 PartyService.start() -- before EnemyService: it reads party membership to share kill xp
+GuildService.start() -- persisted membership (backend-backed), independent of Party
 ToolService.start()
 TargetService.start()
 GatheringService.start()

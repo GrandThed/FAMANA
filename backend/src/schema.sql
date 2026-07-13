@@ -89,6 +89,34 @@ CREATE INDEX IF NOT EXISTS idx_inventory_player ON inventory_items (player_id);
 -- Speeds up the admin dashboard's "recently active" aggregates.
 CREATE INDEX IF NOT EXISTS idx_players_updated_at ON players (updated_at);
 
+-- Guilds: name/tag unique, one guild per player enforced by guild_members'
+-- PRIMARY KEY on player_id (a row per member, one row max since it's also
+-- the PK — see below). leader_id is a plain FK, not a role column on
+-- guild_members: MVP has exactly two roles (leader/member), and
+-- "who's leader" only ever needs a single answer, not a per-row flag.
+-- Leadership transfers (leader leaves, members remain) UPDATE this column;
+-- it never needs its own migration path if officers get added later
+-- (that would be an ADD COLUMN on guild_members, additive).
+CREATE TABLE IF NOT EXISTS guilds (
+    id           BIGSERIAL PRIMARY KEY,
+    name         TEXT        NOT NULL UNIQUE,
+    tag          TEXT        NOT NULL,
+    leader_id    BIGINT      NOT NULL REFERENCES players(id),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per member; player_id itself is the PRIMARY KEY (not
+-- (guild_id, player_id)) specifically so a player can never end up in two
+-- guilds at once — a second INSERT for the same player_id fails outright,
+-- no separate uniqueness check needed beyond the FK/PK.
+CREATE TABLE IF NOT EXISTS guild_members (
+    guild_id     BIGINT      NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+    player_id    BIGINT      PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+    joined_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members (guild_id);
+
 -- Append-only audit log for every admin-panel mutation. `actor` is the admin's
 -- request IP (single shared password for the MVP); `detail` holds the request
 -- payload / before-after context as JSON.

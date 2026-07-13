@@ -88,6 +88,16 @@ return {
 		xpShareRadius = 60, -- radio para compartir xp entre miembros de party
 	},
 
+	-- Gremios: persistidos en el backend (tabla `guilds`), a diferencia de
+	-- Party. Roles son solo leader/member para el MVP — ver GuildService.
+	Guild = {
+		nameMinLen = 3,
+		nameMaxLen = 24,
+		tagMinLen = 2,
+		tagMaxLen = 5,
+		inviteTimeout = 30, -- mismo criterio que Party.inviteTimeout
+	},
+
 	-- Sfx.lua no tiene sonido posicional (sin rolloff por distancia real),
 	-- así que el radio de "quién lo escucha" se controla acá: cualquier
 	-- jugador con su HumanoidRootPart a esta distancia o menos del origen

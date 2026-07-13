@@ -24,6 +24,12 @@ local UIKit = require(script.Parent.UIKit)
 
 local player = Players.LocalPlayer
 
+-- How much looser the lock-on/cycling radius is versus the weapon's actual
+-- strike reach (see equippedFocus below). 2.5x turns a 10-stud sword reach
+-- into a 25-stud tracking radius — enough to hold/pick a target you're
+-- closing in on without it being unusable for judging whether a swing lands.
+local LOCK_REACH_MULTIPLIER = 2.5
+
 local TargetingController = {}
 
 -- What the equipped item focuses, and where those objects live.
@@ -39,10 +45,19 @@ local function equippedFocus(character)
 	-- Reach comes straight from the item's own `reach` stat (single source of
 	-- truth, shared with the server); Config.defaultReach is just a safety net.
 	local reach = def.reach or Config.defaultReach
+	-- `reach` alone is the actual strike distance (short, e.g. 8-10 studs for
+	-- melee) — too tight to use for targeting too, or a mob that falls a bit
+	-- behind while you're fighting a cluster becomes both un-cyclable (never
+	-- makes the eligible list) and un-stick-able (lockStale drops it the
+	-- instant it's a hair past strike range). `lockReach` is the looser
+	-- radius used everywhere lock-on decides what counts as "in range" —
+	-- letting you pre-lock or hold a target further out and close the gap,
+	-- while actual damage still checks the real `reach` server-side.
+	local lockReach = reach * LOCK_REACH_MULTIPLIER
 	if def.type == "weapon" then
-		return { category = "enemy", reach = reach }
+		return { category = "enemy", reach = reach, lockReach = lockReach }
 	elseif def.type == "tool" and def.toolType then
-		return { category = def.toolType, reach = reach }
+		return { category = def.toolType, reach = reach, lockReach = lockReach }
 	end
 	return nil
 end
@@ -294,7 +309,7 @@ function TargetingController.start()
 		local cands = candidates(focus.category)
 		local eligible = {}
 		for _, cand in ipairs(cands) do
-			if (cand.anchor.Position - root.Position).Magnitude <= focus.reach then
+			if (cand.anchor.Position - root.Position).Magnitude <= focus.lockReach then
 				table.insert(eligible, cand)
 			end
 		end
@@ -357,13 +372,51 @@ function TargetingController.start()
 			or not anchor
 			or not anchor.Parent
 			or anchor:GetAttribute("Depleted")
-			or (anchor.Position - root.Position).Magnitude > focus.reach
+			or (anchor.Position - root.Position).Magnitude > focus.lockReach
+	end
+
+	-- Freeze Roblox's default camera zoom while aiming or holding a lock, so
+	-- scrolling to cycle targets (see the mouse-wheel bind below) doesn't
+	-- also zoom the camera in/out. The built-in camera script reads
+	-- CameraMinZoomDistance/CameraMaxZoomDistance every frame, so pinning
+	-- both to the player's current distance stops it reacting to the wheel;
+	-- restoring the original bounds on release hands zoom back to normal.
+	local originalMinZoom, originalMaxZoom
+	local zoomFrozen = false
+
+	local function setZoomFrozen(frozen)
+		if frozen == zoomFrozen then
+			return
+		end
+		zoomFrozen = frozen
+		if frozen then
+			originalMinZoom = player.CameraMinZoomDistance
+			originalMaxZoom = player.CameraMaxZoomDistance
+			local camera = Workspace.CurrentCamera
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			local currentDistance = originalMinZoom
+			if camera and root then
+				currentDistance = math.clamp(
+					(camera.CFrame.Position - root.Position).Magnitude,
+					originalMinZoom,
+					originalMaxZoom
+				)
+			end
+			player.CameraMinZoomDistance = currentDistance
+			player.CameraMaxZoomDistance = currentDistance
+		elseif originalMinZoom and originalMaxZoom then
+			player.CameraMinZoomDistance = originalMinZoom
+			player.CameraMaxZoomDistance = originalMaxZoom
+		end
 	end
 
 	RunService.RenderStepped:Connect(function()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local camera = Workspace.CurrentCamera
+
+		setZoomFrozen(ClientState.aiming or lock ~= nil)
 
 		local focus = (root and camera) and equippedFocus(character) or nil
 		if not focus then
@@ -376,16 +429,22 @@ function TargetingController.start()
 			clear()
 		end
 
-		-- While aiming, acquire / switch to the best on-screen target in reach.
-		-- This never clears an existing lock — if nothing qualifies, the current
-		-- lock is kept.
-		if ClientState.aiming and not ClientState.inventoryOpen then
+		-- While aiming with nothing locked yet, acquire the best on-screen
+		-- target in reach. Gated on `not lock` — once something IS locked,
+		-- this must stay hands-off (the lock is sticky per the header
+		-- comment) and only cycleTarget (Tab/scroll) or lockStale above
+		-- should change it. Without this gate, this block re-runs every
+		-- single RenderStepped frame while aiming and re-snaps to whatever's
+		-- nearest the crosshair, undoing a cycleTarget switch one frame
+		-- after it happens — which is why Tab/scroll looked like they did
+		-- nothing.
+		if ClientState.aiming and not ClientState.inventoryOpen and not lock then
 			local vp = camera.ViewportSize
 			local center = Vector2.new(vp.X / 2, vp.Y / 2)
 
 			local best, bestScore
 			for _, cand in ipairs(candidates(focus.category)) do
-				if (cand.anchor.Position - root.Position).Magnitude <= focus.reach then
+				if (cand.anchor.Position - root.Position).Magnitude <= focus.lockReach then
 					local sp, onScreen = camera:WorldToViewportPoint(cand.anchor.Position)
 					if onScreen and sp.Z > 0 then
 						local frac = (Vector2.new(sp.X, sp.Y) - center).Magnitude / vp.Y
