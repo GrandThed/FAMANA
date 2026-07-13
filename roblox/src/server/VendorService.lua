@@ -295,6 +295,10 @@ end
 
 function VendorService.start()
 	notifyRemote = Remotes.get("Notify")
+	-- Create the OpenStore remote up front: the client's StoreUI waits for it
+	-- at boot, and creating it lazily inside the vendor builder leaves it
+	-- missing on maps with no vendor markers (client-side infinite yield).
+	Remotes.get("OpenStore")
 
 	vendorFolder = Instance.new("Folder")
 	vendorFolder.Name = "Vendors"

@@ -179,13 +179,11 @@ local function buildHandle(def)
 					part.Anchored = false
 					part.CanCollide = false
 
-					local hasWeld = false
-					for _, joint in ipairs(part:GetJoints()) do
-						if joint:IsA("Weld") or joint:IsA("WeldConstraint") or joint:IsA("ManualWeld") then
-							hasWeld = true
-							break
-						end
-					end
+					-- Child check, not GetJoints(): the clone isn't parented to a
+					-- WorldModel yet so GetJoints warns (and returns nothing), and
+					-- welds conventionally live under the part anyway.
+					local hasWeld = part:FindFirstChildWhichIsA("WeldConstraint") ~= nil
+						or part:FindFirstChildWhichIsA("Weld") ~= nil
 
 					if not hasWeld then
 						local weld = Instance.new("WeldConstraint")
