@@ -137,11 +137,13 @@ function EnemyInspectUI.start()
 
 	local hpLabel, hpValue = addRow(2)
 	hpLabel.Text = "HP"
-	local dmgLabel, dmgValue = addRow(3)
-	dmgLabel.Text = "Damage"
-	local armorLabel, armorValue = addRow(4)
+	local adLabel, adValue = addRow(3)
+	adLabel.Text = "Attack Damage"
+	local apLabel, apValue = addRow(4)
+	apLabel.Text = "Ability Power"
+	local armorLabel, armorValue = addRow(5)
 	armorLabel.Text = "Armor"
-	local mrLabel, mrValue = addRow(5)
+	local mrLabel, mrValue = addRow(6)
 	mrLabel.Text = "Magic Resist"
 
 	local watchedPart = nil
@@ -180,7 +182,8 @@ function EnemyInspectUI.start()
 		local maxHp = watchedPart:GetAttribute("MaxHp") or 0
 		local frac = hpFraction(watchedPart) or 1
 		hpValue.Text = string.format("%d / %d", math.floor(maxHp * frac + 0.5), maxHp)
-		dmgValue.Text = tostring(watchedPart:GetAttribute("Damage") or 0)
+		adValue.Text = tostring(watchedPart:GetAttribute("AttackDamage") or 0)
+		apValue.Text = tostring(watchedPart:GetAttribute("AbilityPower") or 0)
 
 		local armor = watchedPart:GetAttribute("Armor") or 0
 		local mr = watchedPart:GetAttribute("MagicResist") or 0

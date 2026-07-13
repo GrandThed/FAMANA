@@ -2,15 +2,17 @@
 -- o cualquier punto del terreno, y hacé click con la RUEDA del mouse
 -- (MouseButton3) para dejar una baliza ahí.
 --
---   click medio solo          -> marcador PERSONAL (solo lo ves vos)
---   Shift + click medio       -> marcador de PARTY (lo ven todos tus
---                                 compañeros de grupo, y ellos a vos)
+--   click medio solo          -> si estás en party, lo ve TODA la party
+--                                 (y ellos a vos); si no, es personal
+--   Shift + click medio       -> fuerza PERSONAL aunque estés en party
+--                                 (solo lo ves vos)
 --
--- El cliente solo manda intención (qué apunta el mouse + con qué modificador)
--- — MarkerService del server valida el anchor, decide a quién replicarlo, y
--- es quien realmente crea/destruye el marcador lógico. Esto acá solo dibuja
--- lo que el server confirma, mismo patrón que TargetingController con el
--- highlight de foco.
+-- El cliente solo manda intención (qué apunta el mouse + para quién) —
+-- MarkerService del server valida el anchor, decide a quién replicarlo
+-- (re-chequea membresía de party, nunca confía en lo que mandó el cliente),
+-- y es quien realmente crea/destruye el marcador lógico. Esto acá solo
+-- dibuja lo que el server confirma, mismo patrón que TargetingController
+-- con el highlight de foco.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -22,6 +24,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local ClientState = require(script.Parent.ClientState)
 local Theme = require(script.Parent.Theme)
+
 
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
@@ -198,9 +201,11 @@ function MarkerUI.start()
 			kind, position = "ground", mouse.Hit.Position
 		end
 
-		local partyScope = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+		local forceSelf = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
 			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-		requestMarkRemote:FireServer(kind, instance, position, partyScope and "party" or "self")
+		local inParty = player:GetAttribute("PartyId") ~= nil
+		local scope = (inParty and not forceSelf) and "party" or "self"
+		requestMarkRemote:FireServer(kind, instance, position, scope)
 	end)
 end
 

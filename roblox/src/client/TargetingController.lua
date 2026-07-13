@@ -12,6 +12,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared:WaitForChild("Items"))
@@ -193,12 +194,60 @@ function TargetingController.start()
 	-- aiming or clicks to attack.
 	local lock = nil -- { adornee, anchor, hasHp, category } or nil
 
+	local reticleGui = nil
+	local reticleLabel = nil
+
+	local function createReticle(anchor)
+		if reticleGui then
+			reticleGui:Destroy()
+			reticleGui = nil
+		end
+
+		reticleGui = Instance.new("BillboardGui")
+		reticleGui.Name = "LockOnReticle"
+		reticleGui.Size = UDim2.new(0, 40, 0, 40)
+		reticleGui.AlwaysOnTop = true
+		reticleGui.Parent = anchor
+
+		reticleLabel = Instance.new("TextLabel")
+		reticleLabel.Size = UDim2.new(2, 0, 2, 0) -- start larger for the "lock-on" snap effect
+		reticleLabel.Position = UDim2.new(-0.5, 0, -0.5, 0)
+		reticleLabel.BackgroundTransparency = 1
+		reticleLabel.Font = Enum.Font.GothamBlack
+		reticleLabel.TextSize = 28
+		reticleLabel.TextColor3 = Theme.Color.Ember300 or Color3.fromRGB(255, 220, 100)
+		reticleLabel.TextStrokeTransparency = 0.4
+		reticleLabel.TextStrokeColor3 = Color3.fromRGB(20, 20, 20)
+		reticleLabel.Text = "⌖"
+		reticleLabel.TextTransparency = 1
+		reticleLabel.Parent = reticleGui
+
+		-- 1. Pulse-in animation (from 2x size to 1x size, and fade in)
+		TweenService:Create(reticleLabel, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.new(1, 0, 1, 0),
+			Position = UDim2.new(0, 0, 0, 0),
+			TextTransparency = 0
+		}):Play()
+
+		-- 2. Continuous rotation animation
+		local spin = TweenService:Create(
+			reticleLabel,
+			TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+			{ Rotation = 360 }
+		)
+		spin:Play()
+	end
+
 	local function clear()
 		if lock then
 			lock = nil
 			highlight.Adornee = nil
 			highlight.Parent = nil
 			gui.Enabled = false
+			if reticleGui then
+				reticleGui:Destroy()
+				reticleGui = nil
+			end
 			setTargetRemote:FireServer(nil) -- tell the server we have no focus
 		end
 	end
@@ -213,6 +262,9 @@ function TargetingController.start()
 		nameLabel.Text = cand.name
 		barBg.Visible = cand.hasHp
 		gui.Enabled = true
+
+		createReticle(cand.anchor)
+
 		if cand.hasHp then
 			-- Snap instantly to the new target's HP — a fresh target's bar
 			-- must never visibly tween in from the previous target's value.
@@ -224,6 +276,77 @@ function TargetingController.start()
 		end
 		-- Send the anchor part so the server can match + validate it.
 		setTargetRemote:FireServer(cand.anchor)
+	end
+
+	local function cycleTarget(direction)
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local camera = Workspace.CurrentCamera
+		if not (character and root and camera) then
+			return
+		end
+
+		local focus = equippedFocus(character)
+		if not focus then
+			return
+		end
+
+		local cands = candidates(focus.category)
+		local eligible = {}
+		for _, cand in ipairs(cands) do
+			if (cand.anchor.Position - root.Position).Magnitude <= focus.reach then
+				table.insert(eligible, cand)
+			end
+		end
+
+		if #eligible == 0 then
+			return
+		end
+
+		table.sort(eligible, function(a, b)
+			local spA = camera:WorldToViewportPoint(a.anchor.Position)
+			local spB = camera:WorldToViewportPoint(b.anchor.Position)
+			return spA.X < spB.X
+		end)
+
+		local currentIndex = nil
+		if lock then
+			for i, cand in ipairs(eligible) do
+				if cand.adornee == lock.adornee then
+					currentIndex = i
+					break
+				end
+			end
+		end
+
+		local nextIndex
+		if currentIndex then
+			nextIndex = currentIndex + direction
+			if nextIndex > #eligible then
+				nextIndex = 1
+			elseif nextIndex < 1 then
+				nextIndex = #eligible
+			end
+		else
+			local vp = camera.ViewportSize
+			local center = Vector2.new(vp.X / 2, vp.Y / 2)
+			local best, bestScore
+			for i, cand in ipairs(eligible) do
+				local sp, onScreen = camera:WorldToViewportPoint(cand.anchor.Position)
+				if onScreen and sp.Z > 0 then
+					local frac = (Vector2.new(sp.X, sp.Y) - center).Magnitude / vp.Y
+					if not bestScore or frac < bestScore then
+						best, bestScore = i, frac
+					end
+				end
+			end
+			nextIndex = best or 1
+		end
+
+		local nextCand = eligible[nextIndex]
+		if nextCand then
+			setTarget(nextCand, focus.category)
+		end
 	end
 
 	-- True once the lock's target is dead/depleted, out of reach, or no longer
@@ -284,6 +407,46 @@ function TargetingController.start()
 			if frac then
 				setBarFraction(frac)
 			end
+		end
+	end)
+
+	-- Key binds for Tab cycling
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then
+			return
+		end
+		-- Only allow cycling if we have a focusable tool equipped
+		local character = player.Character
+		if not character or not equippedFocus(character) then
+			return
+		end
+
+		if input.KeyCode == Enum.KeyCode.Tab then
+			cycleTarget(1) -- Tab cycles forward
+		end
+	end)
+
+	-- Mouse wheel for cycling (only when aiming or locked)
+	UserInputService.InputChanged:Connect(function(input, gameProcessed)
+		if gameProcessed then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseWheel then
+			return
+		end
+		-- Only cycle if we have a focusable tool equipped and are aiming or locked
+		if not (ClientState.aiming or lock) then
+			return
+		end
+		local character = player.Character
+		if not character or not equippedFocus(character) then
+			return
+		end
+
+		if input.Position.Z > 0 then
+			cycleTarget(1) -- Scroll Up -> next target (right)
+		elseif input.Position.Z < 0 then
+			cycleTarget(-1) -- Scroll Down -> previous target (left)
 		end
 	end)
 end
