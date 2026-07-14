@@ -440,6 +440,10 @@ local function buildEnemy(pos, def)
 	part:SetAttribute("Damage", ad > ap and ad or ap)
 	part:SetAttribute("Armor", armor)
 	part:SetAttribute("MagicResist", magicResist)
+	-- Same "read-only flavor info" deal as the stats above, but for
+	-- EnemyInspectUI's "Drops" section — it keys shared/Loot with this to
+	-- show what the mob can drop without a remote round-trip.
+	part:SetAttribute("LootSource", def.lootSource)
 
 	-- Style-A mesh visual when its template loaded: the body part stays the
 	-- physics/targeting object and goes invisible underneath it. Otherwise

@@ -16,6 +16,7 @@ local Items = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Ite
 local Traits = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Traits"))
 local Rarity = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Rarity"))
 local ItemModels = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemModels"))
+local Loot = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Loot"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
 local EnemyService = require(script.Parent.EnemyService)
@@ -30,41 +31,10 @@ local PICKUP_RANGE = 1.3 -- studs: close enough to be collected
 local MAGNET_SPEED = 14 -- studs/second while flying to a player
 local OWNER_REARM_DISTANCE = MAGNET_RANGE + 2 -- thrower must get this far away once to re-enable pickup
 
--- Loot tables: [source] = { { itemId, chance, min, max }, ... }
-local LOOT = {
-	slime = {
-		{ itemId = "slime_goo", chance = 1.0, min = 1, max = 1 },
-		{ itemId = "wood", chance = 0.25, min = 1, max = 1 },
-	},
-	goblin = {
-		{ itemId = "goblin_ear", chance = 1.0, min = 1, max = 1 },
-		{ itemId = "stone", chance = 0.4, min = 1, max = 2 },
-		{ itemId = "sword_iron", chance = 0.05, min = 1, max = 1 }, -- rare
-	},
-}
-
--- Rolled trait gear: [source] = { chance, pool }. On a hit, one base item
--- from the pool drops with instance meta rolled by shared/Traits — its item
--- level is the mob's level ±1, so tougher spawns drop stronger rolls.
-local GEAR_LOOT = {
-	slime = { chance = 0.08, pool = { "ring_vitality", "ring_focus" } },
-	goblin = {
-		chance = 1.0, -- goblins ALWAYS drop a rolled piece (decided 2026-07-06)
-		pool = {
-			"sword_basic",
-			"helmet_leather",
-			"chest_leather",
-			"gloves_leather",
-			"legs_leather",
-			"boots_leather",
-		},
-	},
-}
-
 local MAX_ROLLED_LEVEL = 20
 
 local function rollGear(source, mobLevel)
-	local gear = GEAR_LOOT[source]
+	local gear = Loot.GEAR[source]
 	if not gear or math.random() > gear.chance then
 		return nil
 	end
@@ -201,7 +171,7 @@ local function hookedQuantityBonus(player)
 end
 
 local function rollLoot(source)
-	local lootTable = LOOT[source]
+	local lootTable = Loot.TABLE[source]
 	if not lootTable then
 		return {}
 	end
