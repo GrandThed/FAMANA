@@ -20,7 +20,10 @@ local MARKERS = {
 	-- { tag, color, note }
 	{ "Node_tree", Color3.fromRGB(76, 156, 68), "harvestable green oak (random variant)" },
 	{ "Node_hardwood_tree", Color3.fromRGB(196, 112, 48), "autumn oak, needs tier-2 axe" },
-	{ "Node_rock", Color3.fromRGB(130, 132, 140), "stone + copper-bonus rock" },
+	{ "Node_conifer_tree", Color3.fromRGB(62, 110, 88), "winter conifer, drops plain wood" },
+	{ "Node_dead_tree", Color3.fromRGB(94, 96, 102), "gnarled dead tree, drops plain wood" },
+	{ "Node_stone_rock", Color3.fromRGB(130, 132, 140), "plain rock — stone only (was Node_rock)" },
+	{ "Node_copper_rock", Color3.fromRGB(204, 107, 46), "copper vein — yields copper_ore, tier-1 pick" },
 	{ "Node_iron_rock", Color3.fromRGB(80, 82, 92), "iron vein, needs tier-2 pick" },
 	{ "Enemy_slime", Color3.fromRGB(120, 200, 100), "slime spawn point" },
 	{ "Enemy_goblin", Color3.fromRGB(115, 181, 74), "goblin spawn point" },

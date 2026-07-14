@@ -153,7 +153,9 @@ stat hooks: crit + dodge + armor (EnemyService), swing cooldown
 `ToolService` (equippable Tools + `registerActivated` hook +
 `registerSwingCooldownMult`; the swing cooldown gates the activation handler
 too, so click spam can't out-DPS attack speed) ·
-`GatheringService` (data-driven resource nodes: trees→wood, rocks→stone;
+`GatheringService` (data-driven resource nodes: oak/conifer/dead trees→wood,
+hardwood tree→hardwood, stone/copper/iron rocks→their yields; every node's
+model carries `NodeTool`/`NodeName` attributes for the client's RMB focus;
 harvests burst node-themed particles and fire the `onGathered` hook — the
 drop system flies the resource from the node to the player as pure show) ·
 `EnemyService` (data-driven enemies: slimes, goblins + `onKilled` +

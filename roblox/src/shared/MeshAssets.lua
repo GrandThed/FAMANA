@@ -70,10 +70,11 @@ MeshAssets.items = {
 }
 
 -- World models land in ReplicatedStorage.MeshModels[<key>]; the enemy,
--- gathering and crafting services clone them when present. The `rock` node
--- uses the copper-flecked mesh: mining it yields stone plus a copper bonus,
--- and the crystals telegraph that. (The slime keeps its classic translucent
--- ArtKit look by choice — its mesh stays uploaded but unwired.)
+-- gathering and crafting services clone them when present. The rock pools
+-- split by yield: `stone_rock` gives stone only, `copper_rock` copper ore
+-- (the nuggets telegraph it), `iron_rock` iron ore. (The slime keeps its
+-- classic translucent ArtKit look by choice — its mesh stays uploaded but
+-- unwired.)
 MeshAssets.world = {
 	goblin = { assetId = 98715900781376 },
 	-- Gathering trees are VARIANT POOLS (new_art_style/variants — 5 authored
@@ -83,16 +84,15 @@ MeshAssets.world = {
 	-- `scale` multiplies the mesh at placement (MeshAssetService.place).
 	tree = { scale = 1.5, assetIds = { 72344195310639, 107593124794028, 117032412913468, 79125791269192, 105236673635744 } }, -- green oak 01-05
 	hardwood_tree = { scale = 1.5, assetIds = { 138632698344179, 127398703088981, 74528344057829, 71595350168403, 104059734104173 } }, -- autumn oak 01-05
-	-- No node yet: for authored-map decoration / future content.
+	-- Wood-variety nodes: both drop plain wood, different biome flavor.
 	conifer_tree = { assetIds = { 104417345453937, 80497554894490, 112725607111965, 70891102488617, 128070011856338 } },
 	dead_tree = { assetIds = { 97161715709820, 82951960226063, 76183893695357, 119450274004031, 94378359347271 } },
 	-- Rock nodes are variant pools too (new_art_style/rocks — 3 structural
 	-- variants each: squat dome / tilted monolith / leaning twin slabs, ore
 	-- nuggets scattered over the host rock's side faces).
-	rock = { assetIds = { 104564765245563, 100824972868800, 78565553450595 } }, -- copper-flecked 01-03
+	stone_rock = { assetIds = { 137910844444218, 79520870706483, 134539682454068 } }, -- plain grey 01-03
+	copper_rock = { assetIds = { 104564765245563, 100824972868800, 78565553450595 } }, -- copper-flecked 01-03
 	iron_rock = { assetIds = { 102142981623224, 110129547971909, 123429027243726 } }, -- iron 01-03
-	-- No node: plain grey pool for authored-map decoration.
-	stone_rock = { assetIds = { 137910844444218, 79520870706483, 134539682454068 } },
 	simple_forge = { assetId = 138958981450463 },
 	-- camp furniture + the tier-scaled campfire dressing
 	chest = { assetId = 115944771848024 },
