@@ -41,6 +41,18 @@ local LOOT = {
 		{ itemId = "stone", chance = 0.4, min = 1, max = 2 },
 		{ itemId = "sword_iron", chance = 0.05, min = 1, max = 1 }, -- rare
 	},
+	golem = {
+		-- A walking quarry: guaranteed stone plus a real shot at ore, so
+		-- fighting one competes with mining rocks for gathering time.
+		{ itemId = "stone", chance = 1.0, min = 1, max = 3 },
+		{ itemId = "copper_ore", chance = 0.5, min = 1, max = 2 },
+		{ itemId = "iron_ore", chance = 0.2, min = 1, max = 1 },
+	},
+	spider = {
+		-- Arrows scavenged from webbed victims — keeps archers farming
+		-- spiders instead of only buying ammo.
+		{ itemId = "arrow", chance = 0.35, min = 2, max = 5 },
+	},
 }
 
 -- Rolled trait gear: [source] = { chance, pool }. On a hit, one base item
@@ -59,6 +71,10 @@ local GEAR_LOOT = {
 			"boots_leather",
 		},
 	},
+	-- Tank-flavored pool for the tanky mob, dex-flavored for the fast one —
+	-- each new enemy telegraphs its own build identity through its drops.
+	golem = { chance = 0.35, pool = { "helmet_bastion", "chest_colossus", "ring_vitality", "sword_iron" } },
+	spider = { chance = 0.3, pool = { "boots_evader", "ring_lynx", "bow_basic" } },
 }
 
 local MAX_ROLLED_LEVEL = 20

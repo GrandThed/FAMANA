@@ -24,12 +24,15 @@ local MARKERS = {
 	{ "Node_iron_rock", Color3.fromRGB(80, 82, 92), "iron vein, needs tier-2 pick" },
 	{ "Enemy_slime", Color3.fromRGB(120, 200, 100), "slime spawn point" },
 	{ "Enemy_goblin", Color3.fromRGB(115, 181, 74), "goblin spawn point" },
+	{ "Enemy_golem", Color3.fromRGB(140, 142, 150), "rock golem spawn point (Lv4-7 tank — keep away from goblin camps, aggro chains)" },
+	{ "Enemy_spider", Color3.fromRGB(70, 55, 40), "cave spider spawn point (fast, 32-stud aggro — keep 35+ studs from NPCs)" },
 	{ "Vendor_general_goods", Color3.fromRGB(209, 153, 56), "Marla the Trader" },
 	{ "Workbench_crafting_table", Color3.fromRGB(97, 64, 36), "town crafting table" },
 	{ "Workbench_simple_forge", Color3.fromRGB(160, 60, 40), "town forge" },
 	{ "QuestGiver_quest_giver_village", Color3.fromRGB(150, 90, 200), "Elena la Anciana" },
 	{ "CampArchitect_npc", Color3.fromRGB(80, 120, 220), "camp architect NPC" },
 	{ "ItemStand_sword_basic", Color3.fromRGB(184, 191, 204), "item stand — retag for other items" },
+	{ "Border_east", Color3.fromRGB(80, 140, 255), "cell crossing — THE MARKER'S SIZE IS THE TRIGGER WALL (stretch it!); retag Border_west/north/south for other edges" },
 }
 
 local old = ReplicatedStorage:FindFirstChild("MapMarkerKit")
