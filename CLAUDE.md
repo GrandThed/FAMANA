@@ -327,7 +327,12 @@ while an id is still 0).
   `PlayerService.onInventoryChanged(fn)`.
 - Content is **data-driven**: add a resource node via a `NODE_DEFS` entry (+
   builder) in `GatheringService`; add an enemy via an `ENEMY_DEFS` entry in
-  `EnemyService`; add an item to `backend/content/items.json` **and**
+  `EnemyService` (an animated skinned-mesh enemy also registers its rig +
+  animation asset ids in `shared/MeshAssets.animated` — uploaded WITHOUT
+  Studio via `scripts/upload-enemy-assets.mjs`, source FBXs in
+  `new_art_style/roblox/opencloud/` — and sets `animatedMesh = "<key>"` on
+  the def; `meshAsset`/`details` stay the fallback looks); add an item to
+  `backend/content/items.json` **and**
   `Items.lua` (with a `size` footprint; equipment may carry `itemLevel` +
   `traits` points — see `shared/Traits.lua` — and an optional `rarity`
   tier — see `shared/Rarity.lua`); add/reprice a store via
