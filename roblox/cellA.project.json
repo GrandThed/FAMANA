@@ -52,7 +52,7 @@
       },
       "Map": {
         "$path": {
-          "optional": "maps/cellA"
+          "optional": "maps/cellA.rbxm"
         }
       }
     },

@@ -70,8 +70,9 @@ Keys for local runs live in the repo-root `.env` (gitignored):
 - Repo secrets `ROBLOX_API_KEY` + `FAMANA_API_KEY`
   (Settings → Secrets and variables → Actions).
 - The Open Cloud key needs: **universe-places → Write** (publishing),
-  **universe → Write** (restarts), **Asset Delivery → Read** (the map pull),
-  and its IP allowlist set to `0.0.0.0/0` (GitHub runners have changing IPs).
+  **universe → Write** (restarts), **Legacy Assets → manage**
+  (`legacy-assets:manage`, the map pull's place download), and its IP
+  allowlist set to `0.0.0.0/0` (GitHub runners have changing IPs).
 
 ## The ledger
 
@@ -116,7 +117,7 @@ version there, then re-run the deploy so code and ledger catch up.
 - **409 Server is busy** after retries: the place is open in Studio — close
   it and re-run.
 - **Failed map pull** (place deploy FAILED at "pulling map"): usually the
-  API key lacks the Asset Delivery permission, or the Map folder has
-  duplicate-named direct children (group content into uniquely-named
-  Models). Debug with `node scripts/pull-maps.mjs <place>`; `--no-pull`
-  ships whatever `roblox/maps/` already holds if you must deploy NOW.
+  API key lacks the **Legacy Assets → manage** permission, or same-named
+  instances sit directly under Workspace outside `Map`. Debug with
+  `node scripts/pull-maps.mjs <place>`; `--no-pull` ships whatever
+  `roblox/maps/` already holds if you must deploy NOW.

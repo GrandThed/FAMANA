@@ -83,10 +83,8 @@ so a marker floating above a hill still builds on the ground.
    nothing you build gets overwritten).
 2. Create a **Folder named `Map`** directly under Workspace. Build the entire
    map inside it — ground, buildings, decoration, and all marker parts.
-   **Group the contents into a few uniquely-named Models** directly under
-   `Map` (e.g. `World`, `Village`, `Markers`) — Rojo's map pull can't handle
-   two direct children of `Map` with the same name, but duplicated names
-   INSIDE those groups are fine.
+   Anything left loose in Workspace OUTSIDE Map isn't part of the map: it
+   won't survive a deploy, and duplicate names out there break the map pull.
 3. Playtest as usual. The moment the `Map` folder exists, markers drive all
    spawning — if you haven't placed `Node_tree` markers yet, no trees.
 4. **File → Publish to Roblox.** That's it — no export, no commit. The map
@@ -115,8 +113,8 @@ place is a 5-step checklist in `DEPLOYMENT.md`.
   what goes live; re-deploy afterwards).
 - **A failed map pull fails that place's deploy** (by design: building
   without the live map would overwrite it). The usual causes: the API key is
-  missing the Asset Delivery permission, or duplicate-named direct children
-  of `Map` (see §3.2). `node scripts/pull-maps.mjs` runs the pull standalone
+  missing the **Legacy Assets → manage** permission (`legacy-assets:manage`),
+  or same-named instances left directly under Workspace outside `Map`. `node scripts/pull-maps.mjs` runs the pull standalone
   for debugging; `--no-pull` deploys whatever `roblox/maps/` already holds.
 - **Maps are not in git.** Rollback for map mistakes is the place's version
   history on the Creator Dashboard, not `git revert`.

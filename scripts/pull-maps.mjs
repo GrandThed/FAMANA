@@ -8,21 +8,20 @@
 //
 // How a pull works:
 //   1. Download the live place file via the Open Cloud Asset Delivery API
-//      (the ROBLOX_API_KEY needs the Asset Delivery permission).
-//   2. `rojo syncback` extracts Workspace.Map into roblox/maps/<name>/ — a
-//      directory of one .rbxm per top-level child of the Map folder. The
-//      per-place project mounts that directory back as Workspace.Map, so the
-//      next build reproduces the live map exactly.
+//      (the ROBLOX_API_KEY needs legacy-assets:manage).
+//   2. `rojo syncback` runs with WORKSPACE anchored to a scratch directory,
+//      which makes every Workspace child — including Map — serialize as one
+//      opaque .rbxm file (no naming constraints INSIDE Map this way; rojo
+//      only requires unique names among instances it maps to project nodes,
+//      and here that's just Workspace's direct children). The script then
+//      keeps Map.rbxm as roblox/maps/<name>.rbxm and discards the rest
+//      (Baseplate, Terrain, …). The per-place project mounts that file back
+//      as Workspace.Map, so the next build reproduces the live map exactly.
 //
-// A live place WITHOUT a Map folder clears roblox/maps/<name>/ (the game then
-// runs on the def-`spots` fallback, same as today). Maps are gitignored —
-// they're pulled artifacts, not sources. Rollback for maps = the place's
-// version history on the Creator Dashboard.
-//
-// Rojo constraint worth knowing (enforced with a clear error): the DIRECT
-// children of the Map folder must have unique names. Group map content into
-// a few uniquely-named Models ("World", "Markers", …) — duplicates INSIDE
-// them are fine. See docs/MAP_AUTHORING.md.
+// A live place WITHOUT a Map folder removes roblox/maps/<name>.rbxm (the
+// game then runs on the def-`spots` fallback, same as pre-map days). Maps
+// are gitignored — they're pulled artifacts, not sources. Rollback for maps
+// = the place's version history on the Creator Dashboard.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -41,9 +40,10 @@ async function downloadPlace(name, placeId, apiKey) {
   });
   if (meta.status === 401 || meta.status === 403) {
     throw new Error(
-      `HTTP ${meta.status} downloading the place — the API key is missing the Asset Delivery permission.\n` +
+      `HTTP ${meta.status} downloading the place — the API key is missing the asset-download permission.\n` +
         "    Creator Dashboard → Open Cloud → API Keys → your key → Access Permissions →\n" +
-        "    add the 'Asset Delivery' API system (Read) and save. The key value doesn't change."
+        "    add the 'Legacy Assets' API system with its 'manage' operation (legacy-assets:manage)\n" +
+        "    and save. The key value doesn't change."
     );
   }
   if (!meta.ok) {
@@ -66,16 +66,14 @@ async function downloadPlace(name, placeId, apiKey) {
   return out;
 }
 
-// Extracts Workspace.Map from `placeFile` into roblox/maps/<name>/ via rojo
-// syncback. Returns "pulled" or "no-map" (live place carries no Map folder —
-// the maps dir is removed so builds fall back to def spots). Throws on
+// Extracts Workspace.Map from `placeFile` into roblox/maps/<name>.rbxm via
+// rojo syncback. Returns "pulled" or "no-map" (live place carries no Map —
+// the map file is removed so builds fall back to def spots). Throws on
 // anything else.
 function extractMap(name, placeFile) {
-  const mapDir = path.join(MAPS_DIR, name);
-  // Start from a clean slate so the result mirrors the live Map exactly —
-  // stale files from a previous pull must not resurrect deleted map content.
-  fs.rmSync(mapDir, { recursive: true, force: true });
-  fs.mkdirSync(mapDir, { recursive: true });
+  const outDir = path.join(BUILD_DIR, `${name}.pull`);
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(outDir, { recursive: true });
 
   const project = path.join(BUILD_DIR, `${name}.pull.project.json`);
   fs.writeFileSync(
@@ -84,7 +82,7 @@ function extractMap(name, placeFile) {
       name: `pull-${name}`,
       tree: {
         $className: "DataModel",
-        Workspace: { Map: { $path: `../maps/${name}` } },
+        Workspace: { $path: `${name}.pull` },
       },
     })
   );
@@ -98,24 +96,28 @@ function extractMap(name, placeFile) {
     throw new Error("rojo not found on PATH — run `rokit install` in roblox/ first");
   }
   const stderr = result.stderr || "";
-  if (stderr.includes("present only in a project file")) {
-    // The live place has no Workspace.Map: legitimate (pre-map place, or the
-    // map was deliberately deleted). No map dir -> the optional mount skips
-    // Map entirely and services use their def-spots fallback.
-    fs.rmSync(mapDir, { recursive: true, force: true });
-    return "no-map";
-  }
   if (stderr.includes("must have a unique name")) {
     throw new Error(
-      "the Map folder has duplicate names among its DIRECT children — Rojo can't extract that.\n" +
-        "    In Studio, group the map's contents into a few uniquely-named Models\n" +
-        '    ("World", "Markers", …); duplicated names INSIDE those are fine.\n' +
-        `    Rojo said: ${stderr.trim().split("\n")[0]}`
+      "two instances sitting DIRECTLY under Workspace (outside Map) share a name — Rojo\n" +
+        "    can't extract that. In Studio, keep everything you build inside the Map folder.\n" +
+        `    Rojo said: ${stderr.trim().split("\n")[1] || stderr.trim().split("\n")[0]}`
     );
   }
   if (result.status !== 0 || stderr.includes("[ERROR")) {
     throw new Error(`rojo syncback failed:\n${stderr || result.stdout}`);
   }
+
+  const pulled = path.join(outDir, "Map.rbxm");
+  const dest = path.join(MAPS_DIR, `${name}.rbxm`);
+  if (!fs.existsSync(pulled)) {
+    // No Workspace.Map in the live place: legitimate (pre-map place, or the
+    // map was deliberately deleted). Removing the file makes the optional
+    // mount skip Map entirely -> services use their def-spots fallback.
+    fs.rmSync(dest, { force: true });
+    return "no-map";
+  }
+  fs.mkdirSync(MAPS_DIR, { recursive: true });
+  fs.copyFileSync(pulled, dest);
   return "pulled";
 }
 
@@ -162,7 +164,7 @@ if (isMain) {
     process.stdout.write(`- ${name} (${place.placeId}): `);
     try {
       const status = await pullMap(name, place.placeId, apiKey);
-      console.log(status === "pulled" ? `map pulled into roblox/maps/${name}/` : "live place has no Map folder");
+      console.log(status === "pulled" ? `map pulled into roblox/maps/${name}.rbxm` : "live place has no Map folder");
     } catch (error) {
       failed += 1;
       console.log(`FAILED — ${error.message}`);

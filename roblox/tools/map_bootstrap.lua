@@ -17,9 +17,8 @@
 -- edited the map, don't run it again — it refuses while Workspace.Map
 -- exists, so it can't wipe your work.
 --
--- Keep scenery you build grouped in uniquely-named Models directly under
--- Map (e.g. "World", "Village") — the deploy pipeline requires unique names
--- among Map's DIRECT children ("Markers" is already taken by this script).
+-- Build everything INSIDE the Map folder — anything loose in Workspace
+-- outside it isn't part of the map and won't survive a deploy.
 
 local Workspace = game:GetService("Workspace")
 local CollectionService = game:GetService("CollectionService")
@@ -200,4 +199,4 @@ end
 
 map.Parent = Workspace
 print(("[MapBootstrap] built %d markers (+%d border crossings) in Workspace.Map.Markers — press Play to preview (world should look exactly like before), edit freely, then File → Publish to Roblox."):format(#MARKERS, borders))
-print("[MapBootstrap] build scenery inside uniquely-named Models under Map (e.g. 'World'); tools/marker_kit.lua gives you templates for placing NEW marker types later.")
+print("[MapBootstrap] build all scenery INSIDE the Map folder; tools/marker_kit.lua gives you templates for placing NEW marker types later.")
