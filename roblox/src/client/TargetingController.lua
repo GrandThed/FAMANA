@@ -5,7 +5,8 @@
 -- only clears when the target dies/depletes, leaves reach, or the equipped tool
 -- changes. The focus gets a highlight and a top-screen target panel (with an HP
 -- bar for enemies). Enemy HP is read from the replicated health-bar fill, so no
--- extra networking.
+-- extra networking. Ranged weapons (bow/staff) also draw a ground ring while
+-- aiming, showing their actual hit range.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -30,6 +31,14 @@ local player = Players.LocalPlayer
 -- closing in on without it being unusable for judging whether a swing lands.
 local LOCK_REACH_MULTIPLIER = 2.5
 
+-- Ranged weapons (bow/staff) don't need that "closing the gap" margin — the
+-- player is already aiming from max range, not walking into melee. Reusing
+-- the melee multiplier here blew their lock-on radius way past their actual
+-- hit range (e.g. a 60-stud staff could lock a target 150 studs out). This
+-- keeps just enough slack that the lock doesn't drop from a tiny wobble
+-- right at the edge of range.
+local RANGED_LOCK_REACH_MULTIPLIER = 1.15
+
 local TargetingController = {}
 
 -- What the equipped item focuses, and where those objects live.
@@ -53,11 +62,13 @@ local function equippedFocus(character)
 	-- radius used everywhere lock-on decides what counts as "in range" —
 	-- letting you pre-lock or hold a target further out and close the gap,
 	-- while actual damage still checks the real `reach` server-side.
-	local lockReach = reach * LOCK_REACH_MULTIPLIER
+	local ranged = def.weaponType == "ranged"
+	local multiplier = ranged and RANGED_LOCK_REACH_MULTIPLIER or LOCK_REACH_MULTIPLIER
+	local lockReach = reach * multiplier
 	if def.type == "weapon" then
-		return { category = "enemy", reach = reach, lockReach = lockReach }
+		return { category = "enemy", reach = reach, lockReach = lockReach, ranged = ranged }
 	elseif def.type == "tool" and def.toolType then
-		return { category = def.toolType, reach = reach, lockReach = lockReach }
+		return { category = def.toolType, reach = reach, lockReach = lockReach, ranged = false }
 	end
 	return nil
 end
@@ -211,6 +222,94 @@ function TargetingController.start()
 
 	local reticleGui = nil
 	local reticleLabel = nil
+
+	-- ---- ranged weapon range ring ----
+	-- A flat circle on the ground, radius = the equipped ranged weapon's real
+	-- `reach`, shown while aiming so it's obvious at a glance whether a target
+	-- is actually hittable — instead of finding out only when the shot whiffs.
+	-- Built from Beams strung between Attachments on one invisible anchor part
+	-- (no image asset required, so it doesn't depend on anything being
+	-- uploaded to work).
+	local RING_SEGMENTS = 48
+	local RING_GROUND_OFFSET = 0.12 -- studs above the floor; avoids z-fighting
+	local RING_WIDTH = 0.3
+	local RING_COLOR = Theme.Color.Ember300 or Color3.fromRGB(255, 220, 100)
+
+	local ringAnchor = nil
+	local ringRadius = nil
+	local ringRayParams = RaycastParams.new()
+	ringRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	local function destroyRing()
+		if ringAnchor then
+			ringAnchor:Destroy()
+			ringAnchor = nil
+		end
+		ringRadius = nil
+	end
+
+	local function buildRing(radius)
+		destroyRing()
+		ringRadius = radius
+
+		local anchor = Instance.new("Part")
+		anchor.Name = "RangeRingAnchor"
+		anchor.Anchored = true
+		anchor.CanCollide = false
+		anchor.CanQuery = false
+		anchor.CanTouch = false
+		anchor.Transparency = 1
+		anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+		anchor.CFrame = CFrame.new(0, -1000, 0) -- parked until the first update positions it
+		anchor.Parent = Workspace
+
+		local points = {}
+		for i = 1, RING_SEGMENTS do
+			local angle = (i - 1) / RING_SEGMENTS * math.pi * 2
+			local attachment = Instance.new("Attachment")
+			attachment.Position = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+			attachment.Parent = anchor
+			points[i] = attachment
+		end
+		for i = 1, RING_SEGMENTS do
+			local a = points[i]
+			local b = points[(i % RING_SEGMENTS) + 1]
+			local beam = Instance.new("Beam")
+			beam.Attachment0 = a
+			beam.Attachment1 = b
+			beam.Width0 = RING_WIDTH
+			beam.Width1 = RING_WIDTH
+			beam.Color = ColorSequence.new(RING_COLOR)
+			beam.Transparency = NumberSequence.new(0.35)
+			beam.FaceCamera = false
+			beam.LightEmission = 0.6
+			beam.Segments = 1
+			beam.Parent = anchor
+		end
+
+		ringAnchor = anchor
+	end
+
+	-- Re-anchors and (if the radius changed, e.g. switched bow→staff) rebuilds
+	-- the ring under the player each frame while aiming with a ranged weapon.
+	local function updateRing(reach, root)
+		if ringRadius ~= reach then
+			buildRing(reach)
+		end
+		-- Ground-snap via raycast so it hugs slopes/stairs instead of floating
+		-- at a fixed height under the character.
+		ringRayParams.FilterDescendantsInstances = { player.Character }
+		local origin = root.Position
+		local rayResult = Workspace:Raycast(origin, Vector3.new(0, -20, 0), ringRayParams)
+		local groundY = rayResult and rayResult.Position.Y or (origin.Y - 3)
+		ringAnchor.CFrame = CFrame.new(origin.X, groundY + RING_GROUND_OFFSET, origin.Z)
+	end
+
+	local function hideRing()
+		if ringAnchor then
+			destroyRing()
+		end
+	end
 
 	local function createReticle(anchor)
 		if reticleGui then
@@ -421,7 +520,17 @@ function TargetingController.start()
 		local focus = (root and camera) and equippedFocus(character) or nil
 		if not focus then
 			clear() -- dead, no camera, or nothing that can focus is equipped
+			hideRing()
 			return
+		end
+
+		-- Range ring: only while actively aiming a ranged weapon (bow/staff).
+		-- Melee doesn't get one — its reach is short enough to judge by eye,
+		-- and a ring hugging the character at 10-25 studs would just be clutter.
+		if ClientState.aiming and not ClientState.inventoryOpen and focus.ranged then
+			updateRing(focus.reach, root)
+		else
+			hideRing()
 		end
 
 		-- Drop the existing lock only if it has become invalid.
