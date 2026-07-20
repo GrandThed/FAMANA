@@ -1,5 +1,7 @@
--- Panel del NPC de quests. Se abre con el ProximityPrompt (OpenQuestGiver,
--- mismo patrón que StoreUI/OpenStore); las acciones (aceptar/entregar) van
+-- Panel del NPC de quests. Se abre vía ClientState.openQuestPanel, llamado
+-- por NpcMenuUI ("Hablar" cuando hay una quest para mostrar, o "Ver
+-- misiones") después de que el ProximityPrompt abre el menú de diálogo —
+-- ver NpcMenuUI/OpenNpcMenu. Las acciones (aceptar/entregar) van
 -- por el RemoteFunction QuestAction, que devuelve la lista de quests de ese
 -- NPC ya refrescada — no hace falta un segundo viaje al server para
 -- re-renderizar. UI a propósito simple: una lista vertical de tarjetas, sin
@@ -42,6 +44,39 @@ local ERROR_TEXT = {
 local PANEL_W = 480
 local PANEL_H = 460
 local CLOSE_DISTANCE = 20 -- studs; walk away → the panel closes itself
+local TYPE_CHAR_DELAY = 0.022 -- mismo ritmo que el diálogo de NpcMenuUI
+local TYPE_VOICE_EVERY = 2
+
+-- Revela `label.Text` letra a letra (utf8-safe) y toca un blip cada pocas
+-- letras — mismo efecto que el diálogo de NpcMenuUI, acá para la
+-- descripción de cada misión. `gen`/`isCurrentGen` cortan la animación si
+-- la tarjeta se destruye (re-render) antes de terminar. `basePitch` viene
+-- del NPC que abrió este panel (ver NpcMenuUI.VOICE_PITCH) para que la
+-- "voz" sea consistente con el diálogo — 1.0 si no se especificó.
+local function typewrite(label, fullText, isCurrentGen, basePitch)
+	basePitch = basePitch or 1.0
+	label.Text = ""
+	task.spawn(function()
+		local totalChars = utf8.len(fullText) or #fullText
+		local prevByte = 1
+		for i = 1, totalChars do
+			if not isCurrentGen() then
+				return
+			end
+			local nextByte = utf8.offset(fullText, i + 1)
+			local endByte = (nextByte or (#fullText + 1)) - 1
+			label.Text = nextByte and fullText:sub(1, nextByte - 1) or fullText
+
+			local char = fullText:sub(prevByte, endByte)
+			prevByte = endByte + 1
+			if char:match("%S") and i % TYPE_VOICE_EVERY == 0 then
+				Sfx.play("npcTalk", basePitch * (0.95 + math.random() * 0.1))
+			end
+
+			task.wait(TYPE_CHAR_DELAY)
+		end
+	end)
+end
 
 local function makeLabel(parent, text, size, color, font)
 	local label = Instance.new("TextLabel")
@@ -66,6 +101,9 @@ local function rewardText(rewards)
 	end
 	for _, item in ipairs(rewards.items or {}) do
 		table.insert(parts, (item.quantity > 1 and (item.quantity .. "x ") or "") .. item.name)
+	end
+	for _, recipeName in ipairs(rewards.recipes or {}) do
+		table.insert(parts, "Receta: " .. recipeName)
 	end
 	return #parts > 0 and table.concat(parts, "  •  ") or nil
 end
@@ -127,6 +165,7 @@ function QuestUI.start()
 	local isOpen = false
 	local busy = false
 	local current = nil -- { giverId, giverName, position, quests }
+	local descTypeGen = 0
 
 	local questAction = Remotes.getFunction("QuestAction")
 
@@ -202,10 +241,14 @@ function QuestUI.start()
 		statusTag.Position = UDim2.new(1, -60, 0, 0)
 		statusTag.TextXAlignment = Enum.TextXAlignment.Right
 
-		local desc = makeLabel(card, quest.description, 12, COLORS.textDim)
+		local desc = makeLabel(card, "", 12, COLORS.textDim)
 		desc.Size = UDim2.new(1, 0, 0, 0)
 		desc.AutomaticSize = Enum.AutomaticSize.Y
 		desc.LayoutOrder = 2
+		local myGen = descTypeGen
+		typewrite(desc, quest.description, function()
+			return descTypeGen == myGen
+		end, current and current.voicePitch)
 
 		for i, objective in ipairs(quest.objectives) do
 			local met = objective.current >= objective.amount
@@ -250,6 +293,7 @@ function QuestUI.start()
 	end
 
 	render = function()
+		descTypeGen += 1
 		for _, child in ipairs(list:GetChildren()) do
 			if child:IsA("GuiObject") then
 				child:Destroy()
@@ -281,7 +325,10 @@ function QuestUI.start()
 	ClientState.closeQuest = close
 	closeBtn.Activated:Connect(close)
 
-	Remotes.get("OpenQuestGiver").OnClientEvent:Connect(function(info)
+	-- info: { giverId, giverName, position, quests, voicePitch? }. Llamado
+	-- directo por NpcMenuUI — "Ver misiones" (lista completa) o "Hablar"
+	-- cuando el NPC tiene una sola quest para mostrar (quests = {esaQuest}).
+	local function openWith(info)
 		if typeof(info) ~= "table" then
 			return
 		end
@@ -298,7 +345,8 @@ function QuestUI.start()
 		ClientState.questOpen = true
 		Sfx.play("panelOpen")
 		render()
-	end)
+	end
+	ClientState.openQuestPanel = openWith
 
 	-- Walk away → close (the server enforces its own distance on actions too).
 	task.spawn(function()

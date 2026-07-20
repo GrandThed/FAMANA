@@ -1,5 +1,7 @@
 -- Vendor NPCs: low-poly merchants with a ProximityPrompt that opens the
--- store UI on the client (OpenStore remote). Deals come back through the
+-- NPC dialogue menu on the client (OpenNpcMenu remote — Hablar / Ver
+-- tienda; see client/NpcMenuUI), which then opens the store UI when the
+-- player picks "Ver tienda". Deals come back through the
 -- StoreDeal RemoteFunction (docs/VENDOR_UI.md §5.4) and are validated here —
 -- the player is near the vendor, every line is tradable with the right
 -- side, sell positions hold what the client claims — then PRICED (trade
@@ -24,6 +26,7 @@ local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local Stores = require(Shared:WaitForChild("Stores"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local PlayerService = require(script.Parent.PlayerService)
+local QuestService = require(script.Parent.QuestService)
 
 local VendorService = {}
 
@@ -34,9 +37,25 @@ local MAX_TRADE_QUANTITY = 99
 local MAX_DEAL_LINES = 20
 local MAX_DEAL_OPS = 64 -- backend /deal cap on removes + adds
 
--- { storeId, name, position, facing? (degrees yaw; vendor looks along -Z) }
+-- { storeId, name, position, facing? (degrees yaw; vendor looks along -Z),
+--   giverId? (optional — lets a vendor ALSO offer/track quests, same as a
+--   QuestService giver; nil today, no vendor doubles as a giver yet),
+--   lines? (flavor pool for the "Talk" fallback when there's no quest to
+--   show — see NpcMenuUI/QuestOffer) }
 local VENDOR_DEFS = {
-	{ storeId = "general_goods", name = "Marla the Trader", position = Vector3.new(-16, 0, -34), facing = 205 },
+	{
+		storeId = "general_goods",
+		name = "Marla the Trader",
+		position = Vector3.new(-16, 0, -34),
+		facing = 205,
+		lines = {
+			"El camino ha estado tranquilo... por ahora.",
+			"Si encuentras mineral de cobre, aquí te lo compro bien.",
+			"Cuidado con los slimes cerca del pueblo, se están multiplicando.",
+			"Todo lo que ves en mi puesto es de buena calidad, no como en otros lados.",
+			"¿Necesitas algo en particular o solo estás mirando?",
+		},
+	},
 }
 
 local vendorFolder
@@ -89,15 +108,22 @@ local function buildVendor(def)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = model.PrimaryPart
 
-	local openStore = Remotes.get("OpenStore")
+	local openNpcMenu = Remotes.get("OpenNpcMenu")
 	prompt.Triggered:Connect(function(player)
-		openStore:FireClient(player, {
-			storeId = def.storeId,
-			storeName = store.name,
-			vendorName = def.name,
+		openNpcMenu:FireClient(player, {
+			kind = "vendor",
+			name = def.name,
 			-- The client watches its distance to this and closes the panel
 			-- when the player walks away.
 			position = model.PrimaryPart.Position,
+			storeId = def.storeId,
+			storeName = store.name,
+			lines = def.lines,
+			-- Only set when this vendor also doubles as a quest giver (see
+			-- VENDOR_DEFS comment) — lets NpcMenuUI show "Ver misiones" too
+			-- and lets "Hablar" surface an offer before the flavor lines.
+			giverId = def.giverId,
+			quests = def.giverId and QuestService.buildGiverPayload(player, def.giverId) or nil,
 		})
 	end)
 end
@@ -295,10 +321,11 @@ end
 
 function VendorService.start()
 	notifyRemote = Remotes.get("Notify")
-	-- Create the OpenStore remote up front: the client's StoreUI waits for it
-	-- at boot, and creating it lazily inside the vendor builder leaves it
+	-- Create OpenNpcMenu up front: the client's NpcMenuUI waits for it at
+	-- boot, and creating it lazily inside the vendor builder leaves it
 	-- missing on maps with no vendor markers (client-side infinite yield).
-	Remotes.get("OpenStore")
+	-- QuestService.start() also does this — idempotent either way.
+	Remotes.get("OpenNpcMenu")
 
 	vendorFolder = Instance.new("Folder")
 	vendorFolder.Name = "Vendors"
@@ -317,6 +344,8 @@ function VendorService.start()
 					name = def.name,
 					position = marker.cframe.Position,
 					facing = MapMarkers.facing(marker),
+					lines = def.lines,
+					giverId = def.giverId,
 				})
 			end
 		end

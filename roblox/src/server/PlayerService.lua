@@ -245,6 +245,21 @@ local function loadProfile(player)
 	data.campTier = data.campTier or 0
 	player:SetAttribute("CampTier", data.campTier)
 
+	-- Recetas "secretas" desbloqueadas para este jugador (ver Recipes.<id>.locked
+	-- — hoy solo "acampada", otorgada por Quests.camp_basics). Set table
+	-- { [recipeId] = true }, publicado como attribute comma-joined (mismo
+	-- patrón que NearbyStations) para que CraftUI filtre sin ida y vuelta al
+	-- server. Profiles guardados antes de que esto existiera vuelven vacíos —
+	-- las recetas locked simplemente no aparecen hasta desbloquearlas.
+	data.unlockedRecipes = typeof(data.unlockedRecipes) == "table" and data.unlockedRecipes or {}
+	do
+		local ids = {}
+		for id in pairs(data.unlockedRecipes) do
+			table.insert(ids, id)
+		end
+		player:SetAttribute("UnlockedRecipes", table.concat(ids, ","))
+	end
+
 	-- This Place represents a specific cell; record it so saves reflect reality.
 	data.cell = GridConfig.currentCell()
 
@@ -476,6 +491,37 @@ function PlayerService.setCampTier(player, tier)
 	return true
 end
 
+-- true si `player` ya desbloqueó `recipeId` (ver Recipes.<id>.locked). Solo
+-- tiene sentido preguntarlo para recetas locked — una receta sin ese flag
+-- ya es craftable para cualquiera, sin pasar por acá (ver CraftingService).
+function PlayerService.hasRecipeUnlocked(player, recipeId)
+	local profile = cache[player.UserId]
+	return profile ~= nil and profile.unlockedRecipes[recipeId] == true
+end
+
+-- Desbloquea `recipeId` para siempre (persistente, como el resto del
+-- profile — autosave/leave se encarga, igual que gold/XP). Idempotente: si
+-- ya la tenía, no-op. Usado hoy por QuestService.completeQuest
+-- (rewards.unlockRecipes) — mismo mecanismo que addItem/addGold como
+-- "efecto secundario de una recompensa".
+function PlayerService.unlockRecipe(player, recipeId)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(recipeId) ~= "string" then
+		return false
+	end
+	if profile.unlockedRecipes[recipeId] then
+		return true
+	end
+	profile.unlockedRecipes[recipeId] = true
+
+	local ids = {}
+	for id in pairs(profile.unlockedRecipes) do
+		table.insert(ids, id)
+	end
+	player:SetAttribute("UnlockedRecipes", table.concat(ids, ","))
+	return true
+end
+
 -- Grants XP (e.g. from an enemy kill or, later, a quest reward), rolling
 -- over into as many level-ups as the amount covers. Each level-up re-derives
 -- HP/Mana caps (see shared/Classes.lua statsAtLevel, wired via
@@ -595,6 +641,7 @@ local function buildSaveFields(player)
 		trackedQuestId = profile.trackedQuestId,
 		campLayout = profile.campLayout,
 		campTier = profile.campTier,
+		unlockedRecipes = profile.unlockedRecipes,
 		cell = profile.cell,
 		position = profile.position,
 	}

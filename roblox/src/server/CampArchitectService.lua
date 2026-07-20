@@ -5,12 +5,12 @@
 -- player stat directly, so it doesn't belong in either "craft an item" or
 -- "buy/sell an item" — it's its own small transaction, sized to match.
 --
--- No confirm-panel UI yet: the ProximityPrompt directly attempts to upgrade
--- to CURRENT TIER + 1 (tiers are strictly sequential, no picking-and-
--- choosing) and reports the result via Notify. A nicer "here's what tier N
--- costs and unlocks, confirm?" panel is future polish — same
--- ships-functional-but-not-fully-populated posture as the cauldron/
--- cosmetics in the steps before this one.
+-- The ProximityPrompt opens the shared NPC dialogue menu (OpenNpcMenu —
+-- Hablar / Mejorar campamento; see client/NpcMenuUI) instead of attempting
+-- the upgrade directly. "Mejorar campamento" invokes UpgradeCampTier and
+-- shows the result (success or the rejection reason) right there in the
+-- menu's message panel — tiers are strictly sequential, no picking-and-
+-- choosing which one to buy.
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,6 +22,7 @@ local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local PlayerService = require(script.Parent.PlayerService)
+local QuestService = require(script.Parent.QuestService)
 
 local CampArchitectService = {}
 
@@ -30,11 +31,26 @@ local MAX_TRADE_DISTANCE = 16 -- same as VendorService.MAX_TRADE_DISTANCE
 
 -- Placeholder position, same convention as VendorService.VENDOR_DEFS — a
 -- map with a "CampArchitect_" marker overrides this (see start() below).
-local NPC_DEF = { name = "The Camp Architect", position = Vector3.new(-6, 0, -40), facing = 205 }
+-- `lines` is the flavor pool for the "Hablar" fallback in the shared NPC
+-- dialogue menu (see client/NpcMenuUI). `giverId` lets this NPC ALSO offer/
+-- track quests (same mechanism as VendorService's optional giverId) — his
+-- menu keeps "Mejorar campamento" as the primary action and adds "Ver
+-- misiones" as secondary (see NpcMenuUI's primaryLabel priority).
+local NPC_DEF = {
+	name = "The Camp Architect",
+	giverId = "camp_architect",
+	position = Vector3.new(-6, 0, -40),
+	facing = 205,
+	lines = {
+		"Cada piedra en su lugar, cada viga bien clavada. Así se construye algo que dure.",
+		"Traeme los materiales y hablamos de la próxima mejora.",
+		"Un buen campamento es la diferencia entre sobrevivir y prosperar.",
+		"¿Ya viste cómo quedó la última mejora? Todavía puedo hacerlo mejor.",
+	},
+}
 
 local npcFolder
 local npcPositions = {} -- Vector3, for the distance check (usually just one)
-local notifyRemote
 
 local function groundY(x, z)
 	local params = RaycastParams.new()
@@ -42,12 +58,6 @@ local function groundY(x, z)
 	params.FilterDescendantsInstances = { npcFolder }
 	local result = Workspace:Raycast(Vector3.new(x, 200, z), Vector3.new(0, -1000, 0), params)
 	return result and result.Position.Y or 0
-end
-
-local function notify(player, message)
-	if player and notifyRemote then
-		notifyRemote:FireClient(player, message)
-	end
 end
 
 -- Same body plan as VendorService.buildVendor, dressed differently (stone/
@@ -76,6 +86,10 @@ local function buildNpc(def)
 
 	table.insert(npcPositions, model.PrimaryPart.Position)
 
+	if def.giverId then
+		QuestService.registerGiverPosition(def.giverId, model.PrimaryPart.Position, model.PrimaryPart)
+	end
+
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Upgrade Camp"
 	prompt.ObjectText = def.name
@@ -84,9 +98,19 @@ local function buildNpc(def)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = model.PrimaryPart
 
+	local openNpcMenu = Remotes.get("OpenNpcMenu")
 	prompt.Triggered:Connect(function(player)
-		local ok, message = CampArchitectService.tryUpgrade(player)
-		notify(player, message)
+		openNpcMenu:FireClient(player, {
+			kind = "architect",
+			name = def.name,
+			position = model.PrimaryPart.Position,
+			lines = def.lines,
+			-- Solo seteado si este NPC también reparte quests (ver NPC_DEF) —
+			-- deja que NpcMenuUI muestre "Ver misiones" y que "Hablar" ofrezca
+			-- la quest antes de caer al flavor text (mismo patrón que VendorService).
+			giverId = def.giverId,
+			quests = def.giverId and QuestService.buildGiverPayload(player, def.giverId) or nil,
+		})
 	end)
 end
 
@@ -163,7 +187,10 @@ local function handleUpgradeRemote(player)
 end
 
 function CampArchitectService.start()
-	notifyRemote = Remotes.get("Notify")
+	-- Shared with Vendor/QuestService: whichever service starts first
+	-- creates it. Up front so NpcMenuUI never infinite-yields waiting for
+	-- it on a map with no CampArchitect marker either.
+	Remotes.get("OpenNpcMenu")
 
 	npcFolder = Instance.new("Folder")
 	npcFolder.Name = "CampArchitect"
@@ -178,8 +205,10 @@ function CampArchitectService.start()
 		for _, marker in ipairs(markers.npc or {}) do
 			buildNpc({
 				name = NPC_DEF.name,
+				giverId = NPC_DEF.giverId,
 				position = marker.cframe.Position,
 				facing = MapMarkers.facing(marker),
+				lines = NPC_DEF.lines,
 			})
 		end
 	else

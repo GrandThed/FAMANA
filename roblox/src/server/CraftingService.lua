@@ -269,6 +269,9 @@ local function handleCraft(player, recipeId, quantity)
 	if not def then
 		return { ok = false, error = "unknown_recipe" }
 	end
+	if def.locked and not PlayerService.hasRecipeUnlocked(player, recipeId) then
+		return { ok = false, error = "recipe_locked" }
+	end
 	if def.station and not nearStation(player, def.station) then
 		return { ok = false, error = "too_far" }
 	end

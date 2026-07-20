@@ -43,6 +43,7 @@ local ERROR_TEXT = {
 	no_space = "Not enough room in your inventory",
 	too_far = "Not near the right station anymore",
 	unknown_recipe = "That recipe doesn't exist",
+	recipe_locked = "You haven't unlocked this recipe yet",
 	bad_request = "Something went wrong",
 }
 
@@ -149,6 +150,7 @@ function CraftUI.start()
 	local busy = false
 	local inventory = {}
 	local nearby = {} -- set of station ids currently in range, from the attribute
+	local unlocked = {} -- set of recipe ids this player has unlocked, from the attribute (only matters for def.locked recipes)
 	local selected = Recipes.list()[1] and Recipes.list()[1].id
 	local quantity = 1 -- how many of `selected` to craft on next click; reset per-selection
 
@@ -164,9 +166,14 @@ function CraftUI.start()
 		return total
 	end
 
-	-- A recipe is currently offered if it needs no station, or its station
-	-- is in the live nearby set.
+	-- A recipe is currently offered if (it's not locked, or it's already
+	-- unlocked) AND it needs no station, or its station is in the live
+	-- nearby set. Locked-and-not-unlocked recipes are hidden entirely, same
+	-- treatment as a station-gated recipe you haven't walked up to yet.
 	local function isAvailable(def)
+		if def.locked and not unlocked[def.id] then
+			return false
+		end
 		return def.station == nil or nearby[def.station] == true
 	end
 
@@ -546,6 +553,23 @@ function CraftUI.start()
 	readNearby()
 	player:GetAttributeChangedSignal("NearbyStations"):Connect(function()
 		readNearby()
+		if isOpen then
+			refresh()
+		end
+	end)
+
+	local function readUnlocked()
+		unlocked = {}
+		local raw = player:GetAttribute("UnlockedRecipes")
+		if typeof(raw) == "string" then
+			for recipeId in raw:gmatch("[^,]+") do
+				unlocked[recipeId] = true
+			end
+		end
+	end
+	readUnlocked()
+	player:GetAttributeChangedSignal("UnlockedRecipes"):Connect(function()
+		readUnlocked()
 		if isOpen then
 			refresh()
 		end

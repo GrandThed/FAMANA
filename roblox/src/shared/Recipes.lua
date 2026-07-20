@@ -117,6 +117,11 @@ Recipes.defs = {
 			{ itemId = "wood", quantity = 20 },
 		},
 		-- sin station: crafteable desde cualquier lado, como torch/arrow
+		-- locked = true: no aparece en CraftUI ni es crafteable hasta que
+		-- PlayerService.unlockRecipe(player, "acampada") se llame (ver
+		-- Quests.camp_basics.rewards.unlockRecipes) — gateado por
+		-- profile.unlockedRecipes (server/PlayerService.lua).
+		locked = true,
 	},
 	cofre_campamento = {
 		id = "cofre_campamento",

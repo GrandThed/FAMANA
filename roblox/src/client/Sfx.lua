@@ -20,6 +20,7 @@ local SOUNDS = {
 	unequip = { id = "rbxassetid://125373488678088", volume = 1 },
 	panelOpen = { id = "rbxassetid://134352981124286", volume = 0.2 },
 	panelClose = { id = "rbxassetid://134352981124286", volume = 0.2 },
+	npcTalk = { id = "rbxassetid://109856313424761", volume = 0.5 },
 	swing = { id = "rbxassetid://138283030240531", volume = 0.45 }, -- herramientas (hacha/pico, styleName "chop")
 	swingMelee = { id = "rbxassetid://135315310485417", volume = 0.45 }, 
 	swingRanged = { id = "rbxassetid://123925235254965", volume = 0.5 },
@@ -79,11 +80,15 @@ end
 
 -- Reproduce un sonido registrado en SOUNDS. Si ya está sonando, lo reinicia
 -- (PlaybackLoudness aparte, esto evita que un ding tape al siguiente).
-function Sfx.play(name)
+-- `pitch` es opcional (PlaybackSpeed, default 1) — lo usa CombatSfx para que
+-- el golpe de remate del combo (combo3) suene un poco más grave/pesado sin
+-- necesitar un asset de sonido nuevo.
+function Sfx.play(name, pitch)
 	local sound = ensure(name)
 	if not sound then
 		return
 	end
+	sound.PlaybackSpeed = pitch or 1
 	sound.TimePosition = 0
 	sound:Play()
 end

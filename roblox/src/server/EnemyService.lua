@@ -1384,7 +1384,42 @@ local PROJECTILE_VISUALS = {
 	physical = { name = "Arrow", shape = Enum.PartType.Cylinder, size = Vector3.new(0.15, 0.15, 3), color = Color3.fromRGB(120, 85, 45), material = Enum.Material.Wood, glow = false },
 }
 
-local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverride)
+-- Attaches a real Trail (two Attachments straddling the part so it reads as
+-- width, not just a line) that follows the missile as it flies. Used instead
+-- of a PointLight for arrows where "fast motion" reads better than "light
+-- source" — see useTrail in fireMissile below.
+local function attachTrail(part, color)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, 0.05, 0)
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, -0.05, 0)
+	a1.Parent = part
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Color = ColorSequence.new(color)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0.2),
+	})
+	trail.Lifetime = 0.2
+	trail.MinLength = 0
+	trail.Parent = part
+	return trail
+end
+
+-- colorOverride tints the missile itself (see arrow colors in
+-- ARROW_EFFECT_COLORS); useTrail picks WHICH cosmetic reads the tint —
+-- true attaches a motion Trail (dynamic, no light source), false/nil falls
+-- back to the PointLight glow. Only one arrow (fire) still glows; the others
+-- (plain, poison) trail instead so they don't all look like the same lit orb.
+local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverride, useTrail)
 	local visual = PROJECTILE_VISUALS[damageKind] or PROJECTILE_VISUALS.magic
 
 	local missile = Instance.new("Part")
@@ -1398,7 +1433,9 @@ local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverr
 	missile.CanQuery = false
 	missile.Position = fromPos
 
-	if visual.glow or colorOverride then
+	if colorOverride and useTrail then
+		attachTrail(missile, colorOverride)
+	elseif visual.glow or colorOverride then
 		local light = Instance.new("PointLight")
 		light.Color = missile.Color
 		light.Range = 8
@@ -1478,6 +1515,11 @@ local function cycleArrow(player)
 		local itemId = ARROW_ORDER[index]
 		if ownsArrow(player, itemId) then
 			selectedArrow[player.UserId] = itemId
+			-- Replicated so ArrowSelectUI can show the current pick without a
+			-- remote round trip — same pattern as PlayerService's Gold/Class
+			-- attributes. The toast (below) still confirms it once, this is
+			-- what lets the HUD chip stay correct across respawns/rejoins too.
+			player:SetAttribute("SelectedArrow", itemId)
 			if notifyRemote then
 				local itemDef = Items.get(itemId)
 				notifyRemote:FireClient(player, "Flecha: " .. (itemDef and itemDef.name or itemId))
@@ -1491,11 +1533,24 @@ local function cycleArrow(player)
 	end
 end
 
--- Tinted missile trail per arrow effect, purely cosmetic (the enemy still
--- gets the normal wooden-arrow model from PROJECTILE_VISUALS otherwise).
+-- Tinted missile per arrow, purely cosmetic (the enemy still takes the same
+-- damage/effect regardless of color). Keyed by arrowEffect.kind for the
+-- special arrows; "plain" is the fallback used by the basic arrow, which has
+-- no arrowEffect of its own (see arrowColor resolution in onWeaponSwing).
 local ARROW_EFFECT_COLORS = {
+	plain = Color3.fromRGB(245, 245, 245),
 	burn = Color3.fromRGB(255, 110, 40),
 	poison = Color3.fromRGB(110, 220, 90),
+}
+
+-- Which cosmetic each arrow's tint drives (see fireMissile's useTrail): only
+-- the fire arrow still reads as a light source, so it feels like it's
+-- actually burning; the others get a motion Trail instead so the three don't
+-- all look like the same glowing orb.
+local ARROW_USES_TRAIL = {
+	plain = true,
+	burn = false,
+	poison = true,
 }
 
 -- Applies (or refreshes/stacks) a bow ammo's damage-over-time onto the hit
@@ -1526,11 +1581,128 @@ local function applyArrowEffect(enemy, effect, player)
 	}
 end
 
+-- Ranged weapons (bow/staff) only fire at an explicitly focused target, and
+-- only while it's within reach — shared by canSwingWeapon (the "don't even
+-- swing" gate below) and onWeaponSwing's own hit resolution, so both agree
+-- on the exact same "no target, no shot" rule. Needs `root` already
+-- resolved by the caller (nil character/root just means no target).
+local function resolveRangedHit(player, def, root)
+	local reach = def.reach or DEFAULT_REACH
+	local focused = entryForPart(TargetService.get(player))
+	if focused and (focused.enemy.part.Position - root.Position).Magnitude <= reach then
+		return focused, focused.enemy
+	end
+	return nil, nil
+end
+
+-- Registered with ToolService.registerCanSwing("weapon", ...): whether the
+-- Tool should swing at all. A ranged weapon with nothing locked in range
+-- doesn't animate or make a sound — no "attacking the air" with the bow/
+-- staff. Melee always passes through: it auto-targets whatever's in range on
+-- hit, so there's no separate lock to require.
+local function canSwingWeapon(player, def)
+	if def.weaponType ~= "ranged" then
+		return true
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	local _, hitEnemy = resolveRangedHit(player, def, root)
+	return hitEnemy ~= nil
+end
+
+-- Registered with ToolService.registerCanPlaySound("weapon", ...): whether
+-- the cast/draw swing sound should actually play. A ranged weapon that can't
+-- afford its mana cost, or a bow with no matching arrow left, still swings
+-- (cooldown/animation as usual — onWeaponSwing below shows the "no mana"/"no
+-- arrows" toast) but stays silent, since nothing is actually being fired.
+-- Melee weapons and tools always pass through (return true).
+local function canAffordWeaponSound(player, def)
+	if def.weaponType ~= "ranged" then
+		return true
+	end
+	local cost = def.manaCost or 0
+	if cost > 0 and ManaService.get(player) < cost then
+		return false
+	end
+	if def.usesArrows and not resolveArrow(player) then
+		return false
+	end
+	return true
+end
+
+-- ---- Weapon combos (3 hits, sword/staff/bow) ------------------------------
+-- Spamming a weapon cycles through 3 swing variants (combo1/2/3 for melee,
+-- castCombo1/2/3 for the staff, drawCombo1/2/3 for the bow — see
+-- ToolService's SWING_STYLES) instead of the exact same swing/cast/draw
+-- every time, and the 3rd hit (the "remate"/finisher) deals extra damage.
+-- Resets to step 1 if the player pauses for longer than COMBO_WINDOW between
+-- swings — same spirit as Genshin's light-attack chain, just simpler (no
+-- branching, no charged attack). Melee and ranged track their progress in
+-- SEPARATE tables (comboStep/comboExpiry vs rangedComboStep/rangedComboExpiry)
+-- so switching weapon types mid-fight doesn't bleed combo progress from one
+-- into the other.
+local COMBO_LENGTH = 3
+local COMBO_WINDOW = 0.8 -- seconds; longer than SWING_COOLDOWN so back-to-back clicks chain
+local COMBO_DAMAGE_MULT = {
+	combo1 = 1, combo2 = 1.1, combo3 = 1.35,
+	-- Mismos multiplicadores que la espada, sólo que bajo las claves de
+	-- variant que devuelve resolveWeaponVariant para báculo/arco (ver abajo).
+	castCombo1 = 1, castCombo2 = 1.1, castCombo3 = 1.35,
+	drawCombo1 = 1, drawCombo2 = 1.1, drawCombo3 = 1.35,
+}
+
+local comboStep = {} -- [userId] = 1..COMBO_LENGTH, the step of the LAST swing played
+local comboExpiry = {} -- [userId] = os.clock() deadline; past this, the next swing restarts at combo1
+
+-- Ranged (báculo/arco) tiene su PROPIO ciclo de combo, separado del melee de
+-- arriba: si el jugador alterna espada -> báculo, no queremos que el combo de
+-- uno se pise con el del otro (ej. equipar el báculo justo después de un
+-- combo3 de espada no debería heredar ese progreso ni reiniciar el de la
+-- espada). Misma ventana/longitud que el melee, solo que en tablas aparte.
+local rangedComboStep = {} -- [userId] = 1..COMBO_LENGTH, último paso ranged jugado
+local rangedComboExpiry = {} -- [userId] = os.clock() deadline; pasado esto, el próximo tiro reinicia en el paso 1
+
+-- Registered with ToolService.registerSwingVariant("weapon", ...). Only
+-- called once a swing has already passed the cooldown gate (see
+-- ToolService.playSwing), so a click that gets debounced away never eats a
+-- combo step. Ranged weapons (staff/bow) get their own combo (cast1-3 /
+-- draw1-3, ver SWING_STYLES en ToolService) usando damageKind para separar
+-- báculo (magic) de arco (physical) — mismo bonus de daño en el remate que
+-- el melee, solo con gestos distintos.
+local function resolveWeaponVariant(player, def)
+	if def.weaponType == "ranged" then
+		local now = os.clock()
+		local step = rangedComboStep[player.UserId]
+		if not step or now > (rangedComboExpiry[player.UserId] or 0) then
+			step = 1
+		else
+			step = step % COMBO_LENGTH + 1
+		end
+		rangedComboStep[player.UserId] = step
+		rangedComboExpiry[player.UserId] = now + COMBO_WINDOW
+		local prefix = def.damageKind == "magic" and "castCombo" or "drawCombo"
+		return prefix .. step
+	end
+	local now = os.clock()
+	local step = comboStep[player.UserId]
+	if not step or now > (comboExpiry[player.UserId] or 0) then
+		step = 1
+	else
+		step = step % COMBO_LENGTH + 1
+	end
+	comboStep[player.UserId] = step
+	comboExpiry[player.UserId] = now + COMBO_WINDOW
+	return "combo" .. step
+end
+
 -- Called by ToolService when a "weapon" item is activated. Melee weapons hit
 -- instantly and can auto-swing at the nearest enemy; ranged weapons (staff)
 -- only fire at an explicitly focused target and launch a magic missile that
 -- damages on impact.
-local function onWeaponSwing(player, tool, def)
+local function onWeaponSwing(player, tool, def, variant)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root or HealthService.isDowned(player) then
@@ -1542,12 +1714,7 @@ local function onWeaponSwing(player, tool, def)
 
 	local hitEntry, hitEnemy
 	if ranged then
-		-- Ranged weapons require a focus: fire only at the locked target, and
-		-- only while it's within reach. No target, no shot.
-		local focused = entryForPart(TargetService.get(player))
-		if focused and (focused.enemy.part.Position - root.Position).Magnitude <= reach then
-			hitEntry, hitEnemy = focused, focused.enemy
-		end
+		hitEntry, hitEnemy = resolveRangedHit(player, def, root)
 	else
 		hitEntry, hitEnemy = targetFor(player, root, reach)
 	end
@@ -1598,7 +1765,24 @@ local function onWeaponSwing(player, tool, def)
 		end
 		local arrowDef = arrowId and Items.get(arrowId)
 		local arrowEffect = arrowDef and arrowDef.arrowEffect
-		local arrowColor = arrowEffect and ARROW_EFFECT_COLORS[arrowEffect.kind]
+		-- Toda flecha real (arrowDef presente) se tiñe: la especial usa el
+		-- color de su efecto, la común cae en "plain" (blanco). El báculo no
+		-- pasa por acá (usesArrows == false => arrowDef == nil), así que su
+		-- misil mágico conserva su propio color violeta de siempre.
+		local arrowKind = arrowDef and (arrowEffect and arrowEffect.kind or "plain")
+		local arrowColor = arrowKind and ARROW_EFFECT_COLORS[arrowKind]
+		local arrowUsesTrail = arrowKind and ARROW_USES_TRAIL[arrowKind]
+
+		-- Combo finisher: el 3er casteo/tiro (castCombo3/drawCombo3) pega más
+		-- fuerte, mismo bonus y misma tabla que el combo de espada (ver
+		-- COMBO_DAMAGE_MULT arriba). Se aplica ANTES del damageMult de la
+		-- flecha para que ambos multiplicadores se compongan, y antes de
+		-- applyLifesteal (que cierra sobre `damage`) para que el lifesteal
+		-- también sane con el daño ya boosteado.
+		local comboMult = COMBO_DAMAGE_MULT[variant] or 1
+		if comboMult ~= 1 then
+			damage = math.max(1, math.floor(damage * comboMult + 0.5))
+		end
 
 		-- Special arrows hit softer on impact than a plain arrow — the
 		-- damageMult (shared/Items.lua, e.g. 0.75 = 25% less) is what they
@@ -1614,7 +1798,7 @@ local function onWeaponSwing(player, tool, def)
 			if arrowEffect then
 				applyArrowEffect(hitEnemy, arrowEffect, player)
 			end
-		end, damageKind, arrowColor)
+		end, damageKind, arrowColor, arrowUsesTrail)
 		-- Double Nock: a primed charge echoes the shot — a second arrow at the
 		-- same target with its own damage/crit roll, no extra mana or ammo.
 		for _, fn in ipairs(extraShotHooks) do
@@ -1625,6 +1809,11 @@ local function onWeaponSwing(player, tool, def)
 						return
 					end
 					local echoDamage, echoCrit = EnemyService.computePlayerDamage(player, def.damage or 10, damageKind)
+					-- Mismo combo mult que el tiro original: el eco es del MISMO
+					-- disparo cargado, no un paso de combo aparte.
+					if comboMult ~= 1 then
+						echoDamage = math.max(1, math.floor(echoDamage * comboMult + 0.5))
+					end
 					if arrowDef and arrowDef.damageMult then
 						echoDamage = math.max(1, math.floor(echoDamage * arrowDef.damageMult + 0.5))
 					end
@@ -1637,11 +1826,19 @@ local function onWeaponSwing(player, tool, def)
 						if arrowEffect then
 							applyArrowEffect(hitEnemy, arrowEffect, player)
 						end
-					end, damageKind, arrowColor)
+					end, damageKind, arrowColor, arrowUsesTrail)
 				end)
 			end
 		end
 	else
+		-- Combo finisher: combo3 hits harder (see COMBO_DAMAGE_MULT above).
+		-- Reassigning `damage` here (rather than a new local) means
+		-- applyLifesteal — which closes over `damage` and runs after this —
+		-- heals off the boosted amount too, same as the arrow damageMult path.
+		local comboMult = COMBO_DAMAGE_MULT[variant] or 1
+		if comboMult ~= 1 then
+			damage = math.max(1, math.floor(damage * comboMult + 0.5))
+		end
 		dealDamage(hitEntry, hitEnemy, damage, player, isCrit, damageKind)
 		applyLifesteal()
 	end
@@ -1658,11 +1855,27 @@ function EnemyService.start()
 		cycleArrow(player)
 	end)
 
+	-- Default the replicated pick to the plain arrow so ArrowSelectUI's HUD
+	-- chip has something correct to show before the player ever cycles (the
+	-- in-memory selectedArrow table only gets a real entry on first cycle —
+	-- see resolveArrow's `or ARROW_ORDER[1]` fallback, mirrored here).
+	local function initSelectedArrowAttribute(player)
+		player:SetAttribute("SelectedArrow", ARROW_ORDER[1])
+	end
+	Players.PlayerAdded:Connect(initSelectedArrowAttribute)
+	for _, player in ipairs(Players:GetPlayers()) do
+		initSelectedArrowAttribute(player)
+	end
+
 	Players.PlayerRemoving:Connect(function(player)
 		lastManaWarn[player.UserId] = nil
 		lastArrowWarn[player.UserId] = nil
 		lastArrowCycle[player.UserId] = nil
 		selectedArrow[player.UserId] = nil
+		comboStep[player.UserId] = nil
+		comboExpiry[player.UserId] = nil
+		rangedComboStep[player.UserId] = nil
+		rangedComboExpiry[player.UserId] = nil
 	end)
 
 	enemyFolder = Instance.new("Folder")
@@ -1696,6 +1909,9 @@ function EnemyService.start()
 	end
 
 	ToolService.registerActivated("weapon", onWeaponSwing)
+	ToolService.registerCanSwing("weapon", canSwingWeapon)
+	ToolService.registerCanPlaySound("weapon", canAffordWeaponSound)
+	ToolService.registerSwingVariant("weapon", resolveWeaponVariant)
 
 	RunService.Heartbeat:Connect(function(dt)
 		for _, entry in ipairs(spawns) do

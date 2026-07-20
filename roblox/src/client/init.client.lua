@@ -14,9 +14,11 @@ local PartyFramesUI = require(script:WaitForChild("PartyFramesUI"))
 local PartyMarkerUI = require(script:WaitForChild("PartyMarkerUI"))
 local StoreUI = require(script:WaitForChild("StoreUI"))
 local QuestUI = require(script:WaitForChild("QuestUI"))
+local NpcMenuUI = require(script:WaitForChild("NpcMenuUI"))
 local QuestLogUI = require(script:WaitForChild("QuestLogUI"))
 local QuestTrackerUI = require(script:WaitForChild("QuestTrackerUI"))
 local QuestSfx = require(script:WaitForChild("QuestSfx"))
+local QuestMarkerUI = require(script:WaitForChild("QuestMarkerUI"))
 local CraftUI = require(script:WaitForChild("CraftUI"))
 local SettingsUI = require(script:WaitForChild("SettingsUI"))
 local CharacterUI = require(script:WaitForChild("CharacterUI"))
@@ -55,11 +57,13 @@ PartyUI.start()
 GuildUI.start()
 PartyFramesUI.start()
 PartyMarkerUI.start()
+NpcMenuUI.start() -- Hablar/Ver tienda/Ver misiones — opens on NPC ProximityPrompt, before Store/Quest
 StoreUI.start()
-QuestUI.start() -- quest giver panel (opens via NPC ProximityPrompt)
+QuestUI.start() -- quest giver panel (opens via NpcMenuUI, not directly by the ProximityPrompt anymore)
 QuestLogUI.start() -- "Quests" tab (J key / top-right button) — all accepted quests, pick which is tracked
 QuestTrackerUI.start() -- HUD tracker (top-left, read-only) for the currently tracked quest
 QuestSfx.start() -- distinct sound on quest accepted vs completed
+QuestMarkerUI.start() -- "!" flotante sobre NPCs con misión disponible/lista para entregar
 CraftUI.start() -- crafting panel (V key / top-right button)
 SettingsUI.start() -- options menu (gear button, top-right)
 CharacterUI.start() -- character sheet (C key / top-right button)
@@ -84,5 +88,5 @@ FurnitureManageUI.start()
 CampTimerUI.start()
 ChestUI.start()
 MarkerUI.start() -- click medio: marcar enemigo/loot/piso (solo o para la party con Shift)
-ArrowSelectUI.start() -- T key: cycle bow ammo type between owned arrows
+ArrowSelectUI.start() -- R key: cycle bow ammo type between owned arrows
 SwingCooldownUI.start() -- Minecraft-style bar under the crosshair, same cooldown data as HudUI's hotbar veil
