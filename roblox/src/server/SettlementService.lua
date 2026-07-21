@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
 local GridConfig = require(Shared:WaitForChild("GridConfig"))
 local Settlements = require(Shared:WaitForChild("Settlements"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -50,6 +51,16 @@ local localDefs = {}
 -- [settlementId] = { guildId (string?), guildTag (string?), guildName (string?) }
 -- guildId == nil means neutral.
 local ownership = {}
+
+-- [settlementId] = os.clock() the post-capture grace window ends. Set on
+-- every successful claim; read by isInGrace() below. A settlement that's
+-- never been claimed (or whose grace already lapsed) has no entry here.
+local graceEndsAt = {}
+
+local function isInGrace(settlementId)
+	local endsAt = graceEndsAt[settlementId]
+	return endsAt ~= nil and os.clock() < endsAt
+end
 
 -- [settlementId] = { anchor = Part, label = TextLabel }
 local banners = {}
@@ -162,7 +173,13 @@ end
 
 local function scheduleChallenger(settlementId, delaySeconds)
 	task.delay(delaySeconds, function()
-		EnemyService.respawnSettlementGuardian(settlementId)
+		-- Still owned when this fires => it's a recruited defender, not the
+		-- original wild guardian, so it spawns buffed (see
+		-- Config.SettlementWar.recruitedGuardianMult and
+		-- EnemyService.respawnSettlementGuardian).
+		local owner = ownership[settlementId]
+		local statMult = owner and Config.SettlementWar.recruitedGuardianMult or nil
+		EnemyService.respawnSettlementGuardian(settlementId, statMult)
 	end)
 end
 
@@ -201,6 +218,7 @@ local function handleGuardianKilled(settlementId, damageBy)
 	end
 
 	setOwnership(settlementId, guild.id, guild.tag, guild.name)
+	graceEndsAt[settlementId] = os.clock() + def.graceSeconds
 
 	local topPlayer = Players:GetPlayerByUserId(topUserId)
 	GuildService.notifyGuild(tonumber(guild.id), string.format("¡Tu gremio capturó %s!", def.name))
@@ -212,6 +230,60 @@ local function handleGuardianKilled(settlementId, damageBy)
 	end
 
 	scheduleChallenger(settlementId, def.challengerRespawn)
+end
+
+-- ---- territory war gates ----------------------------------------------------
+--
+-- Registered with EnemyService (registerSettlementGuardianGate /
+-- registerPvpGate) so it can gate all guardian/player damage without
+-- knowing anything about guilds — see the hook doc comments over there.
+
+local function playerWithinRadius(player, def)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	return distance2D(root.Position, def.position) <= def.radius
+end
+
+-- A settlement's guardian is open season for anyone while it's neutral
+-- (nobody's claimed it yet). Once owned, it's protected during grace, and
+-- afterward only non-members of the owning guild can hurt it — the owning
+-- guild's own members can't grief their own recruit.
+local function guardianGate(attacker, settlementId)
+	local owner = ownership[settlementId]
+	if not owner then
+		return true
+	end
+	if isInGrace(settlementId) then
+		return false
+	end
+	local attackerGuildId = GuildService.getGuildId(attacker)
+	return not (attackerGuildId and tostring(attackerGuildId) == owner.guildId)
+end
+
+-- Two players can hurt each other only inside a settlement that's currently
+-- owned, out of grace, and only if exactly one of them belongs to the
+-- owning guild (defender) and the other doesn't (invader) — bystanders from
+-- a third guild, or two members of the same guild, never fight each other
+-- here.
+local function pvpGate(attacker, target)
+	for settlementId, def in pairs(localDefs) do
+		local owner = ownership[settlementId]
+		if owner and not isInGrace(settlementId) then
+			if playerWithinRadius(attacker, def) and playerWithinRadius(target, def) then
+				local attackerGuildId = GuildService.getGuildId(attacker)
+				local targetGuildId = GuildService.getGuildId(target)
+				local attackerIsDefender = attackerGuildId ~= nil and tostring(attackerGuildId) == owner.guildId
+				local targetIsDefender = targetGuildId ~= nil and tostring(targetGuildId) == owner.guildId
+				if attackerIsDefender ~= targetIsDefender then
+					return true
+				end
+			end
+		end
+	end
+	return false
 end
 
 -- ---- public API -----------------------------------------------------------
@@ -269,6 +341,9 @@ function SettlementService.start()
 			handleGuardianKilled(settlementId, damageBy)
 		end
 	end)
+
+	EnemyService.registerSettlementGuardianGate(guardianGate)
+	EnemyService.registerPvpGate(pvpGate)
 
 	GatheringService.registerYieldBonus(function(player, _toolType)
 		return SettlementService.resourceBonusFor(player)

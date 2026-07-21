@@ -364,6 +364,57 @@ function EnemyService.grantIframes(player, duration)
 	end
 end
 
+-- Settlement wars ---------------------------------------------------------
+--
+-- Two gate hooks SettlementService registers into, so EnemyService stays
+-- ignorant of guilds/ownership — same "ask a hook, don't know the caller"
+-- shape as the damage-mult hooks above.
+--
+-- registerSettlementGuardianGate: fn(attacker, settlementId) -> false blocks
+-- a hit on that settlement's guardian entirely (e.g. it's the owning
+-- guild's own recruit, or the settlement is still in its post-capture grace
+-- window). No gate registered, or every gate returning non-false, allows
+-- the hit — so a settlement with no SettlementService running (or a
+-- never-captured neutral guardian) behaves exactly as before.
+local settlementGuardianGates = {}
+function EnemyService.registerSettlementGuardianGate(fn)
+	table.insert(settlementGuardianGates, fn)
+end
+
+local function guardianDamageAllowed(enemy, attacker)
+	local settlementId = enemy.def.settlementId
+	if not settlementId or not attacker then
+		return true
+	end
+	for _, fn in ipairs(settlementGuardianGates) do
+		local ok, allowed = pcall(fn, attacker, settlementId)
+		if ok and allowed == false then
+			return false
+		end
+	end
+	return true
+end
+
+-- registerPvpGate: fn(attacker, target) -> true opens player-vs-player
+-- damage between exactly those two players right now. Unlike the other
+-- hooks this defaults CLOSED (no registered gate saying true == no PvP
+-- anywhere) — the game stays PvE-safe everywhere except wherever
+-- SettlementService's contested-territory check opts a pair of players in.
+local pvpGates = {}
+function EnemyService.registerPvpGate(fn)
+	table.insert(pvpGates, fn)
+end
+
+local function pvpAllowed(attacker, target)
+	for _, fn in ipairs(pvpGates) do
+		local ok, allowed = pcall(fn, attacker, target)
+		if ok and allowed then
+			return true
+		end
+	end
+	return false
+end
+
 -- Floating "Dodge!" popup over a player who just evaded a hit.
 local function dodgePopup(character)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -469,7 +520,14 @@ local function updateHealthBar(enemy)
 	end)
 end
 
-local function buildEnemy(pos, def)
+-- statMult (default 1) scales hp/ad only — used for a settlement guardian's
+-- "recruited" respawn: once a guild has captured a settlement at least
+-- once, every guardian after that is stronger than the original wild one,
+-- reflecting that it's now defending a held territory, not just standing
+-- around. armor/magicResist/level are untouched so it doesn't also get
+-- harder to hit.
+local function buildEnemy(pos, def, statMult)
+	statMult = statMult or 1
 	local y = groundY(pos.X, pos.Z)
 
 	local level = math.random(def.minLevel or 1, def.maxLevel or 1)
@@ -480,8 +538,8 @@ local function buildEnemy(pos, def)
 		-- the min/max roll where it'd be invisible.
 		level += def.nightLevelBonus or 0
 	end
-	local maxHp = math.floor(def.hp * (1 + (level - 1) * HP_PER_LEVEL) + 0.5)
-	local ad = math.floor((def.ad or def.damage or 0) * (1 + (level - 1) * AD_PER_LEVEL) + 0.5)
+	local maxHp = math.floor(def.hp * (1 + (level - 1) * HP_PER_LEVEL) * statMult + 0.5)
+	local ad = math.floor((def.ad or def.damage or 0) * (1 + (level - 1) * AD_PER_LEVEL) * statMult + 0.5)
 	local ap = math.floor((def.ap or 0) * (1 + (level - 1) * AP_PER_LEVEL) + 0.5)
 	local armor = math.floor((def.armor or 0) * (1 + (level - 1) * ARMOR_PER_LEVEL) + 0.5)
 	local magicResist = math.floor((def.magicResist or 0) * (1 + (level - 1) * MR_PER_LEVEL) + 0.5)
@@ -648,8 +706,8 @@ local function buildEnemy(pos, def)
 	}
 end
 
-local function spawnAt(entry)
-	entry.enemy = buildEnemy(entry.pos, entry.def)
+local function spawnAt(entry, statMult)
+	entry.enemy = buildEnemy(entry.pos, entry.def, statMult)
 end
 
 -- Spawns the guardian/challenger for `settlementId` if it's currently dead
@@ -659,14 +717,25 @@ end
 -- should reappear. No-ops silently if this server doesn't run that
 -- settlement's cell (settlementEntries is only populated for the local
 -- cell in start()).
-function EnemyService.respawnSettlementGuardian(settlementId)
+--
+-- statMult is passed straight through to buildEnemy — SettlementService
+-- decides whether this spawn is the original neutral guardian (nil/1) or a
+-- recruited defender for the guild that currently owns the settlement
+-- (Config.SettlementWar.recruitedGuardianMult).
+function EnemyService.respawnSettlementGuardian(settlementId, statMult)
 	local entry = settlementEntries[settlementId]
 	if entry and not entry.enemy then
-		spawnAt(entry)
+		spawnAt(entry, statMult)
 	end
 end
 
-local function nearestPlayer(position, range)
+-- `enemy` is optional — when passed and it's a settlement guardian, players
+-- guardianDamageAllowed() would block (the owning guild's own members, or
+-- anyone during grace) are skipped entirely rather than just being the
+-- closest-but-untargetable pick, so a recruited guardian actually looks
+-- past its own defenders for an invader instead of just going idle next to
+-- one.
+local function nearestPlayer(position, range, enemy)
 	local closest, closestDist
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
@@ -675,9 +744,11 @@ local function nearestPlayer(position, range)
 		-- Downed players sit at 1 HP waiting for a revive; they're out of the
 		-- fight, so enemies drop them and look for someone else.
 		if root and humanoid and humanoid.Health > 0 and not HealthService.isDowned(player) then
-			local dist = (root.Position - position).Magnitude
-			if dist <= range and (not closestDist or dist < closestDist) then
-				closest, closestDist = player, dist
+			if not enemy or guardianDamageAllowed(enemy, player) then
+				local dist = (root.Position - position).Magnitude
+				if dist <= range and (not closestDist or dist < closestDist) then
+					closest, closestDist = player, dist
+				end
 			end
 		end
 	end
@@ -929,7 +1000,15 @@ local function updateEnemy(entry, dt)
 			enemy.aggroBy, enemy.aggroUntil = nil, nil
 		end
 	end
-	target = target or nearestPlayer(enemy.part.Position, def.aggroRange)
+	target = target or nearestPlayer(enemy.part.Position, def.aggroRange, enemy)
+
+	-- A taunt or a leftover damage-aggro lock could still be pointing at a
+	-- player a settlement guardian isn't allowed to fight (e.g. the taunter
+	-- is one of the guardian's own guild's defenders) — drop it rather than
+	-- attack them.
+	if target and def.settlementId and not guardianDamageAllowed(enemy, target) then
+		target = nil
+	end
 
 	local root
 	if target then
@@ -1202,6 +1281,13 @@ end
 -- resistances (e.g. Retribution's reflect damage).
 dealDamage = function(entry, enemy, damage, killer, isCrit, damageKind)
 	if not enemy or enemy.dead then
+		return
+	end
+	-- Settlement guardians can refuse a hit outright (own guild's recruit,
+	-- or still in grace) — before any of the mitigation/aggro bookkeeping
+	-- below, so a blocked hit has zero side effects, same as swinging at
+	-- nothing.
+	if not guardianDamageAllowed(enemy, killer) then
 		return
 	end
 	-- Every hit (re)locks the enemy onto the attacker — see updateEnemy.
@@ -1740,6 +1826,65 @@ end
 -- instantly and can auto-swing at the nearest enemy; ranged weapons (staff)
 -- only fire at an explicitly focused target and launch a magic missile that
 -- damages on impact.
+-- Nearest live, non-downed enemy PLAYER within `reach` that pvpAllowed()
+-- currently opens up for `player` to hit. Melee only for now — ranged/spell
+-- PvP touches a lot more surface (arrow effects, missile travel, mana
+-- costs) and is a reasonable follow-up rather than part of this first pass.
+local function pvpTargetFor(player, root, reach)
+	local best, bestDist
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player and pvpAllowed(player, other) then
+			local character = other.Character
+			local otherRoot = character and character:FindFirstChild("HumanoidRootPart")
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if otherRoot and humanoid and humanoid.Health > 0 and not HealthService.isDowned(other) then
+				local dist = (otherRoot.Position - root.Position).Magnitude
+				if dist <= reach and (not bestDist or dist < bestDist) then
+					best, bestDist = other, dist
+				end
+			end
+		end
+	end
+	return best
+end
+
+-- Player-vs-player melee hit: the same outgoing roll as a normal swing
+-- (computePlayerDamage), mitigated by the TARGET's own armor/MR
+-- (ClassService, same mitigation curve as an enemy's), then delivered
+-- through HealthService.damagePlayer — so a settlement fight goes through
+-- the exact same shield/undying/downed pipeline as any other damage to a
+-- player, no separate PvP health model to keep in sync.
+local function applyPvpHit(attacker, target, def, variant)
+	local damageKind = def.damageKind or "melee"
+	local damage, isCrit = EnemyService.computePlayerDamage(attacker, def.damage or 10, damageKind)
+
+	local comboMult = COMBO_DAMAGE_MULT[variant] or 1
+	if comboMult ~= 1 then
+		damage = math.max(1, math.floor(damage * comboMult + 0.5))
+	end
+
+	local resist = damageKind == "magic" and ClassService.getMR(target) or ClassService.getArmor(target)
+	if resist and resist > 0 then
+		damage = math.max(1, math.floor(damage * (1 - Classes.mitigation(resist)) + 0.5))
+	end
+
+	HealthService.damagePlayer(target, damage)
+	HealthService.registerDamage(target)
+	HealthService.markSettlementCombat(target)
+
+	local lifesteal = hookedLifesteal(attacker)
+	if lifesteal > 0 then
+		HealthService.heal(attacker, damage * lifesteal)
+	end
+
+	if damageIndicatorRemote then
+		local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+		if targetRoot then
+			damageIndicatorRemote:FireClient(attacker, damage, isCrit, targetRoot.Position)
+		end
+	end
+end
+
 local function onWeaponSwing(player, tool, def, variant)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -1758,6 +1903,15 @@ local function onWeaponSwing(player, tool, def, variant)
 	end
 
 	if not hitEnemy then
+		-- No enemy in range — for a melee swing, see if there's an opposing
+		-- player in range instead (settlement invasion PvP). Ranged/spell
+		-- swings just whiff, same as before.
+		if not ranged then
+			local pvpTarget = pvpTargetFor(player, root, reach)
+			if pvpTarget then
+				applyPvpHit(player, pvpTarget, def, variant)
+			end
+		end
 		return
 	end
 
