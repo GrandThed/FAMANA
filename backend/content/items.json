@@ -712,6 +712,149 @@
       "traits": {
         "oracle": 5
       }
+    },
+    "puesto_mercado": {
+      "id": "puesto_mercado",
+      "name": "Puesto de Mercado",
+      "flavor": "Un puesto de comercio para vender y comprar bienes.",
+      "type": "placeable",
+      "stackable": true,
+      "maxStack": 5,
+      "size": [2, 2]
+    },
+    "cana_pescar": {
+      "id": "cana_pescar",
+      "name": "Caña de Pescar",
+      "flavor": "Caña artesanal para pescar en ríos y lagos.",
+      "type": "tool",
+      "toolType": "fishing_rod",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 3]
+    },
+    "carne_jabali": {
+      "id": "carne_jabali",
+      "name": "Carne de Jabalí",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "trigo": {
+      "id": "trigo",
+      "name": "Trigo",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "hierba_roja": {
+      "id": "hierba_roja",
+      "name": "Hierba Roja",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "hierba_azul": {
+      "id": "hierba_azul",
+      "name": "Hierba Azul",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "hierba_agil": {
+      "id": "hierba_agil",
+      "name": "Hierba Ágil",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "estofado_jabali": {
+      "id": "estofado_jabali",
+      "name": "Estofado de Jabalí",
+      "flavor": "Comida sustanciosa que restaura HP y otorga un gran buff de salud.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 50,
+      "buff": "food_max_hp",
+      "size": [1, 1]
+    },
+    "pan_viaje": {
+      "id": "pan_viaje",
+      "name": "Pan de Viaje",
+      "flavor": "Nutritivo y duradero.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 30,
+      "size": [1, 1]
+    },
+    "pocion_salud_mayor": {
+      "id": "pocion_salud_mayor",
+      "name": "Poción de Salud Mayor",
+      "flavor": "Cura 80 puntos de salud instantáneamente.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 80,
+      "size": [1, 1]
+    },
+    "pocion_mana": {
+      "id": "pocion_mana",
+      "name": "Poción de Maná",
+      "flavor": "Restaura 60 puntos de maná.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "restoreMana": 60,
+      "size": [1, 1]
+    },
+    "elixir_velocidad": {
+      "id": "elixir_velocidad",
+      "name": "Elixir de Velocidad",
+      "flavor": "Aumenta la velocidad de movimiento por 5 minutos.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "buff": "speed_elixir",
+      "size": [1, 1]
+    },
+    "pez_dorado": {
+      "id": "pez_dorado",
+      "name": "Pez Dorado",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "trucha_plateada": {
+      "id": "trucha_plateada",
+      "name": "Trucha Plateada",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "pez_sombra": {
+      "id": "pez_sombra",
+      "name": "Pez Sombra",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "cofre_hundido": {
+      "id": "cofre_hundido",
+      "name": "Cofre Hundido",
+      "flavor": "Tesoro rescatado de las profundidades. ¡Ábrelo para ver su contenido!",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 5,
+      "size": [1, 1]
     }
   },
   "starterItems": [

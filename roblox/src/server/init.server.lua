@@ -38,6 +38,10 @@ local MarkerService = require(script:WaitForChild("MarkerService"))
 local BorderService = require(script:WaitForChild("BorderService"))
 local WorldService = require(script:WaitForChild("WorldService"))
 local AdminSyncService = require(script:WaitForChild("AdminSyncService"))
+local MarketService = require(script:WaitForChild("MarketService"))
+local CookingService = require(script:WaitForChild("CookingService"))
+local FishingService = require(script:WaitForChild("FishingService"))
+local WeatherService = require(script:WaitForChild("WeatherService"))
 
 -- Cell-only services (border teleports, cell theming) don't start in
 -- instance places (dungeons, housing — see GridConfig.places).
@@ -77,6 +81,10 @@ BestiaryService.start() -- after EnemyService: hooks onKilled, bumps lifetime ki
 AchievementsService.start() -- after EnemyService/GatheringService/CraftingService/QuestService: hooks all of their completion events
 LeaderboardService.start() -- serves the GetLeaderboard remote (proxies to the backend)
 MarkerService.start() -- after PartyService (lee membresía) y EnemyService/DropService (valida anchors)
+MarketService.start()
+CookingService.start()
+FishingService.start()
+WeatherService.start()
 if role == "cell" then
 	BorderService.start()
 end

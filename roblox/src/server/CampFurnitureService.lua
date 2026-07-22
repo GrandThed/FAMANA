@@ -68,6 +68,7 @@ local AUTOSAVE_INTERVAL = 120 -- seconds; see the loop in start() below
 local FURNITURE_DEFS = {
 	cofre_campamento = { kind = "chest" },
 	cofre_gremio = { kind = "guild_chest" },
+	puesto_mercado = { kind = "market" },
 	-- Purely decorative, no station — the first "cosmetic" piece, predates
 	-- the tier system so it's not gated (minCampTier absent = tier 0 ok).
 	-- Counts toward coziness (§3) like the newer cosmetics below.
@@ -349,6 +350,7 @@ end
 local MESH_LOOK = {
 	chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
 	guild_chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
+	market = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
 	tent = { key = "tent", anchor = Vector3.new(0.6, 2.2, 0.6), collide = false },
 	crafting_table = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
 	forge = { key = "simple_forge", anchor = Vector3.new(2.6, 1.8, 2.2), collide = true },
@@ -464,6 +466,37 @@ local function buildPiece(kind, itemId, center, ownerId)
 		prompt.Triggered:Connect(triggerGuildChest)
 		clickDetector.MouseClick:Connect(triggerGuildChest)
 		clickDetector.RightMouseClick:Connect(triggerGuildChest)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "market" then
+		local model = buildFurnitureModel(kind, "Puesto de Mercado", CHEST_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Abrir Mercado"
+		prompt.ObjectText = "Puesto de Mercado"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.UIOffset = Vector2.new(0, 0)
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local openMarketRemote = Remotes.get("OpenMarket")
+		local function triggerMarket(triggeringPlayer)
+			if openMarketRemote then
+				openMarketRemote:FireClient(triggeringPlayer)
+			end
+		end
+
+		prompt.Triggered:Connect(triggerMarket)
+		clickDetector.MouseClick:Connect(triggerMarket)
+		clickDetector.RightMouseClick:Connect(triggerMarket)
 
 		attachManagePrompt(piece, model)
 	elseif kind == "tent" then

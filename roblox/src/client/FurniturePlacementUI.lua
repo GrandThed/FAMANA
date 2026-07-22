@@ -26,6 +26,7 @@ local FurniturePlacementUI = {}
 local FURNITURE_ITEMS = {
 	cofre_campamento = { size = 3 },
 	cofre_gremio = { size = 3 },
+	puesto_mercado = { size = 4 },
 	carpa_campamento = { size = 4 },
 	crafting_table = { size = 4 },
 	simple_forge = { size = 3 },

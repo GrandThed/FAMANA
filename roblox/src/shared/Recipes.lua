@@ -197,6 +197,25 @@ Recipes.defs = {
 		},
 		station = "crafting_table"
 	},
+	puesto_mercado = {
+		id = "puesto_mercado",
+		name = "Puesto de Mercado",
+		result = { itemId = "puesto_mercado", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 30 },
+			{ itemId = "iron_ingot", quantity = 10 },
+		},
+		station = "crafting_table",
+	},
+	cana_pescar = {
+		id = "cana_pescar",
+		name = "Caña de Pescar",
+		result = { itemId = "cana_pescar", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 15 },
+		},
+		station = "crafting_table",
+	},
 }
 
 function Recipes.get(recipeId)
@@ -217,6 +236,8 @@ local order =
 		"acampada",
 		"cofre_campamento",
 		"cofre_gremio",
+		"puesto_mercado",
+		"cana_pescar",
 		"carpa_campamento",
 		"olla_campamento",
 		"alfombra_campamento",

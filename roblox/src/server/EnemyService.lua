@@ -1283,6 +1283,10 @@ dealDamage = function(entry, enemy, damage, killer, isCrit, damageKind)
 	if not enemy or enemy.dead then
 		return
 	end
+	-- Wet target bonus: Lightning / Electric magic deals +25% bonus damage to Wet targets
+	if enemy.part and enemy.part:GetAttribute("Wet") and damageKind == "magic" then
+		damage = math.floor(damage * 1.25 + 0.5)
+	end
 	-- Settlement guardians can refuse a hit outright (own guild's recruit,
 	-- or still in grace) — before any of the mitigation/aggro bookkeeping
 	-- below, so a blocked hit has zero side effects, same as swinging at

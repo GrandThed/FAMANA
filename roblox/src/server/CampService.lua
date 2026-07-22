@@ -502,4 +502,25 @@ function CampService.start()
 	getCampTimer.OnServerInvoke = CampService.getTimer
 end
 
+function CampService.extinguishExposedCampfires()
+	for _, model in ipairs(campFolder:GetChildren()) do
+		local ember = model:FindFirstChild("Ember", true)
+		if ember then
+			local light = ember:FindFirstChildOfClass("PointLight")
+			local sparks = ember:FindFirstChild("CampfireSparks")
+			local sound = ember:FindFirstChild("CampfireCrackle")
+			local ray = Workspace:Raycast(ember.Position, Vector3.new(0, 50, 0))
+			if not ray then
+				if light then light.Enabled = false end
+				if sparks then sparks.Enabled = false end
+				if sound then sound.Volume = 0.1 end
+			else
+				if light then light.Enabled = true end
+				if sparks then sparks.Enabled = true end
+				if sound then sound.Volume = 0.7 end
+			end
+		end
+	end
+end
+
 return CampService
