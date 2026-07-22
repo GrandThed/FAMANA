@@ -51,6 +51,9 @@ local MeshAssetService = require(script.Parent.MeshAssetService)
 local PlayerService = require(script.Parent.PlayerService)
 local CampService = require(script.Parent.CampService)
 local CraftingService = require(script.Parent.CraftingService)
+local SleepingService = require(script.Parent.SleepingService)
+local SittingService = require(script.Parent.SittingService)
+local GuildPlotService = require(script.Parent.GuildPlotService)
 
 local CampFurnitureService = {}
 
@@ -92,6 +95,11 @@ local FURNITURE_DEFS = {
 	alfombra_campamento = { kind = "rug", cosmetic = true, minCampTier = 1 },
 	farol_campamento = { kind = "lantern", cosmetic = true, minCampTier = 1 },
 	trofeo_campamento = { kind = "trophy", cosmetic = true, minCampTier = 2 },
+	bolsa_dormir = { kind = "bed", cosmetic = true },
+	cama_campamento = { kind = "bed", cosmetic = true },
+	silla_campamento = { kind = "chair", cosmetic = true },
+	banco_campamento = { kind = "chair", cosmetic = true },
+	mesa_investigacion_gremio = { kind = "guild_research" },
 }
 
 local CHEST_SPECS = {
@@ -533,6 +541,31 @@ local function buildPiece(kind, itemId, center, ownerId)
 			light.Brightness = 1.8
 			light.Parent = model.PrimaryPart
 		elseif kind == "cauldron" then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.ActionText = "Cocinar / Alquimia"
+			prompt.ObjectText = "Olla de Campamento"
+			prompt.HoldDuration = 0.15
+			prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+			prompt.RequiresLineOfSight = false
+			prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+			prompt.UIOffset = Vector2.new(0, 0)
+			prompt.Parent = model.PrimaryPart
+
+			local clickDetector = Instance.new("ClickDetector")
+			clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+			clickDetector.Parent = model.PrimaryPart
+
+			local openCookingRemote = Remotes.get("OpenCooking")
+			local function triggerCooking(triggeringPlayer)
+				if openCookingRemote then
+					openCookingRemote:FireClient(triggeringPlayer)
+				end
+			end
+
+			prompt.Triggered:Connect(triggerCooking)
+			clickDetector.MouseClick:Connect(triggerCooking)
+			clickDetector.RightMouseClick:Connect(triggerCooking)
+
 			local light = Instance.new("PointLight")
 			light.Color = Color3.fromRGB(255, 180, 80)
 			light.Range = 10
@@ -597,6 +630,90 @@ local function buildPiece(kind, itemId, center, ownerId)
 			light.Brightness = 2.0
 			light.Parent = targetPart
 		end
+
+		attachManagePrompt(piece, model)
+	elseif kind == "bed" then
+		local specs = RUG_SPECS
+		local model = buildFurnitureModel(kind, "Cama", specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Acostarse / Descansar"
+		prompt.ObjectText = itemId == "bolsa_dormir" and "Bolsa de Dormir" or "Cama de Campamento"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local function triggerSleep(p)
+			SleepingService.lieDown(p, model.PrimaryPart)
+		end
+		prompt.Triggered:Connect(triggerSleep)
+		clickDetector.MouseClick:Connect(triggerSleep)
+		clickDetector.RightMouseClick:Connect(triggerSleep)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "guild_research" then
+		local specs = CRAFTING_TABLE_SPECS
+		local model = buildFurnitureModel(kind, "MesaInvestigacion", specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Investigaciones del Gremio"
+		prompt.ObjectText = "Mesa de Investigación"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local openResearchRemote = Remotes.get("OpenGuildResearch")
+		local function triggerResearch(p)
+			if openResearchRemote then
+				openResearchRemote:FireClient(p)
+			end
+		end
+		prompt.Triggered:Connect(triggerResearch)
+		clickDetector.MouseClick:Connect(triggerResearch)
+		clickDetector.RightMouseClick:Connect(triggerResearch)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "chair" then
+		local specs = RUG_SPECS
+		local model = buildFurnitureModel(kind, "Asiento", specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Sentarse / Descansar"
+		prompt.ObjectText = itemId == "banco_campamento" and "Banco de Madera" or "Silla de Madera"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local function triggerSit(p)
+			SittingService.sitDown(p, model.PrimaryPart)
+		end
+		prompt.Triggered:Connect(triggerSit)
+		clickDetector.MouseClick:Connect(triggerSit)
+		clickDetector.RightMouseClick:Connect(triggerSit)
 
 		attachManagePrompt(piece, model)
 	end
@@ -706,6 +823,14 @@ local function handlePlaceFurniture(player, itemId, x, z)
 	if math.abs(x - camp.center.X) > half or math.abs(z - camp.center.Z) > half then
 		notify(player, "Furniture has to go inside the camp's zone.")
 		return { ok = false, error = "outside_zone" }
+	end
+
+	if itemId == "mesa_investigacion_gremio" then
+		local guildId = player:GetAttribute("GuildId")
+		if not guildId or not GuildPlotService.isPositionInGuildHQ(Vector3.new(x, 0, z), guildId) then
+			notify(player, "La Mesa de Investigación solo puede colocarse dentro de la Sede Oficial de tu Gremio.")
+			return { ok = false, error = "not_guild_hq" }
+		end
 	end
 
 	-- Reserved fire-pit radius (docs/CAMP_TIERS.md §6.1): sized to the

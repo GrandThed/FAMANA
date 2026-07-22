@@ -24,6 +24,72 @@ Recipes.defs = {
 			{ itemId = "wood", quantity = 15 },
 		},
 	},
+	hoz_recoleccion = {
+		id = "hoz_recoleccion",
+		name = "Hoz de Recolección",
+		result = { itemId = "hoz_recoleccion", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 10 },
+			{ itemId = "copper_ingot", quantity = 2 },
+		},
+		station = "crafting_table",
+	},
+	bolsa_dormir = {
+		id = "bolsa_dormir",
+		name = "Bolsa de Dormir",
+		result = { itemId = "bolsa_dormir", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 12 },
+		},
+		station = "crafting_table",
+	},
+	cama_campamento = {
+		id = "cama_campamento",
+		name = "Cama de Campamento",
+		result = { itemId = "cama_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 25 },
+			{ itemId = "copper_ingot", quantity = 2 },
+		},
+		station = "crafting_table",
+	},
+	mesa_investigacion_gremio = {
+		id = "mesa_investigacion_gremio",
+		name = "Mesa de Investigación del Gremio",
+		result = { itemId = "mesa_investigacion_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 20 },
+			{ itemId = "iron_ingot", quantity = 4 },
+		},
+		station = "crafting_table",
+	},
+	silla_campamento = {
+		id = "silla_campamento",
+		name = "Silla de Madera",
+		result = { itemId = "silla_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 8 },
+		},
+		station = "crafting_table",
+	},
+	banco_campamento = {
+		id = "banco_campamento",
+		name = "Banco de Madera",
+		result = { itemId = "banco_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 14 },
+		},
+		station = "crafting_table",
+	},
+	plano_construccion = {
+		id = "plano_construccion",
+		name = "Plano de Construcción",
+		result = { itemId = "plano_construccion", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 5 },
+		},
+		station = "crafting_table",
+	},
 	torch = {
 		id = "torch",
 		name = "Torch",

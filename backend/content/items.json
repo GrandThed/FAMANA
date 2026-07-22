@@ -855,6 +855,108 @@
       "stackable": true,
       "maxStack": 5,
       "size": [1, 1]
+    },
+    "pescado_asado": {
+      "id": "pescado_asado",
+      "name": "Pescado Asado",
+      "flavor": "Pescado fresco asado al fuego. Restaura 45 HP.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 45,
+      "size": [1, 1]
+    },
+    "sopa_pescado": {
+      "id": "sopa_pescado",
+      "name": "Sopa de Pescado Real",
+      "flavor": "Deliciosa sopa con trucha plateada y hierbas. Restaura 65 HP y 30 Maná.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 65,
+      "restoreMana": 30,
+      "buff": "food_max_hp",
+      "size": [1, 1]
+    },
+    "elixir_sombras": {
+      "id": "elixir_sombras",
+      "name": "Elixir de Sombras",
+      "flavor": "Destilado de pez sombra. Restaura 80 de Maná y otorga velocidad.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "restoreMana": 80,
+      "buff": "speed_elixir",
+      "size": [1, 1]
+    },
+    "elixir_fortaleza": {
+      "id": "elixir_fortaleza",
+      "name": "Elixir de Fortaleza Marina",
+      "flavor": "Infusión de trucha plateada y hierbas ágiles. Cura 50 HP y otorga velocidad.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 50,
+      "buff": "speed_elixir",
+      "size": [1, 1]
+    },
+    "hoz_recoleccion": {
+      "id": "hoz_recoleccion",
+      "name": "Hoz de Recolección",
+      "flavor": "Herramienta ideal para cortar arbustos y cosechar hierbas medicinales.",
+      "type": "tool",
+      "toolType": "sickle",
+      "toolTier": 1,
+      "size": [1, 2]
+    },
+    "bolsa_dormir": {
+      "id": "bolsa_dormir",
+      "name": "Bolsa de Dormir",
+      "flavor": "Permite acostarse a descansar en el campamento para rolear y acumular el bufo Descansado al doble de velocidad.",
+      "type": "placeable",
+      "stackable": false,
+      "size": [2, 1]
+    },
+    "cama_campamento": {
+      "id": "cama_campamento",
+      "name": "Cama de Campamento",
+      "flavor": "Cama rústica de madera y tela. Ofrece mayor confort para descansar y regenerar salud.",
+      "type": "placeable",
+      "stackable": false,
+      "size": [2, 2]
+    },
+    "mesa_investigacion_gremio": {
+      "id": "mesa_investigacion_gremio",
+      "name": "Mesa de Investigación del Gremio",
+      "flavor": "Mesa de proyectos para la Sede del Gremio. Permite investigar recetas de rasgos avanzados y mejoras colectivas.",
+      "type": "placeable",
+      "stackable": false,
+      "size": [2, 2]
+    },
+    "silla_campamento": {
+      "id": "silla_campamento",
+      "name": "Silla de Madera",
+      "flavor": "Silla de madera rústica para sentarse a descansar y rolear en el campamento.",
+      "type": "placeable",
+      "stackable": false,
+      "size": [1, 1]
+    },
+    "banco_campamento": {
+      "id": "banco_campamento",
+      "name": "Banco de Madera",
+      "flavor": "Banco largo para sentarse varios aliados juntos alrededor del fuego.",
+      "type": "placeable",
+      "stackable": false,
+      "size": [2, 1]
+    },
+    "plano_construccion": {
+      "id": "plano_construccion",
+      "name": "Plano de Construcción",
+      "flavor": "Herramienta de arquitectura estilo Rust. Permite edificar pisos, paredes, puertas y techos modulares en la Sede del Gremio.",
+      "type": "tool",
+      "toolType": "building_plan",
+      "toolTier": 1,
+      "size": [1, 2]
     }
   },
   "starterItems": [

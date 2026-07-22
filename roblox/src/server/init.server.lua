@@ -42,6 +42,11 @@ local MarketService = require(script:WaitForChild("MarketService"))
 local CookingService = require(script:WaitForChild("CookingService"))
 local FishingService = require(script:WaitForChild("FishingService"))
 local WeatherService = require(script:WaitForChild("WeatherService"))
+local GuildPlotService = require(script:WaitForChild("GuildPlotService"))
+local GuildResearchService = require(script:WaitForChild("GuildResearchService"))
+local SleepingService = require(script:WaitForChild("SleepingService"))
+local SittingService = require(script:WaitForChild("SittingService"))
+local BuildingService = require(script:WaitForChild("BuildingService"))
 
 -- Cell-only services (border teleports, cell theming) don't start in
 -- instance places (dungeons, housing — see GridConfig.places).
@@ -85,6 +90,11 @@ MarketService.start()
 CookingService.start()
 FishingService.start()
 WeatherService.start()
+GuildPlotService.start()
+GuildResearchService.start()
+SleepingService.start()
+SittingService.start()
+BuildingService.start()
 if role == "cell" then
 	BorderService.start()
 end

@@ -380,10 +380,6 @@ function PlayerService.moveItem(player, from, to)
 	return false, errorCode
 end
 
--- Removes the whole stack at `ref` so it can be thrown on the ground.
--- The backend validates the position. Returns (ok, itemId, quantity, meta) —
--- the caller (DropService) is responsible for spawning the ground drop
--- (carrying the meta so rolled items survive the round trip).
 function PlayerService.dropItem(player, ref)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -398,25 +394,6 @@ function PlayerService.dropItem(player, ref)
 	return false
 end
 
--- Splits `quantity` off the stack at `ref` into a new stack in the first
--- free grid spot (the "Dividir" context menu action) — both stacks stay in
--- the inventory, nothing hits the ground. The backend validates the
--- quantity/room and picks the spot. Returns (ok, errorCode).
-function PlayerService.splitStack(player, ref, quantity)
-	local profile = cache[player.UserId]
-	if not profile or profile._temporary then
-		return false, "offline"
-	end
-	local ok, inventory, errorCode = BackendService.splitStack(player.UserId, ref, quantity)
-	if ok then
-		profile.inventory = inventory
-		PlayerService.pushInventory(player)
-		return true
-	end
-	return false, errorCode
-end
-
--- Repack the main grid (the Sort button).
 function PlayerService.sortInventory(player)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -431,8 +408,6 @@ function PlayerService.sortInventory(player)
 	return false
 end
 
--- Re-fetch the inventory from the backend and push it to the client + tools.
--- Used to reflect out-of-band changes (e.g. an admin edit) on an online player.
 function PlayerService.refreshInventory(player)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -459,13 +434,74 @@ function PlayerService.removeItem(player, itemId, quantity)
 	return false
 end
 
--- Settles a vendor deal atomically (docs/VENDOR_UI.md §5): the backend
--- lands the gold delta + item removes + adds in one transaction, or none
--- of it. plan = { goldDelta, removes, adds } — already validated and
--- priced by VendorService. Gold lives in this cache between autosaves, so
--- the cached balance is flushed to the backend first: the transaction's
--- no-negative-gold check must run against the real number, not the last
--- autosave's. Returns (ok, errorCode).
+function PlayerService.consumeItem(player, ref)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(ref) ~= "table" then
+		return { ok = false }
+	end
+
+	local targetEntry = nil
+	for _, entry in ipairs(profile.inventory or {}) do
+		if entry.containerId == ref.containerId and entry.x == ref.x and entry.y == ref.y then
+			targetEntry = entry
+			break
+		end
+	end
+
+	if not targetEntry then
+		return { ok = false, error = "not_found" }
+	end
+
+	local def = Items.get(targetEntry.itemId)
+	if not def or def.type ~= "consumable" then
+		return { ok = false, error = "not_consumable" }
+	end
+
+	local removed = PlayerService.removeItem(player, targetEntry.itemId, 1)
+	if not removed then
+		return { ok = false, error = "remove_failed" }
+	end
+
+	-- Special consumable: Cofre Hundido
+	if targetEntry.itemId == "cofre_hundido" then
+		local goldAwarded = math.random(60, 180)
+		PlayerService.addGold(player, goldAwarded)
+
+		local bonusText = ""
+		local roll = math.random(1, 100)
+		if roll <= 40 then
+			PlayerService.addItem(player, "iron_ingot", 2, true)
+			bonusText = " + 2x Lingotes de Hierro"
+		elseif roll <= 70 then
+			PlayerService.addItem(player, "copper_ingot", 3, true)
+			bonusText = " + 3x Lingotes de Cobre"
+		end
+
+		Remotes.get("Notify"):FireClient(player, string.format("¡Abriste un Cofre Hundido y encontraste %d de Oro%s!", goldAwarded, bonusText))
+		return { ok = true }
+	end
+
+	-- Health restore
+	if def.healHp and def.healHp > 0 then
+		HealthService.heal(player, def.healHp)
+	end
+
+	-- Mana restore
+	if def.restoreMana and def.restoreMana > 0 then
+		ManaService.add(player, def.restoreMana)
+	end
+
+	-- Buffs
+	if def.buff == "speed_elixir" then
+		EffectService.apply(player, "speed_boost", { duration = 300, walkSpeedMult = 1.25 })
+	elseif def.buff == "food_max_hp" then
+		EffectService.apply(player, "cozy", { duration = 600, regenMult = 1.2 })
+	end
+
+	Remotes.get("Notify"):FireClient(player, string.format("Consumiste: %s.", def.name or targetEntry.itemId))
+	return { ok = true }
+end
+
 function PlayerService.executeDeal(player, plan)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -485,8 +521,6 @@ function PlayerService.executeDeal(player, plan)
 	return true
 end
 
--- Gold is a live server-authoritative stat (like health): mutate it here,
--- mirror it to the Gold attribute for UI, and let autosave/leave persist it.
 function PlayerService.addGold(player, amount)
 	local profile = cache[player.UserId]
 	if not profile or amount <= 0 then
@@ -497,7 +531,6 @@ function PlayerService.addGold(player, amount)
 	return true
 end
 
--- Returns false (and changes nothing) if the player can't afford it.
 function PlayerService.spendGold(player, amount)
 	local profile = cache[player.UserId]
 	if not profile or amount <= 0 or profile.gold < amount then
@@ -513,24 +546,8 @@ function PlayerService.getCampTier(player)
 	return profile and profile.campTier or 0
 end
 
--- Sets the camp tier directly (no cost validation here — that lives in the
--- future purchase flow, docs/CAMP_TIERS.md §5). Mirrors gold/level: mutate
--- the cache + attribute now, autosave/leave persists it. Takes effect for
--- CampService/CampFurnitureService the next time this owner (re)plants a
--- camp — never retroactively resizes an already-standing one.
-function PlayerService.setCampTier(player, tier)
-	local profile = cache[player.UserId]
-	if not profile or typeof(tier) ~= "number" then
-		return false
-	end
-	profile.campTier = math.clamp(math.floor(tier), 0, 3)
-	player:SetAttribute("CampTier", profile.campTier)
-	return true
-end
-
 -- Lifetime kill count for `player` against `lootSource` (0 if never killed
 -- or the profile hasn't loaded). Used by BestiaryService's bump and by
--- anything server-side that wants to know a reveal tier without going
 -- through the client's own JSON attribute (shared/Bestiary.lua).
 function PlayerService.getBestiaryKills(player, lootSource)
 	local profile = cache[player.UserId]
@@ -926,6 +943,11 @@ function PlayerService.start()
 		end
 		profile.settings = sanitizeSettings(payload)
 	end)
+
+	local consumeItemRemote = Remotes.getFunction("ConsumeItem")
+	consumeItemRemote.OnServerInvoke = function(player, ref)
+		return PlayerService.consumeItem(player, ref)
+	end
 
 	-- Load data BEFORE the character spawns so HealthService can restore HP/pos.
 	Players.CharacterAutoLoads = false

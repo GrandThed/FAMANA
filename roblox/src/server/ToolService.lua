@@ -452,6 +452,14 @@ local function buildTool(player, itemId)
 		if canSwing and not canSwing(player, def) then
 			return
 		end
+		-- Fishing rods bypass melee weapon swing animation and cooldown
+		if def.toolType == "fishing_rod" then
+			local handler = ToolService.activatedHandlers[def.type]
+			if handler then
+				handler(player, tool, def)
+			end
+			return
+		end
 		local canPlaySound = canPlaySoundFor[def.type]
 		local playSound = not canPlaySound or canPlaySound(player, def)
 		local resolveVariant = swingVariantFor[def.type]

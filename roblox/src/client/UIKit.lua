@@ -38,6 +38,30 @@ function UIKit.label(parent, text, size, color, font)
 	return label
 end
 
+-- A themed TextButton.
+function UIKit.button(parent, text, textSize, bgColor, textColor)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 100, 0, 32)
+	btn.BackgroundColor3 = bgColor or S.SurfaceWell
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.FontFace = Theme.Font.BodyBold
+	btn.TextSize = textSize or Theme.Text.Body
+	btn.TextColor3 = textColor or S.TextTitle
+	btn.Text = text
+	btn.ZIndex = baseZ(parent) + 1
+	btn.Parent = parent
+
+	local stroke = Instance.new("UIStroke")
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Thickness = 1
+	stroke.Color = S.BorderPanel
+	stroke.Transparency = 0.3
+	stroke.Parent = btn
+
+	return btn
+end
+
 -- Panel shell (§6.1) applied onto an existing Frame: vertical PanelTop→
 -- PanelBot gradient, 1px stone border, and the 1px ember "forge light"
 -- along the top edge. Returns the UIStroke (callers retint it).

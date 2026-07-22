@@ -34,6 +34,11 @@ local FURNITURE_ITEMS = {
 	alfombra_campamento = { size = 3 },
 	farol_campamento = { size = 2 },
 	trofeo_campamento = { size = 2 },
+	bolsa_dormir = { size = 3 },
+	cama_campamento = { size = 4 },
+	silla_campamento = { size = 2 },
+	banco_campamento = { size = 3 },
+	mesa_investigacion_gremio = { size = 4 },
 }
 
 local MAX_DISTANCE = Config.Camp.maxPlacementDistance
