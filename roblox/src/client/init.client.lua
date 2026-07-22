@@ -40,6 +40,8 @@ local PlayerFeedbackSfx = require(script:WaitForChild("PlayerFeedbackSfx"))
 local PlayerHurtFeedbackUI = require(script:WaitForChild("PlayerHurtFeedbackUI"))
 local CombatSfx = require(script:WaitForChild("CombatSfx"))
 local SpellFeedbackSfx = require(script:WaitForChild("SpellFeedbackSfx"))
+local SpellVfxClient = require(script:WaitForChild("SpellVfxClient"))
+local AuraVfxClient = require(script:WaitForChild("AuraVfxClient"))
 local AmbientSfx = require(script:WaitForChild("AmbientSfx"))
 local DashClient = require(script:WaitForChild("DashClient"))
 local CampPlacementUI = require(script:WaitForChild("CampPlacementUI"))
@@ -99,6 +101,8 @@ PlayerFeedbackSfx.start()
 PlayerHurtFeedbackUI.start() -- flash/shake/sonido/rumble al recibir daño
 CombatSfx.start()
 SpellFeedbackSfx.start() -- sonido de cast/rechazo, ver server/SpellService.lua (SpellFeedback remote)
+SpellVfxClient.start() -- efectos 3D de sonido posicional y sacudida de cámara por hechizos
+AuraVfxClient.start() -- auras visuales y partículas animadas alrededor del personaje al tener buffs activos
 AmbientSfx.start() -- loop de fondo (pájaros/grillos), crossfade con el ciclo día/noche
 DashClient.start() -- executes server-validated innate dashes (Swift Step / Iron Roll)
 CampPlacementUI.start()

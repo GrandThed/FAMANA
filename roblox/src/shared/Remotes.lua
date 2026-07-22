@@ -58,6 +58,7 @@ if RunService:IsServer() then
 		"InventoryUpdated",
 		"SpellsChanged",
 		"SpellFeedback",
+		"SpellVfxEvent",
 		"OpenGuildResearch",
 		"ToggleSleeping",
 		"ToggleSitting",

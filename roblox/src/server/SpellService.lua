@@ -151,17 +151,42 @@ local function makeCosmeticPart(props)
 	return part
 end
 
--- A quick expanding-and-fading sphere (impacts, AoE bursts).
-local function burst(position, color, radius, duration)
+-- Emite un evento de VFX/SFX 3D a los jugadores cercanos
+local function notifySpellVfx(position, soundName, shakeIntensity)
+	pcall(function()
+		Remotes.fireNearby("SpellVfxEvent", position, 60, {
+			position = position,
+			soundName = soundName,
+			shakeIntensity = shakeIntensity or 0,
+		})
+	end)
+end
+
+-- A quick expanding-and-fading sphere with particle burst (impacts, AoE bursts).
+local function burst(position, color, radius, duration, soundName, shakeIntensity)
 	local ball = makeCosmeticPart({
 		Name = "SpellBurst",
 		Shape = Enum.PartType.Ball,
 		Size = Vector3.new(1, 1, 1),
-		Color = color,
+		Color = color or Color3.fromRGB(255, 120, 50),
 		Transparency = 0.2,
 		Position = position,
 	})
 	ball.Parent = Workspace
+
+	-- Partículas de chispas en expansión
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = ball
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new(color or Color3.fromRGB(255, 120, 50))
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) })
+	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+	emitter.Rate = 0
+	emitter.Speed = NumberRange.new(5, 15)
+	emitter.Lifetime = NumberRange.new(0.3, 0.6)
+	emitter.Parent = attachment
+	emitter:Emit(20)
+
 	local tween = TweenService:Create(
 		ball,
 		TweenInfo.new(duration or 0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -171,19 +196,24 @@ local function burst(position, color, radius, duration)
 		ball:Destroy()
 	end)
 	tween:Play()
+
+	if soundName or shakeIntensity then
+		notifySpellVfx(position, soundName, shakeIntensity)
+	end
 end
 
--- Flies a glowing bolt from `fromPos` to the target ref's part, then calls
+-- Flies a glowing bolt with particle trail from `fromPos` to the target ref's part, then calls
 -- onArrive. Same cosmetic-tween approach as EnemyService's weapon missiles,
 -- but sized/colored per spell.
 local function fireBolt(fromPos, targetPart, missile, onArrive)
 	local size = missile and missile.size or 1
 	local speed = missile and missile.speed or 90
+	local boltColor = missile and missile.color or Color3.fromRGB(150, 90, 255)
 	local bolt = makeCosmeticPart({
 		Name = "SpellBolt",
 		Shape = Enum.PartType.Ball,
 		Size = Vector3.new(size, size, size),
-		Color = missile and missile.color or Color3.fromRGB(150, 90, 255),
+		Color = boltColor,
 		Position = fromPos,
 	})
 	local light = Instance.new("PointLight")
@@ -191,6 +221,19 @@ local function fireBolt(fromPos, targetPart, missile, onArrive)
 	light.Range = 8
 	light.Brightness = 3
 	light.Parent = bolt
+
+	-- Estela de partículas para el proyectil
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = bolt
+	local trailEmitter = Instance.new("ParticleEmitter")
+	trailEmitter.Color = ColorSequence.new(boltColor)
+	trailEmitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size * 0.8), NumberSequenceKeypoint.new(1, 0) })
+	trailEmitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+	trailEmitter.Lifetime = NumberRange.new(0.2, 0.4)
+	trailEmitter.Rate = 35
+	trailEmitter.Speed = NumberRange.new(1, 3)
+	trailEmitter.Parent = attachment
+
 	bolt.Parent = Workspace
 
 	local destination = targetPart.Position
