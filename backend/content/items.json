@@ -966,6 +966,78 @@
       "stackable": false,
       "maxStack": 1,
       "size": [1, 2]
+    },
+    "antorcha_campamento": {
+      "id": "antorcha_campamento",
+      "name": "Antorcha de Madera",
+      "flavor": "Antorcha de pie que emite luz cálida y fuego para iluminar la Sede del Gremio.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "hoguera_gremio": {
+      "id": "hoguera_gremio",
+      "name": "Hoguera de Campamento",
+      "flavor": "Gran fogata de piedra que ilumina el área, emite humo y sirve como estación para cocinar pescado.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
+    },
+    "lampara_gremio": {
+      "id": "lampara_gremio",
+      "name": "Farol de Piedra y Hierro",
+      "flavor": "Lámpara de hierro elegante que proporciona iluminación dorada para interiores.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "mesa_arquitectura_gremio": {
+      "id": "mesa_arquitectura_gremio",
+      "name": "Mesa de Arquitectura del Gremio",
+      "flavor": "Mesa de diseño y carpintería para la Sede del Gremio. Desbloquea la fabricación de planos de construcción, muebles, camas y faroles.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
+    },
+    "semilla_hierbas": {
+      "id": "semilla_hierbas",
+      "name": "Semillas de Hierbas",
+      "flavor": "Semillas recolectadas de arbustos silvestres. Se pueden plantar en la Maceta de Cultivo del Gremio.",
+      "type": "resource",
+      "stackable": true,
+      "maxStack": 50,
+      "size": [1, 1]
+    },
+    "maceta_hierbas": {
+      "id": "maceta_hierbas",
+      "name": "Maceta de Cultivo del Gremio",
+      "flavor": "Maceta de piedra para cultivar hierbas medicinales de forma pasiva en la Sede del Gremio.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "letrero_bienvenida": {
+      "id": "letrero_bienvenida",
+      "name": "Letrero de Anuncios del Gremio",
+      "flavor": "Cartel interactivo de madera donde el Líder del Gremio puede escribir anuncios y mensajes de bienvenida.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "portal_gremio": {
+      "id": "portal_gremio",
+      "name": "Portal del Gremio",
+      "flavor": "Portal místico de piedra y magia que conecta tu campamento con el Valle de los Gremios.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
     }
   },
   "starterItems": [

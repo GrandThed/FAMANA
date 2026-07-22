@@ -21,6 +21,8 @@ local player = Players.LocalPlayer
 
 local FurniturePlacementUI = {}
 
+local UserInputService = game:GetService("UserInputService")
+
 -- itemId -> preview footprint (studs). Keep in sync with server/
 -- CampFurnitureService.lua's FURNITURE_DEFS.
 local FURNITURE_ITEMS = {
@@ -39,6 +41,12 @@ local FURNITURE_ITEMS = {
 	silla_campamento = { size = 2 },
 	banco_campamento = { size = 3 },
 	mesa_investigacion_gremio = { size = 4 },
+	antorcha_campamento = { size = 2 },
+	hoguera_gremio = { size = 3 },
+	lampara_gremio = { size = 2 },
+	mesa_arquitectura_gremio = { size = 4 },
+	maceta_hierbas = { size = 2 },
+	letrero_bienvenida = { size = 3 },
 }
 
 local MAX_DISTANCE = Config.Camp.maxPlacementDistance
@@ -65,12 +73,17 @@ end
 
 local function attachTool(tool, itemId, previewSize)
 	local mouse = player:GetMouse()
-	local preview, renderConn
+	local preview, renderConn, inputConn
+	local rotationY = 0
 
 	local function teardown()
 		if renderConn then
 			renderConn:Disconnect()
 			renderConn = nil
+		end
+		if inputConn then
+			inputConn:Disconnect()
+			inputConn = nil
 		end
 		if preview then
 			preview:Destroy()
@@ -83,11 +96,20 @@ local function attachTool(tool, itemId, previewSize)
 		preview = createPreview(previewSize)
 		mouse.TargetFilter = preview -- otherwise the mouse ends up targeting the preview itself
 
+		inputConn = UserInputService.InputBegan:Connect(function(input, gpe)
+			if gpe then
+				return
+			end
+			if input.KeyCode == Enum.KeyCode.R then
+				rotationY = (rotationY + 90) % 360
+			end
+		end)
+
 		renderConn = RunService.RenderStepped:Connect(function()
 			if not (preview and mouse.Hit) then
 				return
 			end
-			preview.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 0.15, 0))
+			preview.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, math.rad(rotationY), 0)
 
 			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 			local inRange = root and (mouse.Hit.Position - root.Position).Magnitude <= MAX_DISTANCE
@@ -104,7 +126,7 @@ local function attachTool(tool, itemId, previewSize)
 		placing = true
 		local hit = mouse.Hit.Position
 		pcall(function()
-			placeFurniture:InvokeServer(itemId, hit.X, hit.Z)
+			placeFurniture:InvokeServer(itemId, hit.X, hit.Z, rotationY)
 		end)
 		placing = false
 	end)

@@ -40,6 +40,7 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -47,6 +48,7 @@ local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
+local DayNightService = require(script.Parent.DayNightService)
 local MeshAssetService = require(script.Parent.MeshAssetService)
 local PlayerService = require(script.Parent.PlayerService)
 local CampService = require(script.Parent.CampService)
@@ -56,6 +58,60 @@ local SittingService = require(script.Parent.SittingService)
 local GuildPlotService = require(script.Parent.GuildPlotService)
 
 local CampFurnitureService = {}
+
+local lightSources = {} -- [model] = { light, particle, defaultBrightness }
+local isCurrentNight = false
+
+local function registerLightSource(model, light, particle, defaultBrightness)
+	lightSources[model] = {
+		light = light,
+		particle = particle,
+		defaultBrightness = defaultBrightness,
+	}
+
+	local isNight = DayNightService.isNight()
+	if isNight then
+		light.Enabled = true
+		light.Brightness = defaultBrightness
+		if particle then
+			particle.Enabled = true
+		end
+	else
+		light.Enabled = false
+		light.Brightness = 0
+		if particle then
+			particle.Enabled = false
+		end
+	end
+end
+
+function CampFurnitureService.setNightLighting(isNight)
+	isCurrentNight = isNight
+	for model, data in pairs(lightSources) do
+		if model and model.Parent then
+			if isNight then
+				data.light.Enabled = true
+				TweenService:Create(data.light, TweenInfo.new(1.5), { Brightness = data.defaultBrightness }):Play()
+				if data.particle then
+					data.particle.Enabled = true
+				end
+			else
+				local tween = TweenService:Create(data.light, TweenInfo.new(1.5), { Brightness = 0 })
+				tween:Play()
+				tween.Completed:Connect(function()
+					if not isCurrentNight and data.light and data.light.Parent then
+						data.light.Enabled = false
+					end
+				end)
+				if data.particle then
+					data.particle.Enabled = false
+				end
+			end
+		else
+			lightSources[model] = nil
+		end
+	end
+end
 
 local CAMP = Config.Camp
 local FURNITURE = Config.CampFurniture
@@ -100,6 +156,13 @@ local FURNITURE_DEFS = {
 	silla_campamento = { kind = "chair", cosmetic = true },
 	banco_campamento = { kind = "chair", cosmetic = true },
 	mesa_investigacion_gremio = { kind = "guild_research" },
+	antorcha_campamento = { kind = "torch", cosmetic = true },
+	hoguera_gremio = { kind = "campfire", cosmetic = true },
+	lampara_gremio = { kind = "lamp", cosmetic = true },
+	mesa_arquitectura_gremio = { kind = "guild_architecture", station = "mesa_arquitectura_gremio" },
+	maceta_hierbas = { kind = "planter", cosmetic = true },
+	letrero_bienvenida = { kind = "welcome_sign", cosmetic = true },
+	portal_gremio = { kind = "guild_portal" },
 }
 
 local CHEST_SPECS = {
@@ -365,12 +428,76 @@ local MESH_LOOK = {
 	cauldron = { key = "cauldron", anchor = Vector3.new(1.2, 2.2, 1.2), collide = true },
 	rug = { key = "rug", anchor = Vector3.new(2.6, 0.15, 1.8), collide = false },
 	lantern = { key = "lantern", anchor = Vector3.new(0.4, 2, 0.4), collide = true },
-	trophy = { key = "trophy", anchor = Vector3.new(1.3, 1.7, 0.3), collide = true },
+	torch = { key = "lantern", anchor = Vector3.new(0.6, 3.5, 0.6), collide = true },
+	campfire = { key = "simple_forge", anchor = Vector3.new(3, 1, 3), collide = true },
+	lamp = { key = "lantern", anchor = Vector3.new(0.6, 2.5, 0.6), collide = true },
+	guild_architecture = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
+	planter = { key = "cauldron", anchor = Vector3.new(1.6, 1.2, 1.6), collide = true },
+	welcome_sign = { key = "trophy", anchor = Vector3.new(2.5, 3.5, 0.4), collide = true },
 }
 
 -- Mesh-first furniture model; falls back to the ArtKit specs when the mesh
 -- template didn't load (same pattern as the world builders elsewhere).
-local function buildFurnitureModel(kind, artName, specs, origin)
+local function buildFurnitureModel(kind, artName, specs, origin, itemId)
+	-- Check for custom models in ReplicatedStorage > Assets > Furniture
+	local assetsFolder = ReplicatedStorage:FindFirstChild("Assets")
+	local furnitureFolderAssets = assetsFolder and assetsFolder:FindFirstChild("Furniture")
+	if furnitureFolderAssets then
+		local customTemplate = (itemId and furnitureFolderAssets:FindFirstChild(itemId))
+			or (artName and furnitureFolderAssets:FindFirstChild(artName))
+
+		if not customTemplate then
+			-- Flexible name aliases per kind
+			if kind == "chair" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("silla")
+					or furnitureFolderAssets:FindFirstChild("Silla")
+					or furnitureFolderAssets:FindFirstChild("wood chair")
+					or furnitureFolderAssets:FindFirstChild("wood_chair")
+			elseif kind == "bed" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("cama")
+					or furnitureFolderAssets:FindFirstChild("Cama")
+					or furnitureFolderAssets:FindFirstChild("bolsa")
+					or furnitureFolderAssets:FindFirstChild("Bolsa")
+			elseif kind == "torch" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("antorcha")
+					or furnitureFolderAssets:FindFirstChild("Antorcha")
+			elseif kind == "campfire" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("hoguera")
+					or furnitureFolderAssets:FindFirstChild("Hoguera")
+			elseif kind == "lamp" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("farol")
+					or furnitureFolderAssets:FindFirstChild("Farol")
+			elseif kind == "planter" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("maceta")
+					or furnitureFolderAssets:FindFirstChild("Maceta")
+			elseif kind == "welcome_sign" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("letrero")
+					or furnitureFolderAssets:FindFirstChild("Letrero")
+			elseif kind == "guild_architecture" or kind == "crafting_table" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("mesa")
+					or furnitureFolderAssets:FindFirstChild("Mesa")
+			end
+		end
+
+		if customTemplate and customTemplate:IsA("Model") then
+			local clone = customTemplate:Clone()
+			clone.Name = artName
+			if not clone.PrimaryPart then
+				local primary = clone:FindFirstChildWhichIsA("BasePart")
+				if primary then
+					clone.PrimaryPart = primary
+				end
+			end
+			clone:PivotTo(origin * CFrame.new(0, 1.2, 0))
+			for _, part in ipairs(clone:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = true
+				end
+			end
+			return clone
+		end
+	end
+
 	local look = MESH_LOOK[kind]
 	local mesh = look and MeshAssetService.place(look.key, origin)
 	if not mesh then
@@ -391,11 +518,11 @@ local function buildFurnitureModel(kind, artName, specs, origin)
 	return model
 end
 
-local function buildPiece(kind, itemId, center, ownerId)
+local function buildPiece(kind, itemId, center, ownerId, rotY)
 	nextPieceId += 1
 	local id = nextPieceId
-	local origin = CFrame.new(center)
-	local piece = { id = id, itemId = itemId, kind = kind, center = center, ownerId = ownerId }
+	local origin = CFrame.new(center) * CFrame.Angles(0, math.rad(rotY or 0), 0)
+	local piece = { id = id, itemId = itemId, kind = kind, center = center, ownerId = ownerId, rotY = rotY or 0 }
 
 	if kind == "chest" then
 		local model = buildFurnitureModel(kind, "Cofre", CHEST_SPECS, origin)
@@ -520,7 +647,7 @@ local function buildPiece(kind, itemId, center, ownerId)
 		light.Parent = model.PrimaryPart
 
 		attachManagePrompt(piece, model)
-	elseif kind == "crafting_table" or kind == "forge" or kind == "cauldron" then
+	elseif kind == "crafting_table" or kind == "forge" or kind == "cauldron" or kind == "guild_architecture" then
 		local specs = CRAFTING_TABLE_SPECS
 		local artName = "MesaCrafteo"
 		if kind == "forge" then
@@ -529,6 +656,9 @@ local function buildPiece(kind, itemId, center, ownerId)
 		elseif kind == "cauldron" then
 			specs = CAULDRON_SPECS
 			artName = "Olla"
+		elseif kind == "guild_architecture" then
+			specs = CRAFTING_TABLE_SPECS
+			artName = "MesaArquitecturaGremio"
 		end
 		local model = buildFurnitureModel(kind, artName, specs, origin)
 		model.Parent = furnitureFolder
@@ -632,6 +762,190 @@ local function buildPiece(kind, itemId, center, ownerId)
 		end
 
 		attachManagePrompt(piece, model)
+	elseif kind == "torch" or kind == "campfire" or kind == "lamp" then
+		local specs = LANTERN_SPECS
+		local artName = "Antorcha"
+		if kind == "campfire" then
+			specs = FORGE_SPECS
+			artName = "Hoguera"
+		elseif kind == "lamp" then
+			specs = LANTERN_SPECS
+			artName = "Farol"
+		end
+		local model = buildFurnitureModel(kind, artName, specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local light = Instance.new("PointLight")
+		if kind == "torch" then
+			light.Color = Color3.fromRGB(255, 170, 70)
+			light.Range = 28
+			light.Brightness = 2.8
+		elseif kind == "campfire" then
+			light.Color = Color3.fromRGB(255, 150, 50)
+			light.Range = 42
+			light.Brightness = 3.6
+
+			local openCookingRemote = Remotes.get("OpenCooking")
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.ActionText = "Cocinar Pescado / Comida"
+			prompt.ObjectText = "Hoguera de Campamento"
+			prompt.HoldDuration = 0.15
+			prompt.MaxActivationDistance = 12
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = model.PrimaryPart
+
+			prompt.Triggered:Connect(function(plr)
+				if openCookingRemote then
+					openCookingRemote:FireClient(plr)
+				end
+			end)
+		else
+			light.Color = Color3.fromRGB(255, 225, 140)
+			light.Range = 32
+			light.Brightness = 2.6
+		end
+		light.Parent = model.PrimaryPart
+
+		local targetBrightness = (kind == "campfire" and 3.6) or (kind == "torch" and 2.8) or 2.6
+		registerLightSource(model, light, nil, targetBrightness)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "planter" then
+		local model = buildFurnitureModel(kind, "Maceta", CAULDRON_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Plantar Semillas de Hierbas"
+		prompt.ObjectText = "Maceta del Gremio"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = 10
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = model.PrimaryPart
+
+		local isPlanted = false
+		local isGrown = false
+		local plantMesh = nil
+
+		prompt.Triggered:Connect(function(plr)
+			if not isPlanted then
+				if PlayerService.removeItem(plr, "semilla_hierbas", 1) then
+					isPlanted = true
+					prompt.ActionText = "🌱 Creciendo..."
+					prompt.Enabled = false
+
+					plantMesh = Instance.new("Part")
+					plantMesh.Name = "Sprout"
+					plantMesh.Size = Vector3.new(0.6, 0.6, 0.6)
+					plantMesh.CFrame = model.PrimaryPart.CFrame * CFrame.new(0, 0.8, 0)
+					plantMesh.Color = Color3.fromRGB(80, 180, 60)
+					plantMesh.Material = Enum.Material.Grass
+					plantMesh.Anchored = true
+					plantMesh.CanCollide = false
+					plantMesh.Parent = model
+
+					task.delay(8, function()
+						if plantMesh and plantMesh.Parent then
+							isGrown = true
+							plantMesh.Size = Vector3.new(1.2, 1.4, 1.2)
+							plantMesh.Color = Color3.fromRGB(40, 210, 80)
+							plantMesh.Material = Enum.Material.Neon
+
+							prompt.ActionText = "🌿 Cosechar Hierbas Medicinales"
+							prompt.Enabled = true
+						end
+					end)
+				else
+					notify(plr, "Necesitas Semillas de Hierbas para plantar (recolectalas de arbustos con la Hoz).")
+				end
+			elseif isGrown then
+				isPlanted = false
+				isGrown = false
+				if plantMesh then
+					plantMesh:Destroy()
+					plantMesh = nil
+				end
+				PlayerService.addItem(plr, "herb_green", 2, true)
+				PlayerService.addItem(plr, "semilla_hierbas", 1, true)
+				prompt.ActionText = "Plantar Semillas de Hierbas"
+				notify(plr, "¡Cosechaste 2x Hierbas Medicinales y 1x Semilla!")
+			end
+		end)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "welcome_sign" then
+		local model = buildFurnitureModel(kind, "LetreroBienvenida", TROPHY_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local surfaceGui = Instance.new("SurfaceGui")
+		surfaceGui.Size = Vector2.new(400, 250)
+		surfaceGui.CanvasSize = Vector2.new(400, 250)
+		surfaceGui.AlwaysOnTop = false
+		surfaceGui.Parent = model.PrimaryPart
+
+		local boardText = Instance.new("TextLabel")
+		boardText.Size = UDim2.new(1, 0, 1, 0)
+		boardText.BackgroundColor3 = Color3.fromRGB(30, 20, 10)
+		boardText.TextColor3 = Color3.fromRGB(255, 220, 140)
+		boardText.TextScaled = true
+		boardText.Font = Enum.Font.SourceSansBold
+		boardText.Text = "📜 ANUNCIOS DE LA SEDE\n\n¡Bienvenidos a la Sede del Gremio!"
+		boardText.Parent = surfaceGui
+
+		local promptRead = Instance.new("ProximityPrompt")
+		promptRead.ActionText = "Leer / Editar Anuncio"
+		promptRead.ObjectText = "Letrero del Gremio"
+		promptRead.HoldDuration = 0.1
+		promptRead.MaxActivationDistance = 12
+		promptRead.RequiresLineOfSight = false
+		promptRead.Parent = model.PrimaryPart
+
+		promptRead.Triggered:Connect(function(plr)
+			Remotes.get("OpenWelcomeSign"):FireClient(plr, {
+				guildName = plr:GetAttribute("GuildName") or "Gremio",
+				text = boardText.Text,
+				isLeader = plr:GetAttribute("GuildLeader") == true,
+			})
+		end)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "guild_portal" then
+		local model = buildFurnitureModel(kind, "PortalGremio", CRAFTING_TABLE_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local vortex = Instance.new("Part")
+		vortex.Name = "PortalVortex"
+		vortex.Size = Vector3.new(4, 7, 0.4)
+		vortex.CFrame = origin * CFrame.new(0, 4.5, 0)
+		vortex.Material = Enum.Material.Neon
+		vortex.Color = Color3.fromRGB(0, 210, 255)
+		vortex.Transparency = 0.35
+		vortex.Anchored = true
+		vortex.CanCollide = false
+		vortex.Parent = model
+
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(0, 200, 255)
+		light.Range = 20
+		light.Brightness = 1.8
+		light.Parent = vortex
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Entrar al Valle de los Gremios"
+		prompt.ObjectText = "Portal del Gremio"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = 12
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = vortex
+
+		prompt.Triggered:Connect(function(triggeringPlayer)
+			GuildPlotService.teleportToGuildSanctuary(triggeringPlayer)
+		end)
+
+		attachManagePrompt(piece, model)
 	elseif kind == "bed" then
 		local specs = RUG_SPECS
 		local model = buildFurnitureModel(kind, "Cama", specs, origin)
@@ -691,7 +1005,7 @@ local function buildPiece(kind, itemId, center, ownerId)
 		attachManagePrompt(piece, model)
 	elseif kind == "chair" then
 		local specs = RUG_SPECS
-		local model = buildFurnitureModel(kind, "Asiento", specs, origin)
+		local model = buildFurnitureModel(kind, "Asiento", specs, origin, itemId)
 		model.Parent = furnitureFolder
 		piece.model = model
 
@@ -785,10 +1099,11 @@ end
 
 -- ---- remotes ------------------------------------------------------------
 
-local function handlePlaceFurniture(player, itemId, x, z)
+local function handlePlaceFurniture(player, itemId, x, z, rotY)
 	if typeof(itemId) ~= "string" or typeof(x) ~= "number" or typeof(z) ~= "number" then
 		return { ok = false, error = "bad_request" }
 	end
+	rotY = tonumber(rotY) or 0
 	local def = FURNITURE_DEFS[itemId]
 	if not def then
 		return { ok = false, error = "bad_request" }
@@ -879,7 +1194,7 @@ local function handlePlaceFurniture(player, itemId, x, z)
 	end
 
 	local center = Vector3.new(x, findGroundY(x, z), z)
-	local piece = buildPiece(def.kind, itemId, center, camp.ownerUserId)
+	local piece = buildPiece(def.kind, itemId, center, camp.ownerUserId, rotY)
 
 	piecesByCamp[camp.ownerUserId] = piecesByCamp[camp.ownerUserId] or {}
 	piecesByCamp[camp.ownerUserId][piece.id] = piece
@@ -1217,6 +1532,10 @@ function CampFurnitureService.start()
 
 	local chestWithdraw = Remotes.getFunction("ChestWithdraw")
 	chestWithdraw.OnServerInvoke = handleChestWithdraw
+
+	DayNightService.onChanged(function(isNight)
+		CampFurnitureService.setNightLighting(isNight)
+	end)
 end
 
 return CampFurnitureService

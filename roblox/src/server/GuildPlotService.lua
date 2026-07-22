@@ -13,22 +13,84 @@ local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local PlayerService = require(script.Parent.PlayerService)
 local GuildService = require(script.Parent.GuildService)
 
+local DataStoreService = game:GetService("DataStoreService")
+local plotDataStore = DataStoreService:GetDataStore("GuildHQ_Plots_V1")
+
 local GuildPlotService = {}
 
--- Defined Village Plots in the safe zone town (48x48 studs = 4x4 12-stud modular grid)
+-- Dedicated Sanctuary Realm for Guild HQs: "Valle de los Gremios"
+GuildPlotService.SANCTUARY_CENTER = Vector3.new(2000, 0, 2000)
+
 GuildPlotService.PLOTS = {
-	plot_center_north = { id = "plot_center_north", name = "Parcela del Norte", position = Vector3.new(0, 0, -100), size = Vector3.new(48, 1, 48), costGold = 500 },
-	plot_center_east = { id = "plot_center_east", name = "Parcela del Este", position = Vector3.new(100, 0, 0), size = Vector3.new(48, 1, 48), costGold = 500 },
-	plot_center_south = { id = "plot_center_south", name = "Parcela del Sur", position = Vector3.new(0, 0, 100), size = Vector3.new(48, 1, 48), costGold = 500 },
-	plot_center_west = { id = "plot_center_west", name = "Parcela del Oeste", position = Vector3.new(-100, 0, 0), size = Vector3.new(48, 1, 48), costGold = 500 },
+	plot_center_north = { id = "plot_center_north", name = "Parcela del Norte", position = Vector3.new(2000, 0, 1900), size = Vector3.new(48, 1, 48), costGold = 500 },
+	plot_center_east = { id = "plot_center_east", name = "Parcela del Este", position = Vector3.new(2100, 0, 2000), size = Vector3.new(48, 1, 48), costGold = 500 },
+	plot_center_south = { id = "plot_center_south", name = "Parcela del Sur", position = Vector3.new(2000, 0, 2100), size = Vector3.new(48, 1, 48), costGold = 500 },
+	plot_center_west = { id = "plot_center_west", name = "Parcela del Oeste", position = Vector3.new(1900, 0, 2000), size = Vector3.new(48, 1, 48), costGold = 500 },
 }
 
 -- [plotId] = { guildId, guildName, guildTag, bannerModel, signModel }
 local claimedPlots = {}
 local plotSignModels = {}
+local returnOriginPositions = {} -- [player.UserId] = Vector3
+
+function GuildPlotService.teleportToGuildSanctuary(player)
+	if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		returnOriginPositions[player.UserId] = player.Character.HumanoidRootPart.Position
+		player.Character.HumanoidRootPart.CFrame = CFrame.new(GuildPlotService.SANCTUARY_CENTER + Vector3.new(0, 4, 0))
+		notify(player, "✨ Has entrado al Valle de los Gremios.")
+	end
+end
+
+function GuildPlotService.returnFromSanctuary(player)
+	if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		local origin = returnOriginPositions[player.UserId] or Vector3.new(0, 5, 0)
+		player.Character.HumanoidRootPart.CFrame = CFrame.new(origin)
+		notify(player, "🌀 Has regresado a tu ubicación previa.")
+	end
+end
 
 local function notify(player, message)
 	Remotes.get("Notify"):FireClient(player, message)
+end
+
+function GuildPlotService.savePlotsData()
+	local data = {}
+	for plotId, info in pairs(claimedPlots) do
+		data[plotId] = {
+			guildId = info.guildId,
+			guildName = info.guildName,
+			guildTag = info.guildTag,
+		}
+	end
+	pcall(function()
+		plotDataStore:SetAsync("ClaimedPlots", data)
+	end)
+end
+
+function GuildPlotService.loadPlotsData()
+	local success, data = pcall(function()
+		return plotDataStore:GetAsync("ClaimedPlots")
+	end)
+	if success and type(data) == "table" then
+		for plotId, info in pairs(data) do
+			claimedPlots[plotId] = info
+			local sign = plotSignModels[plotId]
+			if sign then
+				local board = sign:FindFirstChild("Board")
+				local prompt = board and board:FindFirstChildWhichIsA("ProximityPrompt")
+				if prompt then
+					prompt.Enabled = false
+				end
+				local billboard = sign:FindFirstChildWhichIsA("BillboardGui", true)
+				local label = billboard and billboard:FindFirstChildOfClass("TextLabel")
+				if label then
+					label.Text = string.format("🚩 Sede de %s", info.guildName)
+					label.TextColor3 = Color3.fromRGB(255, 215, 0)
+					label.BackgroundTransparency = 0.7
+				end
+			end
+		end
+	end
 end
 
 function GuildPlotService.getPlotForGuild(guildId)
@@ -92,68 +154,58 @@ function GuildPlotService.claimPlot(player, plotId)
 		return false
 	end
 
-	-- Claim successful! Spawn Guild Banner
-	local banner = Instance.new("Model")
-	banner.Name = "GuildBanner_" .. guildId
-	local pole = ArtKit.part("trunkDark")
-	pole.Name = "Pole"
-	pole.Size = Vector3.new(0.8, 8, 0.8)
-	pole.CFrame = CFrame.new(plotDef.position + Vector3.new(0, 4, 0))
-	pole.Anchored = true
-	pole.Parent = banner
-
-	local flag = ArtKit.part("ruby")
-	flag.Name = "Flag"
-	flag.Size = Vector3.new(3, 2, 0.2)
-	flag.CFrame = CFrame.new(plotDef.position + Vector3.new(1.8, 6, 0))
-	flag.Anchored = true
-	flag.Parent = banner
-
-	banner.Parent = Workspace
-
 	claimedPlots[plotId] = {
 		plotId = plotId,
 		guildId = guildId,
 		guildName = guildName,
 		guildTag = player:GetAttribute("GuildTag") or "GREMIO",
-		bannerModel = banner,
 	}
 
-	-- Update sign GUI if present
+	-- Update sign GUI & prompt when claimed
 	local sign = plotSignModels[plotId]
 	if sign then
+		local board = sign:FindFirstChild("Board")
+		local prompt = board and board:FindFirstChildWhichIsA("ProximityPrompt")
+		if prompt then
+			prompt.Enabled = false -- Hide claim prompt when claimed!
+		end
 		local billboard = sign:FindFirstChildWhichIsA("BillboardGui", true)
 		local label = billboard and billboard:FindFirstChildOfClass("TextLabel")
 		if label then
 			label.Text = string.format("🚩 Sede de %s", guildName)
 			label.TextColor3 = Color3.fromRGB(255, 215, 0)
+			label.BackgroundTransparency = 0.7
 		end
 	end
 
+	GuildPlotService.savePlotsData()
 	notify(player, string.format("¡La %s ahora es la Sede Oficial de %s!", plotDef.name, guildName))
 	return true
 end
 
--- Builds physical 3D signposts for all plots
+-- Builds physical 3D signposts for all plots (positioned at the FRONT edge of each plot)
 local function spawnPlotSigns()
 	local folder = Workspace:FindFirstChild("GuildPlotSigns") or Instance.new("Folder", Workspace)
 	folder.Name = "GuildPlotSigns"
 
 	for plotId, plotDef in pairs(GuildPlotService.PLOTS) do
+		local halfZ = plotDef.size.Z / 2
+		local frontPos = plotDef.position + Vector3.new(0, 0, halfZ + 3.5)
+
 		local signModel = Instance.new("Model")
 		signModel.Name = "PlotSign_" .. plotId
 
 		local post = ArtKit.part("trunkDark")
 		post.Name = "Post"
 		post.Size = Vector3.new(0.6, 5, 0.6)
-		post.CFrame = CFrame.new(plotDef.position + Vector3.new(0, 2.5, 0))
+		post.CFrame = CFrame.new(frontPos + Vector3.new(0, 2.5, 0))
 		post.Anchored = true
 		post.Parent = signModel
 
 		local board = ArtKit.part("trunk")
 		board.Name = "Board"
 		board.Size = Vector3.new(3.5, 1.8, 0.3)
-		board.CFrame = CFrame.new(plotDef.position + Vector3.new(0, 4.2, 0))
+		board.CFrame = CFrame.new(frontPos + Vector3.new(0, 4.2, 0))
 		board.Anchored = true
 		board.Parent = signModel
 		signModel.PrimaryPart = board
@@ -173,7 +225,8 @@ local function spawnPlotSigns()
 		local billboard = Instance.new("BillboardGui")
 		billboard.Size = UDim2.new(0, 220, 0, 40)
 		billboard.StudsOffset = Vector3.new(0, 2, 0)
-		billboard.AlwaysOnTop = true
+		billboard.AlwaysOnTop = false
+		billboard.MaxDistance = 45
 		billboard.Parent = board
 
 		local label = Instance.new("TextLabel")
@@ -254,11 +307,21 @@ local function setupDevTestCommand(player)
 
 			-- Grant test gold & materials
 			PlayerService.addGold(player, 1000)
-			PlayerService.addItem(player, "wood", 100, true)
-			PlayerService.addItem(player, "iron_ingot", 20, true)
+			PlayerService.addItem(player, "wood", 150, true)
+			PlayerService.addItem(player, "stone", 100, true)
+			PlayerService.addItem(player, "iron_ingot", 30, true)
 			PlayerService.addItem(player, "plano_construccion", 1, true)
 			PlayerService.addItem(player, "mesa_investigacion_gremio", 1, true)
-			PlayerService.addItem(player, "silla_campamento", 2, true)
+			PlayerService.addItem(player, "mesa_arquitectura_gremio", 1, true)
+			PlayerService.addItem(player, "antorcha_campamento", 4, true)
+			PlayerService.addItem(player, "hoguera_gremio", 1, true)
+			PlayerService.addItem(player, "lampara_gremio", 4, true)
+			PlayerService.addItem(player, "cama_campamento", 2, true)
+			PlayerService.addItem(player, "silla_campamento", 4, true)
+			PlayerService.addItem(player, "semilla_hierbas", 5, true)
+			PlayerService.addItem(player, "maceta_hierbas", 2, true)
+			PlayerService.addItem(player, "letrero_bienvenida", 1, true)
+			PlayerService.addItem(player, "portal_gremio", 1, true)
 
 			-- Teleport to northern plot
 			local character = player.Character
@@ -275,8 +338,72 @@ local function setupDevTestCommand(player)
 	end)
 end
 
+local function spawnSanctuaryEnvironment()
+	local sanctuaryFolder = Workspace:FindFirstChild("GuildSanctuary") or Instance.new("Folder", Workspace)
+	sanctuaryFolder.Name = "GuildSanctuary"
+
+	-- Sanctuary Ground Floor Pad
+	local pad = Instance.new("Part")
+	pad.Name = "SanctuaryGround"
+	pad.Size = Vector3.new(450, 2, 450)
+	pad.CFrame = CFrame.new(GuildPlotService.SANCTUARY_CENTER + Vector3.new(0, -1, 0))
+	pad.Color = Color3.fromRGB(55, 95, 60)
+	pad.Material = Enum.Material.Grass
+	pad.Anchored = true
+	pad.Parent = sanctuaryFolder
+
+	-- Return Portal Stone in the center
+	local portalArch = Instance.new("Model")
+	portalArch.Name = "ReturnPortalStone"
+
+	local pillarL = ArtKit.part("stoneDark")
+	pillarL.Size = Vector3.new(1.8, 8, 1.8)
+	pillarL.CFrame = CFrame.new(GuildPlotService.SANCTUARY_CENTER + Vector3.new(-3, 4, 0))
+	pillarL.Anchored = true
+	pillarL.Parent = portalArch
+
+	local pillarR = ArtKit.part("stoneDark")
+	pillarR.Size = Vector3.new(1.8, 8, 1.8)
+	pillarR.CFrame = CFrame.new(GuildPlotService.SANCTUARY_CENTER + Vector3.new(3, 4, 0))
+	pillarR.Anchored = true
+	pillarR.Parent = portalArch
+
+	local archTop = ArtKit.part("stoneDark")
+	archTop.Size = Vector3.new(7.8, 1.8, 1.8)
+	archTop.CFrame = CFrame.new(GuildPlotService.SANCTUARY_CENTER + Vector3.new(0, 8.9, 0))
+	archTop.Anchored = true
+	archTop.Parent = portalArch
+
+	local vortex = Instance.new("Part")
+	vortex.Name = "PortalVortex"
+	vortex.Size = Vector3.new(4.2, 7.1, 0.4)
+	vortex.CFrame = CFrame.new(GuildPlotService.SANCTUARY_CENTER + Vector3.new(0, 4.5, 0))
+	vortex.Material = Enum.Material.Neon
+	vortex.Color = Color3.fromRGB(0, 210, 255)
+	vortex.Transparency = 0.3
+	vortex.Anchored = true
+	vortex.CanCollide = false
+	vortex.Parent = portalArch
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Regresar al Mundo Principal"
+	prompt.ObjectText = "Portal del Santuario"
+	prompt.HoldDuration = 0.15
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = vortex
+
+	prompt.Triggered:Connect(function(triggeringPlayer)
+		GuildPlotService.returnFromSanctuary(triggeringPlayer)
+	end)
+
+	portalArch.Parent = sanctuaryFolder
+end
+
 function GuildPlotService.start()
+	spawnSanctuaryEnvironment()
 	spawnPlotSigns()
+	GuildPlotService.loadPlotsData()
 
 	Players.PlayerAdded:Connect(setupDevTestCommand)
 	for _, p in ipairs(Players:GetPlayers()) do

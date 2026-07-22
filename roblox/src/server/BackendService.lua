@@ -247,6 +247,19 @@ end
 -- Full guild by id (roster included), or nil if it doesn't exist / on
 -- failure. Used by GuildService.getGuildInfo for the panel's roster read.
 function BackendService.getGuildById(guildId)
+	if not guildId then
+		return nil
+	end
+	if not tonumber(guildId) then
+		-- Synthetic/dev guild fallback for Studio test commands (e.g. "guild_test_alfa")
+		return {
+			id = tostring(guildId),
+			name = "Gremio Alfa",
+			tag = "ALFA",
+			leaderId = "dev",
+			members = {},
+		}
+	end
 	local ok, data = request("GET", "/guild/" .. tostring(guildId))
 	if ok and data then
 		return data.guild
@@ -266,6 +279,9 @@ function BackendService.createGuild(leaderId, name, tag)
 end
 
 function BackendService.joinGuild(guildId, userId)
+	if not tonumber(guildId) then
+		return nil
+	end
 	local ok, data = request("POST", "/guild/" .. tostring(guildId) .. "/join", { playerId = userId })
 	if ok and data then
 		return data.guild
@@ -274,6 +290,9 @@ function BackendService.joinGuild(guildId, userId)
 end
 
 function BackendService.kickFromGuild(guildId, requesterId, targetId)
+	if not tonumber(guildId) then
+		return nil
+	end
 	local ok, data = request(
 		"POST",
 		"/guild/" .. tostring(guildId) .. "/kick",
@@ -288,6 +307,9 @@ end
 -- Leader-only: sets targetId's rank to "officer" or "member". Returns
 -- (guild) on success, (nil, errorCode) on failure.
 function BackendService.setGuildMemberRole(guildId, requesterId, targetId, role)
+	if not tonumber(guildId) then
+		return nil
+	end
 	local ok, data = request(
 		"POST",
 		"/guild/" .. tostring(guildId) .. "/role",

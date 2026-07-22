@@ -23,34 +23,15 @@ function SittingUI.start()
 	gui.DisplayOrder = 9
 	gui.Parent = player:WaitForChild("PlayerGui")
 
-	local hintFrame = Instance.new("Frame")
-	hintFrame.Size = UDim2.new(0, 320, 0, 48)
-	hintFrame.Position = UDim2.new(0.5, 0, 0.85, 0)
-	hintFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	hintFrame.Visible = false
-	hintFrame.Parent = gui
-	UIKit.stylePanel(hintFrame)
-	UIKit.addShadow(hintFrame)
-
-	local hintLabel = UIKit.label(
-		hintFrame,
-		"🪑 Sentado... Presiona E o ESPACIO para levantarte",
-		13,
-		Theme.Semantic.Currency,
-		Theme.Font.BodyBold
-	)
-	hintLabel.Size = UDim2.new(1, -20, 1, 0)
-	hintLabel.Position = UDim2.new(0, 10, 0, 0)
-	hintLabel.TextXAlignment = Enum.TextXAlignment.Center
-
 	local isSeated = false
+	local ProximityPromptService = game:GetService("ProximityPromptService")
 
 	toggleSittingRemote.OnClientEvent:Connect(function(payload)
 		if typeof(payload) ~= "table" then
 			return
 		end
 		isSeated = payload.seated == true
-		hintFrame.Visible = isSeated
+		ProximityPromptService.Enabled = not isSeated
 	end)
 
 	local function requestStandUp()

@@ -58,6 +58,7 @@ local GuildResearchUI = require(script:WaitForChild("GuildResearchUI"))
 local SleepingUI = require(script:WaitForChild("SleepingUI"))
 local SittingUI = require(script:WaitForChild("SittingUI"))
 local BuildingUI = require(script:WaitForChild("BuildingUI"))
+local CustomPromptUI = require(script:WaitForChild("CustomPromptUI"))
 
 ContentSync.start() -- first: overlays backend item defs onto the mirror
 SpellsClient.start() -- seeds/auto-places spell hotbar binds (HudUI renders them)
@@ -116,3 +117,4 @@ GuildResearchUI.start()
 SleepingUI.start()
 SittingUI.start()
 BuildingUI.start()
+CustomPromptUI.start()

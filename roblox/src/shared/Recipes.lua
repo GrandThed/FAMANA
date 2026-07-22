@@ -34,6 +34,16 @@ Recipes.defs = {
 		},
 		station = "crafting_table",
 	},
+	mesa_arquitectura_gremio = {
+		id = "mesa_arquitectura_gremio",
+		name = "Mesa de Arquitectura del Gremio",
+		result = { itemId = "mesa_arquitectura_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 20 },
+			{ itemId = "stone", quantity = 10 },
+		},
+		station = "crafting_table",
+	},
 	bolsa_dormir = {
 		id = "bolsa_dormir",
 		name = "Bolsa de Dormir",
@@ -41,7 +51,7 @@ Recipes.defs = {
 		ingredients = {
 			{ itemId = "wood", quantity = 12 },
 		},
-		station = "crafting_table",
+		station = "mesa_arquitectura_gremio",
 	},
 	cama_campamento = {
 		id = "cama_campamento",
@@ -51,7 +61,7 @@ Recipes.defs = {
 			{ itemId = "wood", quantity = 25 },
 			{ itemId = "copper_ingot", quantity = 2 },
 		},
-		station = "crafting_table",
+		station = "mesa_arquitectura_gremio",
 	},
 	mesa_investigacion_gremio = {
 		id = "mesa_investigacion_gremio",
@@ -70,7 +80,7 @@ Recipes.defs = {
 		ingredients = {
 			{ itemId = "wood", quantity = 8 },
 		},
-		station = "crafting_table",
+		station = "mesa_arquitectura_gremio",
 	},
 	banco_campamento = {
 		id = "banco_campamento",
@@ -79,7 +89,7 @@ Recipes.defs = {
 		ingredients = {
 			{ itemId = "wood", quantity = 14 },
 		},
-		station = "crafting_table",
+		station = "mesa_arquitectura_gremio",
 	},
 	plano_construccion = {
 		id = "plano_construccion",
@@ -88,7 +98,7 @@ Recipes.defs = {
 		ingredients = {
 			{ itemId = "wood", quantity = 5 },
 		},
-		station = "crafting_table",
+		station = "mesa_arquitectura_gremio",
 	},
 	torch = {
 		id = "torch",
@@ -218,6 +228,16 @@ Recipes.defs = {
 		},
 		station = "crafting_table"
 	},
+	portal_gremio = {
+		id = "portal_gremio",
+		name = "Portal del Gremio",
+		result = { itemId = "portal_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "stone", quantity = 20 },
+			{ itemId = "wood", quantity = 15 },
+		},
+		station = "crafting_table"
+	},
 	olla_campamento = {
 		id = "olla_campamento",
 		name = "Olla de Campamento",
@@ -281,6 +301,56 @@ Recipes.defs = {
 			{ itemId = "wood", quantity = 15 },
 		},
 		station = "crafting_table",
+	},
+	antorcha_campamento = {
+		id = "antorcha_campamento",
+		name = "Antorcha de Madera",
+		result = { itemId = "antorcha_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 4 },
+			{ itemId = "stone", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	hoguera_gremio = {
+		id = "hoguera_gremio",
+		name = "Hoguera de Campamento",
+		result = { itemId = "hoguera_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 10 },
+			{ itemId = "stone", quantity = 10 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	lampara_gremio = {
+		id = "lampara_gremio",
+		name = "Farol de Piedra y Hierro",
+		result = { itemId = "lampara_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "stone", quantity = 6 },
+			{ itemId = "iron_ingot", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	maceta_hierbas = {
+		id = "maceta_hierbas",
+		name = "Maceta de Cultivo del Gremio",
+		result = { itemId = "maceta_hierbas", quantity = 1 },
+		ingredients = {
+			{ itemId = "stone", quantity = 8 },
+			{ itemId = "wood", quantity = 4 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	letrero_bienvenida = {
+		id = "letrero_bienvenida",
+		name = "Letrero de Anuncios del Gremio",
+		result = { itemId = "letrero_bienvenida", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 12 },
+			{ itemId = "copper_ingot", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
 	},
 }
 

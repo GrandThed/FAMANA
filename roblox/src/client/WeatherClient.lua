@@ -114,6 +114,62 @@ function WeatherClient.start()
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if root and rainEmitterPart then
 			rainEmitterPart.CFrame = CFrame.new(root.Position + Vector3.new(0, 30, 0))
+
+			-- Roof check: raycast straight up from player position to see if under a roof/building
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { character, rainEmitterPart }
+
+			local currentGlobalWeather = Workspace:GetAttribute("Weather") or "clear"
+			local isRainingWeather = (currentGlobalWeather == "rain" or currentGlobalWeather == "thunderstorm")
+
+			local rayResult = Workspace:Raycast(root.Position, Vector3.new(0, 60, 0), params)
+			local isUnderRoof = rayResult ~= nil
+
+			-- Dynamic Indoor Fog & Atmosphere Culling
+			local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+			if isUnderRoof then
+				Lighting.FogStart = 45
+				Lighting.FogEnd = 220
+				if atmosphere then
+					atmosphere.Density = 0.12
+				end
+			else
+				-- Restore outdoor fog based on current weather
+				if currentGlobalWeather == "fog" then
+					Lighting.FogStart = 0
+					Lighting.FogEnd = 120
+					if atmosphere then
+						atmosphere.Density = 0.75
+					end
+				elseif isRainingWeather then
+					Lighting.FogStart = 10
+					Lighting.FogEnd = 350
+					if atmosphere then
+						atmosphere.Density = 0.45
+					end
+				else
+					Lighting.FogStart = 50
+					Lighting.FogEnd = 1500
+					if atmosphere then
+						atmosphere.Density = 0.25
+					end
+				end
+			end
+
+			if isRainingWeather and rainParticle then
+				if isUnderRoof then
+					rainParticle.Rate = 0
+					if rainSound then
+						rainSound.Volume = 0.1
+					end
+				else
+					rainParticle.Rate = currentGlobalWeather == "thunderstorm" and 900 or 500
+					if rainSound then
+						rainSound.Volume = 0.5
+					end
+				end
+			end
 		end
 	end)
 end

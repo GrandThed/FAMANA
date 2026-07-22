@@ -27,6 +27,12 @@ function ManaService.trySpend(player, amount)
 	return true
 end
 
+function ManaService.add(player, amount)
+	local current = player:GetAttribute("Mana") or 0
+	local max = player:GetAttribute("MaxMana") or Config.Mana.max
+	player:SetAttribute("Mana", math.min(max, current + amount))
+end
+
 local function refill(player)
 	player:SetAttribute("MaxMana", Config.Mana.max)
 	player:SetAttribute("Mana", Config.Mana.max)
