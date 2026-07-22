@@ -139,6 +139,41 @@ CREATE TABLE IF NOT EXISTS guild_members (
 
 CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members (guild_id);
 
+-- Officer rank, additive to the leader/member split (leader is still
+-- guilds.leader_id — this column never holds 'leader', only distinguishes
+-- officer from plain member). Application code validates the two allowed
+-- values rather than a DB CHECK constraint, so re-running this file stays a
+-- plain idempotent ADD COLUMN with no constraint-already-exists edge case.
+ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';
+
+-- Guild bank: a flat per-item stack, not a spatial grid like the player's
+-- own inventory (inventory_items) — a shared bank doesn't need x/y packing,
+-- just "how much of this does the guild have". Rolled/unique items (with
+-- meta) aren't supported here for the same reason inventory.js's own
+-- removeItem() skips them for players: a generic id+quantity stack can't
+-- represent one specific instance's rolls.
+CREATE TABLE IF NOT EXISTS guild_bank_items (
+    id           BIGSERIAL PRIMARY KEY,
+    guild_id     BIGINT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+    item_id      TEXT   NOT NULL,
+    quantity     INT    NOT NULL CHECK (quantity > 0),
+    UNIQUE (guild_id, item_id)
+);
+
+-- Append-only deposit/withdraw history — a shared bank with no paper trail
+-- just invites disputes over who took what.
+CREATE TABLE IF NOT EXISTS guild_bank_log (
+    id         BIGSERIAL PRIMARY KEY,
+    guild_id   BIGINT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+    player_id  BIGINT REFERENCES players(id) ON DELETE SET NULL,
+    item_id    TEXT NOT NULL,
+    quantity   INT NOT NULL,
+    action     TEXT NOT NULL, -- 'deposit' | 'withdraw', validated in guildBank.js
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guild_bank_log_guild ON guild_bank_log (guild_id, created_at DESC);
+
 -- Append-only audit log for every admin-panel mutation. `actor` is the admin's
 -- request IP (single shared password for the MVP); `detail` holds the request
 -- payload / before-after context as JSON.

@@ -246,6 +246,15 @@ Items.defs = {
 		maxStack = 1,
 		size = { 2, 2 },
 	},
+	cofre_gremio = {
+		id = "cofre_gremio",
+		name = "Cofre de Gremio",
+		flavor = "Un cofre de madera y hierro para acceder al banco compartido de tu gremio en la acampada.",
+		type = "placeable",
+		stackable = false,
+		maxStack = 1,
+		size = { 2, 2 },
+	},
 	carpa_campamento = {
 		id = "carpa_campamento",
 		name = "Carpa de Campamento",

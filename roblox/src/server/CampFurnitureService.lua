@@ -67,6 +67,7 @@ local AUTOSAVE_INTERVAL = 120 -- seconds; see the loop in start() below
 -- the town's or a camp-planted one.
 local FURNITURE_DEFS = {
 	cofre_campamento = { kind = "chest" },
+	cofre_gremio = { kind = "guild_chest" },
 	-- Purely decorative, no station — the first "cosmetic" piece, predates
 	-- the tier system so it's not gated (minCampTier absent = tier 0 ok).
 	-- Counts toward coziness (§3) like the newer cosmetics below.
@@ -169,6 +170,7 @@ local furnitureFolder
 local notifyRemote
 local chestUpdatedRemote
 local openChestRemote
+local openGuildBankRemote
 local manageRemote
 
 -- [ownerUserId] = { [pieceId] = piece }; piece = { id, itemId, kind, center,
@@ -344,6 +346,7 @@ end
 -- Sizes mirror each spec's primary so placement/spacing feel unchanged.
 local MESH_LOOK = {
 	chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
+	guild_chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
 	tent = { key = "tent", anchor = Vector3.new(0.6, 2.2, 0.6), collide = false },
 	crafting_table = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
 	forge = { key = "simple_forge", anchor = Vector3.new(2.6, 1.8, 2.2), collide = true },
@@ -417,10 +420,41 @@ local function buildPiece(kind, itemId, center, ownerId)
 		end)
 
 		attachManagePrompt(piece, model)
+	elseif kind == "guild_chest" then
+		local model = buildFurnitureModel(kind, "Cofre de Gremio", CHEST_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Abrir Banco de Gremio"
+		prompt.ObjectText = "Cofre de Gremio"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = model.PrimaryPart
+
+		prompt.Triggered:Connect(function(triggeringPlayer)
+			if not triggeringPlayer:GetAttribute("GuildId") then
+				notify(triggeringPlayer, "Necesitás pertenecer a un gremio para acceder a su banco.")
+				return
+			end
+			if openGuildBankRemote then
+				openGuildBankRemote:FireClient(triggeringPlayer)
+			end
+		end)
+
+		attachManagePrompt(piece, model)
 	elseif kind == "tent" then
 		local model = buildFurnitureModel(kind, "Carpa", TENT_SPECS, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
+
+		-- Cozy interior warm light for tents
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 200, 140)
+		light.Range = 12
+		light.Brightness = 1.0
+		light.Parent = model.PrimaryPart
 
 		attachManagePrompt(piece, model)
 	elseif kind == "crafting_table" or kind == "forge" or kind == "cauldron" then
@@ -436,6 +470,36 @@ local function buildPiece(kind, itemId, center, ownerId)
 		local model = buildFurnitureModel(kind, artName, specs, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
+
+		if kind == "forge" then
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(255, 120, 30)
+			light.Range = 12
+			light.Brightness = 1.8
+			light.Parent = model.PrimaryPart
+		elseif kind == "cauldron" then
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(255, 180, 80)
+			light.Range = 10
+			light.Brightness = 1.4
+			light.Parent = model.PrimaryPart
+
+			local steam = Instance.new("ParticleEmitter")
+			steam.Name = "Steam"
+			steam.Color = ColorSequence.new(Color3.fromRGB(220, 230, 240))
+			steam.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.4),
+				NumberSequenceKeypoint.new(1, 1.2),
+			})
+			steam.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.5),
+				NumberSequenceKeypoint.new(1, 1.0),
+			})
+			steam.Lifetime = NumberRange.new(1.0, 2.0)
+			steam.Rate = 6
+			steam.Speed = NumberRange.new(1.0, 2.0)
+			steam.Parent = model.PrimaryPart
+		end
 
 		-- The whole point: while this piece stands, it's a real workbench —
 		-- recipes that need FURNITURE_DEFS[itemId].station unlock near it,
@@ -471,13 +535,12 @@ local function buildPiece(kind, itemId, center, ownerId)
 					end
 				end
 			end
-			if glow then
-				local light = Instance.new("PointLight")
-				light.Color = glow.Color
-				light.Range = 12
-				light.Brightness = 1.5
-				light.Parent = glow
-			end
+			local targetPart = glow or model.PrimaryPart
+			local light = Instance.new("PointLight")
+			light.Color = glow and glow.Color or Color3.fromRGB(255, 210, 120)
+			light.Range = 16
+			light.Brightness = 2.0
+			light.Parent = targetPart
 		end
 
 		attachManagePrompt(piece, model)
@@ -953,6 +1016,12 @@ function CampFurnitureService.start()
 			end
 		end
 	end)
+
+	notifyRemote = Remotes.get("Notify")
+	chestUpdatedRemote = Remotes.get("ChestUpdated")
+	openChestRemote = Remotes.get("OpenChest")
+	openGuildBankRemote = Remotes.get("OpenGuildBank")
+	manageRemote = Remotes.get("ManageFurniture")
 
 	local placeFurniture = Remotes.getFunction("PlaceFurniture")
 	placeFurniture.OnServerInvoke = handlePlaceFurniture

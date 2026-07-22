@@ -285,6 +285,20 @@ function BackendService.kickFromGuild(guildId, requesterId, targetId)
 	return nil, data and data.error or nil
 end
 
+-- Leader-only: sets targetId's rank to "officer" or "member". Returns
+-- (guild) on success, (nil, errorCode) on failure.
+function BackendService.setGuildMemberRole(guildId, requesterId, targetId, role)
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/role",
+		{ requesterId = requesterId, targetId = targetId, role = role }
+	)
+	if ok and data then
+		return data.guild
+	end
+	return nil, data and data.error or nil
+end
+
 -- Returns (disbanded: bool, guild: table?) on success, (nil, errorCode) on
 -- failure. `guild` is nil when disbanded is true.
 function BackendService.leaveGuild(guildId, userId)
@@ -323,6 +337,57 @@ function BackendService.claimSettlement(settlementId, guildId, killerUserId, gra
 		return data.claim
 	end
 	return nil, (data and data.error) or "error"
+end
+
+-- Guild bank: a flat { {itemId, quantity}, ... } stack list, or nil on
+-- transport failure — see backend/src/guildBank.js for why it's not a
+-- spatial grid like the player's own inventory.
+function BackendService.getGuildBank(guildId)
+	local ok, data = request("GET", "/guild/" .. tostring(guildId) .. "/bank")
+	if ok and data then
+		return data.items
+	end
+	return nil
+end
+
+-- Recent deposit/withdraw history, newest first, or nil on failure.
+function BackendService.getGuildBankLog(guildId)
+	local ok, data = request("GET", "/guild/" .. tostring(guildId) .. "/bank/log")
+	if ok and data then
+		return data.entries
+	end
+	return nil
+end
+
+-- Any member can deposit. Returns (depositedQuantity) on success,
+-- (nil, errorCode) on failure ("insufficient" if they don't actually have
+-- that much, among others — see guildBank.js).
+function BackendService.depositToGuildBank(guildId, playerId, itemId, quantity)
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/bank/deposit",
+		{ playerId = playerId, itemId = itemId, quantity = quantity }
+	)
+	if ok and data then
+		return data.deposited
+	end
+	return nil, data and data.error or "error"
+end
+
+-- Officer/leader only. Returns (withdrawnQuantity) on success — which may be
+-- less than requested if the withdrawer's own inventory didn't have room
+-- for all of it (see guildBank.js's partial-withdraw handling) — or
+-- (nil, errorCode) on failure.
+function BackendService.withdrawFromGuildBank(guildId, playerId, itemId, quantity)
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/bank/withdraw",
+		{ playerId = playerId, itemId = itemId, quantity = quantity }
+	)
+	if ok and data then
+		return data.withdrawn
+	end
+	return nil, data and data.error or "error"
 end
 
 return BackendService

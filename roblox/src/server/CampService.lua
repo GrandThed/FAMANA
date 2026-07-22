@@ -302,6 +302,39 @@ local function buildCampModel(center, tier)
 		light.Range = fire.lightRange
 		light.Brightness = fire.lightBrightness
 		light.Parent = ember
+
+		local sparkEmitter = Instance.new("ParticleEmitter")
+		sparkEmitter.Name = "CampfireSparks"
+		sparkEmitter.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 210, 80)),
+			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 120, 30)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 40, 0)),
+		})
+		sparkEmitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.35),
+			NumberSequenceKeypoint.new(1, 0.05),
+		})
+		sparkEmitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.1),
+			NumberSequenceKeypoint.new(0.8, 0.4),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		sparkEmitter.Lifetime = NumberRange.new(0.8, 1.8)
+		sparkEmitter.Rate = 14
+		sparkEmitter.Speed = NumberRange.new(1.8, 3.8)
+		sparkEmitter.SpreadAngle = Vector2.new(25, 25)
+		sparkEmitter.Acceleration = Vector3.new(0, 1.2, 0)
+		sparkEmitter.Parent = ember
+
+		local fireSound = Instance.new("Sound")
+		fireSound.Name = "CampfireCrackle"
+		fireSound.SoundId = "rbxassetid://9114223179"
+		fireSound.Looped = true
+		fireSound.Volume = 0.7
+		fireSound.RollOffMinDistance = 6
+		fireSound.RollOffMaxDistance = 45
+		fireSound.Parent = ember
+		fireSound:Play()
 	end
 
 	model.Parent = campFolder

@@ -75,9 +75,90 @@ local function distance2D(a, b)
 	return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
 end
 
--- ---- world banner -----------------------------------------------------
+-- [settlementId] = { folder = Folder, disc = Part, ring = Part, pillars = table }
+local zoneVisuals = {}
+
+local zonesFolder
+
+local function getZonesFolder()
+	if not zonesFolder then
+		zonesFolder = Workspace:FindFirstChild("SettlementZones")
+		if not zonesFolder then
+			zonesFolder = Instance.new("Folder")
+			zonesFolder.Name = "SettlementZones"
+			zonesFolder.Parent = Workspace
+		end
+	end
+	return zonesFolder
+end
+
+local function findGroundY(pos)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	if zonesFolder then
+		params.FilterDescendantsInstances = { zonesFolder }
+	end
+	local result = Workspace:Raycast(Vector3.new(pos.X, pos.Y + 100, pos.Z), Vector3.new(0, -300, 0), params)
+	return result and result.Position.Y or pos.Y
+end
+
+-- ---- world banner & territory zone visuals --------------------------------
+
+local function buildZoneVisuals(settlementId, def)
+	local folder = Instance.new("Folder")
+	folder.Name = "Zone_" .. settlementId
+	folder.Parent = getZonesFolder()
+
+	-- Perimeter Boundary Posts / Beacons (8 pillars defining exact border)
+	local pillars = {}
+	local NUM_PILLARS = 8
+	for i = 1, NUM_PILLARS do
+		local angle = (i - 1) * (math.pi * 2 / NUM_PILLARS)
+		local px = def.position.X + math.cos(angle) * def.radius
+		local pz = def.position.Z + math.sin(angle) * def.radius
+		local py = findGroundY(Vector3.new(px, def.position.Y, pz))
+
+		local pillar = Instance.new("Part")
+		pillar.Name = "PerimeterPillar_" .. i
+		pillar.Size = Vector3.new(1.0, 3.5, 1.0)
+		pillar.CFrame = CFrame.new(px, py + 1.75, pz)
+		pillar.Material = Enum.Material.SmoothPlastic
+		pillar.Color = Color3.fromRGB(45, 50, 60)
+		pillar.Anchored = true
+		pillar.CanCollide = false
+		pillar.CanQuery = false
+		pillar.Parent = folder
+
+		local cap = Instance.new("Part")
+		cap.Name = "Cap"
+		cap.Shape = Enum.PartType.Ball
+		cap.Size = Vector3.new(1.3, 1.3, 1.3)
+		cap.CFrame = CFrame.new(px, py + 3.6, pz)
+		cap.Material = Enum.Material.Neon
+		cap.Color = Color3.fromRGB(180, 220, 255)
+		cap.Anchored = true
+		cap.CanCollide = false
+		cap.CanQuery = false
+		cap.Parent = folder
+
+		local light = Instance.new("PointLight")
+		light.Range = 12
+		light.Brightness = 1.5
+		light.Color = Color3.fromRGB(180, 220, 255)
+		light.Parent = cap
+
+		table.insert(pillars, { pillar = pillar, cap = cap, light = light })
+	end
+
+	zoneVisuals[settlementId] = {
+		folder = folder,
+		pillars = pillars,
+	}
+end
 
 local function buildBanner(settlementId, def)
+	buildZoneVisuals(settlementId, def)
+
 	local anchor = Instance.new("Part")
 	anchor.Name = "SettlementBanner_" .. settlementId
 	anchor.Anchored = true
@@ -88,14 +169,14 @@ local function buildBanner(settlementId, def)
 	anchor.Parent = Workspace
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.new(0, 260, 0, 70)
+	billboard.Size = UDim2.new(0, 300, 0, 90)
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = 300
 	billboard.Parent = anchor
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "Name"
-	nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+	nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.GothamBlack
 	nameLabel.TextScaled = true
@@ -106,8 +187,8 @@ local function buildBanner(settlementId, def)
 
 	local ownerLabel = Instance.new("TextLabel")
 	ownerLabel.Name = "Owner"
-	ownerLabel.Size = UDim2.new(1, 0, 0.5, 0)
-	ownerLabel.Position = UDim2.new(0, 0, 0.5, 0)
+	ownerLabel.Size = UDim2.new(1, 0, 0.35, 0)
+	ownerLabel.Position = UDim2.new(0, 0, 0.38, 0)
 	ownerLabel.BackgroundTransparency = 1
 	ownerLabel.Font = Enum.Font.GothamBold
 	ownerLabel.TextScaled = true
@@ -116,25 +197,52 @@ local function buildBanner(settlementId, def)
 	ownerLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 	ownerLabel.Parent = billboard
 
+	local rangeLabel = Instance.new("TextLabel")
+	rangeLabel.Name = "RangeInfo"
+	rangeLabel.Size = UDim2.new(1, 0, 0.25, 0)
+	rangeLabel.Position = UDim2.new(0, 0, 0.73, 0)
+	rangeLabel.BackgroundTransparency = 1
+	rangeLabel.Font = Enum.Font.GothamMedium
+	rangeLabel.TextScaled = true
+	rangeLabel.TextColor3 = Color3.fromRGB(200, 230, 255)
+	rangeLabel.TextStrokeTransparency = 0.5
+	rangeLabel.Text = string.format("⚔️ Área de Territorio: %dm", def.radius)
+	rangeLabel.Parent = billboard
+
 	banners[settlementId] = { anchor = anchor, ownerLabel = ownerLabel }
 end
 
 local function refreshBanner(settlementId)
 	local banner = banners[settlementId]
-	if not banner then
-		return
-	end
+	local visuals = zoneVisuals[settlementId]
 	local owner = ownership[settlementId]
+	local inGrace = isInGrace(settlementId)
+
+	local color, ownerText
 	if owner and owner.guildId then
-		banner.ownerLabel.Text = string.format("[%s] %s", owner.guildTag or "?", owner.guildName or "")
-		banner.ownerLabel.TextColor3 = Color3.fromRGB(255, 210, 90)
+		ownerText = string.format("[%s] %s", owner.guildTag or "?", owner.guildName or "")
+		if inGrace then
+			color = Color3.fromRGB(90, 210, 255)
+		else
+			color = Color3.fromRGB(255, 210, 80)
+		end
 	else
-		banner.ownerLabel.Text = "Neutral"
-		banner.ownerLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+		ownerText = "Neutral"
+		color = Color3.fromRGB(180, 220, 255)
+	end
+
+	if banner then
+		banner.ownerLabel.Text = ownerText
+		banner.ownerLabel.TextColor3 = color
+	end
+
+	if visuals then
+		for _, item in ipairs(visuals.pillars) do
+			item.cap.Color = color
+			item.light.Color = color
+		end
 	end
 end
-
--- ---- ownership cache ----------------------------------------------------
 
 local function setOwnership(settlementId, guildId, guildTag, guildName)
 	if guildId then

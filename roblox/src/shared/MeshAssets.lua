@@ -60,6 +60,7 @@ MeshAssets.items = {
 	iron_ingot = { assetId = 116281909258676 },
 	-- camp furniture ITEMS (thumbnails/drops share the world models below)
 	cofre_campamento = { assetId = 115944771848024 },
+	cofre_gremio = { assetId = 115944771848024 },
 	carpa_campamento = { assetId = 121085103547372 },
 	olla_campamento = { assetId = 109233509139950 },
 	alfombra_campamento = { assetId = 78239886476338 },

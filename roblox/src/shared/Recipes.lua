@@ -133,6 +133,16 @@ Recipes.defs = {
 		},
 		station = "crafting_table"
 	},
+	cofre_gremio = {
+		id = "cofre_gremio",
+		name = "Cofre de Gremio",
+		result = { itemId = "cofre_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 30 },
+			{ itemId = "iron_ingot", quantity = 5 },
+		},
+		station = "crafting_table"
+	},
 	carpa_campamento = {
 		id = "carpa_campamento",
 		name = "Carpa de Campamento",
@@ -206,6 +216,7 @@ local order =
 		"iron_ingot",
 		"acampada",
 		"cofre_campamento",
+		"cofre_gremio",
 		"carpa_campamento",
 		"olla_campamento",
 		"alfombra_campamento",
