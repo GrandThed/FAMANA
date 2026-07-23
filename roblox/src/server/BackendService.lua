@@ -208,6 +208,21 @@ function BackendService.getContent()
 	return nil
 end
 
+-- Top-N players by `metricType` ("level" | "gold" | "kills", see backend
+-- routes/leaderboards.js). Returns { type, label, entries = { { rank,
+-- playerId, username, score }, ... } } or nil on failure.
+function BackendService.getLeaderboard(metricType, limit)
+	local path = "/leaderboards?type=" .. HttpService:UrlEncode(metricType)
+	if limit then
+		path ..= "&limit=" .. tostring(math.floor(limit))
+	end
+	local ok, data = request("GET", path)
+	if ok then
+		return data
+	end
+	return nil
+end
+
 -- Drain pending events for the given online user ids. Returns a list of
 -- { playerId, kind, message, payload } or nil on failure.
 function BackendService.pollEvents(userIds)
@@ -232,6 +247,19 @@ end
 -- Full guild by id (roster included), or nil if it doesn't exist / on
 -- failure. Used by GuildService.getGuildInfo for the panel's roster read.
 function BackendService.getGuildById(guildId)
+	if not guildId then
+		return nil
+	end
+	if not tonumber(guildId) then
+		-- Synthetic/dev guild fallback for Studio test commands (e.g. "guild_test_alfa")
+		return {
+			id = tostring(guildId),
+			name = "Gremio Alfa",
+			tag = "ALFA",
+			leaderId = "dev",
+			members = {},
+		}
+	end
 	local ok, data = request("GET", "/guild/" .. tostring(guildId))
 	if ok and data then
 		return data.guild
@@ -251,6 +279,9 @@ function BackendService.createGuild(leaderId, name, tag)
 end
 
 function BackendService.joinGuild(guildId, userId)
+	if not tonumber(guildId) then
+		return nil
+	end
 	local ok, data = request("POST", "/guild/" .. tostring(guildId) .. "/join", { playerId = userId })
 	if ok and data then
 		return data.guild
@@ -259,10 +290,30 @@ function BackendService.joinGuild(guildId, userId)
 end
 
 function BackendService.kickFromGuild(guildId, requesterId, targetId)
+	if not tonumber(guildId) then
+		return nil
+	end
 	local ok, data = request(
 		"POST",
 		"/guild/" .. tostring(guildId) .. "/kick",
 		{ requesterId = requesterId, targetId = targetId }
+	)
+	if ok and data then
+		return data.guild
+	end
+	return nil, data and data.error or nil
+end
+
+-- Leader-only: sets targetId's rank to "officer" or "member". Returns
+-- (guild) on success, (nil, errorCode) on failure.
+function BackendService.setGuildMemberRole(guildId, requesterId, targetId, role)
+	if not tonumber(guildId) then
+		return nil
+	end
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/role",
+		{ requesterId = requesterId, targetId = targetId, role = role }
 	)
 	if ok and data then
 		return data.guild
@@ -278,6 +329,87 @@ function BackendService.leaveGuild(guildId, userId)
 		return data.disbanded == true, data.guild
 	end
 	return nil, data and data.error or nil
+end
+
+-- All settlements with a current owner: { { settlementId, guildId,
+-- claimedAt, graceUntil }, ... }. Called on server start to paint initial
+-- ownership; SettlementService keeps its own copy in sync after that from
+-- local claim/kill events rather than re-polling.
+function BackendService.listSettlementClaims()
+	local ok, data = request("GET", "/settlements")
+	if ok and data then
+		return data.claims
+	end
+	return nil
+end
+
+-- Reports a guardian/challenger kill: `guildId` takes ownership of
+-- `settlementId`, credited to `killerUserId`. Returns (claim) on success,
+-- (nil, "in_grace") if the backend rejected it as still-protected (should be
+-- rare — SettlementService should already be enforcing the grace window
+-- before it even lets a challenger die), (nil, "error") on transport
+-- failure.
+function BackendService.claimSettlement(settlementId, guildId, killerUserId, graceSeconds)
+	local ok, data = request(
+		"POST",
+		"/settlements/" .. settlementId .. "/claim",
+		{ guildId = guildId, killerId = killerUserId, graceSeconds = graceSeconds }
+	)
+	if ok and data then
+		return data.claim
+	end
+	return nil, (data and data.error) or "error"
+end
+
+-- Guild bank: a flat { {itemId, quantity}, ... } stack list, or nil on
+-- transport failure — see backend/src/guildBank.js for why it's not a
+-- spatial grid like the player's own inventory.
+function BackendService.getGuildBank(guildId)
+	local ok, data = request("GET", "/guild/" .. tostring(guildId) .. "/bank")
+	if ok and data then
+		return data.items
+	end
+	return nil
+end
+
+-- Recent deposit/withdraw history, newest first, or nil on failure.
+function BackendService.getGuildBankLog(guildId)
+	local ok, data = request("GET", "/guild/" .. tostring(guildId) .. "/bank/log")
+	if ok and data then
+		return data.entries
+	end
+	return nil
+end
+
+-- Any member can deposit. Returns (depositedQuantity) on success,
+-- (nil, errorCode) on failure ("insufficient" if they don't actually have
+-- that much, among others — see guildBank.js).
+function BackendService.depositToGuildBank(guildId, playerId, itemId, quantity)
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/bank/deposit",
+		{ playerId = playerId, itemId = itemId, quantity = quantity }
+	)
+	if ok and data then
+		return data.deposited
+	end
+	return nil, data and data.error or "error"
+end
+
+-- Officer/leader only. Returns (withdrawnQuantity) on success — which may be
+-- less than requested if the withdrawer's own inventory didn't have room
+-- for all of it (see guildBank.js's partial-withdraw handling) — or
+-- (nil, errorCode) on failure.
+function BackendService.withdrawFromGuildBank(guildId, playerId, itemId, quantity)
+	local ok, data = request(
+		"POST",
+		"/guild/" .. tostring(guildId) .. "/bank/withdraw",
+		{ playerId = playerId, itemId = itemId, quantity = quantity }
+	)
+	if ok and data then
+		return data.withdrawn
+	end
+	return nil, data and data.error or "error"
 end
 
 return BackendService

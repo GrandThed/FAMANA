@@ -18,6 +18,8 @@
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Quests = require(Shared:WaitForChild("Quests"))
@@ -25,12 +27,22 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local MapMarkers = require(Shared:WaitForChild("MapMarkers"))
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
+local Recipes = require(Shared:WaitForChild("Recipes"))
 
 local PlayerService = require(script.Parent.PlayerService)
 local EnemyService = require(script.Parent.EnemyService)
 local GatheringService = require(script.Parent.GatheringService)
 
 local QuestService = {}
+
+-- Fired as (player, questId) right after a quest's status flips to
+-- "completed" (QuestService.completeQuest). Same decoupled-hook shape as
+-- EnemyService.onKilled/GatheringService.onGathered — AchievementsService
+-- is the only current subscriber (bumps the "questsCompleted" stat).
+local completedHandlers = {}
+function QuestService.onCompleted(fn)
+	table.insert(completedHandlers, fn)
+end
 
 local notifyRemote -- RemoteEvent, resolved in start()
 local questUpdatedRemote -- RemoteEvent, resolved in start() — pushes progress to the client (future quest log UI)
@@ -81,6 +93,106 @@ local function waitForProfile(player)
 		task.wait(0.1)
 	end
 	return PlayerService.get(player)
+end
+
+-- ---- Rotación de misiones ofrecidas ---------------------------------------
+-- Cada NPC dador puede tener más quests en el catálogo (Quests.forGiver) de
+-- las que ofrece en un momento dado — cada ROTATION_INTERVAL se sortean de
+-- nuevo OFFERS_PER_GIVER al azar del pool completo. Solo afecta qué se
+-- puede EMPEZAR de nuevo (status "available" en buildGiverPayload): una
+-- quest que un jugador ya tiene activa o completada sigue viéndola igual
+-- aunque haya salido de rotación mientras tanto — nunca le "roba" progreso.
+-- Declarado ACÁ ARRIBA (antes de canStart/startQuest/etc.) para que esas
+-- funciones puedan cerrar sobre isOffered/currentOffers como upvalues —
+-- Lua resuelve locals por posición textual, no por orden de ejecución.
+local ROTATION_INTERVAL = 30 * 60 -- 30 minutos
+local OFFERS_PER_GIVER = 2
+
+local currentOffers = {} -- [giverId] = { [questId] = true }
+
+-- Todos los giverId presentes en el catálogo (Quests.defs), sin duplicados,
+-- en el mismo orden que Quests.list() — no depende de qué NPCs ya se hayan
+-- construido, así refreshOffers() puede correr antes o después de buildGiver.
+local function giverIdsInCatalog()
+	local seen, list = {}, {}
+	for _, def in ipairs(Quests.list()) do
+		if not seen[def.giver] then
+			seen[def.giver] = true
+			table.insert(list, def.giver)
+		end
+	end
+	return list
+end
+
+-- Sortea, para cada giver, hasta OFFERS_PER_GIVER quests de su pool completo
+-- para ofrecer AHORA. Si el pool tiene OFFERS_PER_GIVER o menos, no hay nada
+-- que rotar — se ofrecen todas (mismo comportamiento que antes de esto
+-- existir). Reemplaza currentOffers[giverId] entero en vez de acumular.
+local function refreshOffers()
+	for _, giverId in ipairs(giverIdsInCatalog()) do
+		local pool = Quests.forGiver(giverId)
+		local offered = {}
+		if #pool <= OFFERS_PER_GIVER then
+			for _, def in ipairs(pool) do
+				offered[def.id] = true
+			end
+		else
+			-- Fisher-Yates parcial: solo hace falta barajar los primeros
+			-- OFFERS_PER_GIVER lugares, no el pool entero.
+			local indices = {}
+			for i = 1, #pool do
+				indices[i] = i
+			end
+			for i = 1, OFFERS_PER_GIVER do
+				local j = math.random(i, #indices)
+				indices[i], indices[j] = indices[j], indices[i]
+				offered[pool[indices[i]].id] = true
+			end
+		end
+		currentOffers[giverId] = offered
+	end
+end
+
+local function isOffered(giverId, questId)
+	local offered = currentOffers[giverId]
+	return offered ~= nil and offered[questId] == true
+end
+
+-- ---- Marcador "!" sobre la cabeza del NPC ---------------------------------
+-- true si `giverId` tiene algo para ofrecerle/cobrarle a ESTE jugador ahora
+-- mismo: una quest recién ofrecida (rotación actual) que puede empezar, o
+-- una que ya tiene activa y está lista para entregar. Mismo criterio que
+-- prioriza firstOffer (más abajo), pero como bool — dispara el ícono en
+-- client/QuestMarkerUI.lua.
+local function giverHasSomethingFor(player, giverId)
+	for _, def in ipairs(Quests.forGiver(giverId)) do
+		local entry = QuestService.getProgress(player, def.id)
+		if entry and entry.status == "active" and QuestService.canComplete(player, def.id) then
+			return true
+		end
+		if isOffered(giverId, def.id) and QuestService.canStart(player, def.id) then
+			return true
+		end
+	end
+	return false
+end
+
+local giverMarkersRemote -- RemoteEvent (QuestGiverMarkers), resolved in start()
+
+-- Le manda a ESTE jugador (nada de broadcast — el resultado depende de su
+-- propio progreso/nivel) qué giverId's deberían mostrarle el "!" ahora
+-- mismo. Se llama después de cualquier cosa que pueda cambiar la respuesta:
+-- empezar/completar una quest, progreso que habilita una entrega, rotación
+-- de ofertas, y una vez al cargar el profile.
+local function pushMarkers(player)
+	if not giverMarkersRemote then
+		return
+	end
+	local markers = {}
+	for _, giverId in ipairs(giverIdsInCatalog()) do
+		markers[giverId] = giverHasSomethingFor(player, giverId)
+	end
+	giverMarkersRemote:FireClient(player, markers)
 end
 
 -- ---- Consultas -------------------------------------------------------
@@ -303,6 +415,7 @@ function QuestService.startQuest(player, questId)
 
 	notify(player, "Nueva misión: " .. def.name)
 	pushUpdate(player, questId, "started")
+	pushMarkers(player)
 	saveNow(player)
 	-- Si el jugador no tenía nada trackeado, esta pasa a serlo (fallback de
 	-- getTrackedQuest); si ya tenía otra trackeada, no se la pisa.
@@ -365,12 +478,21 @@ function QuestService.completeQuest(player, questId)
 			PlayerService.addItem(player, reward.itemId, reward.quantity, true)
 		end
 	end
+	if rewards.unlockRecipes then
+		for _, recipeId in ipairs(rewards.unlockRecipes) do
+			PlayerService.unlockRecipe(player, recipeId)
+		end
+	end
 
 	local playerQuests = questTable(player)
 	playerQuests[questId].status = "completed"
 	notify(player, "Misión completada: " .. def.name)
 	pushUpdate(player, questId, "completed")
+	pushMarkers(player)
 	saveNow(player)
+	for _, fn in ipairs(completedHandlers) do
+		task.spawn(fn, player, questId)
+	end
 	-- Si `questId` era la trackeada, esto la reemplaza por otra activa (si
 	-- hay) o limpia el tracker (si no) — nunca deja el HUD mostrando una
 	-- quest ya completada.
@@ -403,6 +525,10 @@ local function bumpObjectives(player, objectiveType, target)
 								string.format("%s: %d/%d", def.name, current, objective.amount)
 							)
 							pushUpdate(player, questId)
+							-- Este bump puede ser justo el que deja la quest lista para
+							-- entregar (canComplete pasa a true) — refresca el "!" del
+							-- giver por si acaba de encenderse.
+							pushMarkers(player)
 							local profile = PlayerService.get(player)
 							if profile and profile.trackedQuestId == questId then
 								pushTracked(player, questId, entry)
@@ -432,14 +558,56 @@ end
 
 local MAX_TALK_DISTANCE = 16
 
--- { giverId, name, position, facing? (degrees yaw; el modelo mira hacia -Z) }
+-- { giverId, name, position, facing? (degrees yaw; el modelo mira hacia -Z),
+--   lines? (flavor pool para el fallback de "Hablar" cuando no hay quest
+--   nueva ni una lista para entregar — ver NpcMenuUI/QuestOffer) }
 local QUEST_GIVER_DEFS = {
-	{ giverId = "quest_giver_village", name = "Elena la Anciana", position = Vector3.new(-8, 0, -34), facing = 160 },
+	{
+		giverId = "quest_giver_village",
+		name = "Elena la Anciana",
+		position = Vector3.new(-8, 0, -34),
+		facing = 160,
+		lines = {
+			"Este pueblo ha visto tiempos mejores, pero seguimos en pie.",
+			"Ve con cuidado, la noche trae cosas peores que slimes.",
+			"Cuando tengas lo que te pedí, vuelve a verme.",
+			"Los goblins se acercan cada vez más al pueblo. Alguien debería hacer algo.",
+		},
+	},
 }
 
 local giverFolder
 local giversById = {} -- [giverId] = { Vector3 positions, para el chequeo de distancia }
-local openGiverRemote -- RemoteEvent, resolved in start()
+local npcMenuRemote -- RemoteEvent (OpenNpcMenu), resolved in start() — shared with VendorService
+
+-- Tag usado por el cliente (QuestMarkerUI.lua) para encontrar el part de
+-- cada NPC dador vía CollectionService y colgarle el BillboardGui del "!"
+-- sin que el server tenga que mandarle una referencia directa al modelo.
+-- El attribute "GiverId" en ese mismo part es lo que el cliente usa para
+-- mapear part -> giverId y decidir qué ícono prender/apagar según el remote
+-- QuestGiverMarkers (ver pushMarkers más abajo).
+local GIVER_NPC_TAG = "QuestGiverNPC"
+
+-- Deja que OTRO servicio (VendorService, CampArchitectService, ...) cuyo NPC
+-- también reparte quests registre su posición acá, para que nearGiver sepa
+-- de ella — mismo mecanismo que buildGiver usa para sus propios NPCs. Sin
+-- esto, un giverId "prestado" a otro NPC muestra la quest en el panel pero
+-- start/complete siempre devuelven "too_far".
+--
+-- `part` es opcional (PrimaryPart del modelo del NPC): si se pasa, además
+-- lo tagea/etiqueta para que el "!" de misión disponible pueda colgarse ahí
+-- sin que cada servicio dueño del modelo tenga que implementar su propio
+-- BillboardGui — un solo lugar (QuestMarkerUI.lua) para todos los NPCs
+-- dadores, sea cual sea el servicio que los construyó.
+function QuestService.registerGiverPosition(giverId, position, part)
+	giversById[giverId] = giversById[giverId] or {}
+	table.insert(giversById[giverId], position)
+
+	if part then
+		CollectionService:AddTag(part, GIVER_NPC_TAG)
+		part:SetAttribute("GiverId", giverId)
+	end
+end
 
 local function groundY(x, z)
 	local params = RaycastParams.new()
@@ -467,7 +635,7 @@ local function buildGiverPayload(player, giverId)
 			status = "active"
 		elseif entry and entry.status == "completed" and not def.repeatable then
 			status = "completed"
-		elseif QuestService.canStart(player, def.id) then
+		elseif isOffered(giverId, def.id) and QuestService.canStart(player, def.id) then
 			status = "available"
 		end
 
@@ -483,6 +651,12 @@ local function buildGiverPayload(player, giverId)
 				table.insert(rewardItems, { name = itemDef and itemDef.name or reward.itemId, quantity = reward.quantity })
 			end
 
+			local rewardRecipes = {}
+			for _, recipeId in ipairs((def.rewards and def.rewards.unlockRecipes) or {}) do
+				local recipeDef = Recipes.get(recipeId)
+				table.insert(rewardRecipes, recipeDef and recipeDef.name or recipeId)
+			end
+
 			table.insert(quests, {
 				id = def.id,
 				name = def.name,
@@ -490,11 +664,38 @@ local function buildGiverPayload(player, giverId)
 				status = status,
 				objectives = objectives,
 				canComplete = status == "active" and QuestService.canComplete(player, def.id) or false,
-				rewards = { xp = def.rewards and def.rewards.xp, gold = def.rewards and def.rewards.gold, items = rewardItems },
+				rewards = {
+					xp = def.rewards and def.rewards.xp,
+					gold = def.rewards and def.rewards.gold,
+					items = rewardItems,
+					recipes = rewardRecipes,
+				},
 			})
 		end
 	end
 	return quests
+end
+
+-- Exposed so VendorService can build the same "quests" list for a vendor
+-- that also has a giverId (see VENDOR_DEFS comment) — a menu's "Ver
+-- misiones" button needs the full list, not just the one Talk surfaces.
+QuestService.buildGiverPayload = buildGiverPayload
+
+-- El "mejor" quest para mostrar cuando el jugador elige HABLAR: prioriza
+-- una entrega lista (canComplete) sobre una oferta nueva, así el NPC no le
+-- vuelve a ofrecer la MISMA quest que ya está por cerrar. nil si no hay
+-- nada — el caller cae al texto predeterminado.
+local function firstOffer(player, giverId)
+	local quests = buildGiverPayload(player, giverId)
+	local firstAvailable = nil
+	for _, quest in ipairs(quests) do
+		if quest.status == "active" and quest.canComplete then
+			return quest
+		elseif quest.status == "available" and not firstAvailable then
+			firstAvailable = quest
+		end
+	end
+	return firstAvailable
 end
 
 local function buildGiver(def)
@@ -514,8 +715,7 @@ local function buildGiver(def)
 	})
 	model.Parent = giverFolder
 
-	giversById[def.giverId] = giversById[def.giverId] or {}
-	table.insert(giversById[def.giverId], model.PrimaryPart.Position)
+	QuestService.registerGiverPosition(def.giverId, model.PrimaryPart.Position, model.PrimaryPart)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Talk"
@@ -526,11 +726,13 @@ local function buildGiver(def)
 	prompt.Parent = model.PrimaryPart
 
 	prompt.Triggered:Connect(function(player)
-		openGiverRemote:FireClient(player, {
-			giverId = def.giverId,
-			giverName = def.name,
+		npcMenuRemote:FireClient(player, {
+			kind = "giver",
+			name = def.name,
 			position = model.PrimaryPart.Position,
+			giverId = def.giverId,
 			quests = buildGiverPayload(player, def.giverId),
+			lines = def.lines,
 		})
 	end)
 end
@@ -578,11 +780,18 @@ end
 function QuestService.start()
 	notifyRemote = Remotes.get("Notify")
 	questUpdatedRemote = Remotes.get("QuestUpdated")
-	openGiverRemote = Remotes.get("OpenQuestGiver")
+	-- Shared with VendorService: whichever service starts first creates it.
+	npcMenuRemote = Remotes.get("OpenNpcMenu")
 	trackedChangedRemote = Remotes.get("TrackedQuestChanged")
+	giverMarkersRemote = Remotes.get("QuestGiverMarkers")
 
 	EnemyService.onKilled(onEnemyKilled)
 	GatheringService.onGathered(onGathered)
+
+	-- Primer sorteo de qué ofrece cada NPC, antes de que nadie pueda
+	-- hablarles — buildGiverPayload ya puede filtrar por rotación desde el
+	-- primer frame.
+	refreshOffers()
 
 	giverFolder = Instance.new("Folder")
 	giverFolder.Name = "QuestGivers"
@@ -601,6 +810,7 @@ function QuestService.start()
 					name = def.name,
 					position = marker.cframe.Position,
 					facing = MapMarkers.facing(marker),
+					lines = def.lines,
 				})
 			end
 		end
@@ -612,6 +822,18 @@ function QuestService.start()
 
 	local questAction = Remotes.getFunction("QuestAction")
 	questAction.OnServerInvoke = handleQuestAction
+
+	-- "Hablar" en NpcMenuUI: si el giver tiene algo para ofrecer/entregar,
+	-- lo devuelve (mismo shape que una entrada de buildGiverPayload) y el
+	-- cliente abre el panel de quest ya enfocado en esa; si no, nil y el
+	-- cliente cae al texto predeterminado (lines) que ya tiene en mano.
+	local questOffer = Remotes.getFunction("QuestOffer")
+	questOffer.OnServerInvoke = function(player, giverId)
+		if typeof(giverId) ~= "string" or not nearGiver(player, giverId) then
+			return nil
+		end
+		return firstOffer(player, giverId)
+	end
 
 	-- Quest log panel (QuestLogUI): toda la lista del jugador.
 	local requestQuestLog = Remotes.getFunction("RequestQuestLog")
@@ -644,6 +866,35 @@ function QuestService.start()
 	-- No cleanup needed on PlayerRemoving: questProgress vive dentro del
 	-- profile de PlayerService, que ya se guarda y limpia solo (save() +
 	-- cache[userId] = nil en su propio handler de PlayerRemoving).
+
+	-- Marcadores "!": una vez que el profile de cada jugador está cargado
+	-- (join normal o ya conectado al bootear el server), y de nuevo cada
+	-- vez que la rotación cambia lo que hay para ofrecer.
+	local function pushMarkersWhenReady(player)
+		task.spawn(function()
+			if waitForProfile(player) then
+				pushMarkers(player)
+			end
+		end)
+	end
+
+	Players.PlayerAdded:Connect(pushMarkersWhenReady)
+	for _, player in ipairs(Players:GetPlayers()) do
+		pushMarkersWhenReady(player)
+	end
+
+	-- Rotación de misiones ofrecidas: cada ROTATION_INTERVAL, nuevo sorteo
+	-- por giver + reempuja marcadores a todos los conectados (lo que un NPC
+	-- ofrece pudo haber cambiado sin que el jugador hiciera nada).
+	task.spawn(function()
+		while true do
+			task.wait(ROTATION_INTERVAL)
+			refreshOffers()
+			for _, player in ipairs(Players:GetPlayers()) do
+				pushMarkers(player)
+			end
+		end
+	end)
 end
 
 return QuestService

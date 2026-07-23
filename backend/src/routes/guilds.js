@@ -5,6 +5,7 @@ import {
   joinGuild,
   kickMember,
   leaveGuild,
+  setMemberRole,
   isValidName,
   isValidTag,
 } from "../guilds.js";
@@ -15,8 +16,10 @@ const ERROR_STATUS = {
   already_in_guild: 409,
   name_taken: 409,
   not_found: 404,
-  not_leader: 403,
+  not_authorized: 403,
   cannot_kick_self: 400,
+  cannot_role_leader: 400,
+  invalid_role: 400,
   target_not_member: 400,
   not_in_guild: 404,
 };
@@ -113,6 +116,21 @@ export default async function guildRoutes(fastify) {
       return { error: "invalid id" };
     }
     const result = await handled(reply, () => kickMember(guildId, reqId, tgtId));
+    if (result.__error) return { error: result.__error };
+    return { guild: result };
+  });
+
+  // Leader-only: promotes/demotes a member between 'member' and 'officer'.
+  fastify.post("/guild/:id/role", async (request, reply) => {
+    const guildId = parseId(request.params.id);
+    const { requesterId, targetId, role } = request.body || {};
+    const reqId = parseId(requesterId);
+    const tgtId = parseId(targetId);
+    if (guildId === null || reqId === null || tgtId === null) {
+      reply.code(400);
+      return { error: "invalid id" };
+    }
+    const result = await handled(reply, () => setMemberRole(guildId, reqId, tgtId, role));
     if (result.__error) return { error: result.__error };
     return { guild: result };
   });

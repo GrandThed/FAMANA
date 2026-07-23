@@ -55,6 +55,28 @@ ALTER TABLE players ADD COLUMN IF NOT EXISTS camp_layout JSONB NOT NULL DEFAULT 
 -- an already-standing one.
 ALTER TABLE players ADD COLUMN IF NOT EXISTS camp_tier INT NOT NULL DEFAULT 0;
 
+-- Bestiary: lifetime kill counts per enemy lootSource, e.g. { slime: 12,
+-- goblin: 3 }. Flat persistent stat, same shape/lifecycle as quest_progress
+-- (bumped on every EnemyService.onKilled, travels with the profile, never
+-- reset) — see docs/BESTIARY.md. Gates how much of that enemy's Loot.TABLE/
+-- Loot.GEAR the client is shown (EnemyInspectUI, BestiaryUI): shared/
+-- Bestiary.lua turns a count into a tier, and each loot entry's own `tier`
+-- field says which tier reveals it.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS bestiary_kills JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Generic counter bag feeding the achievements system (shared/Achievements.
+-- lua), decoupled from any single feature: { gathered: { [itemId]: count },
+-- crafted: count }. Bumped by AchievementsService's hooks into
+-- GatheringService.onGathered / CraftingService.onCrafted — see
+-- docs/ACHIEVEMENTS.md. Kill counts reuse bestiary_kills above rather than
+-- duplicating them here.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS stats JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Which shared/Achievements.lua entries this player has unlocked, e.g.
+-- { first_blood: true, artisan: true }. Set-once (AchievementsService never
+-- clears an entry) — see docs/ACHIEVEMENTS.md.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS achievements_unlocked JSONB NOT NULL DEFAULT '{}'::jsonb;
+
 -- Grid inventory: items occupy a WxH footprint at (x, y) in a
 -- container. container_id is 'main' (the 10x30 grid) or 'equipment' (paper
 -- doll; x = slot index, y = 0). Legacy rows (pre-grid) have x/y NULL and are
@@ -117,6 +139,41 @@ CREATE TABLE IF NOT EXISTS guild_members (
 
 CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members (guild_id);
 
+-- Officer rank, additive to the leader/member split (leader is still
+-- guilds.leader_id — this column never holds 'leader', only distinguishes
+-- officer from plain member). Application code validates the two allowed
+-- values rather than a DB CHECK constraint, so re-running this file stays a
+-- plain idempotent ADD COLUMN with no constraint-already-exists edge case.
+ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';
+
+-- Guild bank: a flat per-item stack, not a spatial grid like the player's
+-- own inventory (inventory_items) — a shared bank doesn't need x/y packing,
+-- just "how much of this does the guild have". Rolled/unique items (with
+-- meta) aren't supported here for the same reason inventory.js's own
+-- removeItem() skips them for players: a generic id+quantity stack can't
+-- represent one specific instance's rolls.
+CREATE TABLE IF NOT EXISTS guild_bank_items (
+    id           BIGSERIAL PRIMARY KEY,
+    guild_id     BIGINT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+    item_id      TEXT   NOT NULL,
+    quantity     INT    NOT NULL CHECK (quantity > 0),
+    UNIQUE (guild_id, item_id)
+);
+
+-- Append-only deposit/withdraw history — a shared bank with no paper trail
+-- just invites disputes over who took what.
+CREATE TABLE IF NOT EXISTS guild_bank_log (
+    id         BIGSERIAL PRIMARY KEY,
+    guild_id   BIGINT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+    player_id  BIGINT REFERENCES players(id) ON DELETE SET NULL,
+    item_id    TEXT NOT NULL,
+    quantity   INT NOT NULL,
+    action     TEXT NOT NULL, -- 'deposit' | 'withdraw', validated in guildBank.js
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guild_bank_log_guild ON guild_bank_log (guild_id, created_at DESC);
+
 -- Append-only audit log for every admin-panel mutation. `actor` is the admin's
 -- request IP (single shared password for the MVP); `detail` holds the request
 -- payload / before-after context as JSON.
@@ -168,3 +225,40 @@ CREATE TABLE IF NOT EXISTS player_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_player_events_player ON player_events (player_id);
+
+-- Territory: settlement *definitions* (position, guardian, buff) live in
+-- Roblox code (shared/Settlements.lua) since they're static content, not
+-- player data — same split as ENEMY_DEFS. This table is only the mutable
+-- part: who currently owns each settlement. settlement_id is the def's key
+-- (e.g. "ruins_north"), not FK'd to anything — the backend doesn't need to
+-- know the full roster of settlements to record a claim on one.
+--
+-- guild_id is nullable and ON DELETE SET NULL: a disbanded guild's
+-- settlements fall back to neutral rather than leaving a dangling owner,
+-- same reasoning as guild_members cascading on player delete.
+--
+-- grace_until protects a fresh claim from being immediately flipped back
+-- (e.g. by an alt of the guild that just lost it) — a capture attempt
+-- inside the grace window is rejected. It also doubles as "is this row a
+-- real claim": grace_until IS NULL means never captured / currently neutral
+-- with no history worth keeping distinct from "no row at all".
+CREATE TABLE IF NOT EXISTS settlement_claims (
+    settlement_id TEXT        PRIMARY KEY,
+    guild_id      BIGINT      REFERENCES guilds(id) ON DELETE SET NULL,
+    claimed_at    TIMESTAMPTZ,
+    grace_until   TIMESTAMPTZ
+);
+
+-- Append-only history of captures, mainly for the admin dashboard / a future
+-- "territory feed" UI. Kept separate from settlement_claims (current state)
+-- so the hot path (checking/writing current ownership) never scans history.
+CREATE TABLE IF NOT EXISTS settlement_captures (
+    id            BIGSERIAL   PRIMARY KEY,
+    settlement_id TEXT        NOT NULL,
+    guild_id      BIGINT      REFERENCES guilds(id) ON DELETE SET NULL,
+    captured_from BIGINT      REFERENCES guilds(id) ON DELETE SET NULL, -- NULL if it was neutral
+    player_id     BIGINT      REFERENCES players(id) ON DELETE SET NULL, -- top-damage killer credited
+    captured_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_settlement_captures_settlement ON settlement_captures (settlement_id, captured_at DESC);

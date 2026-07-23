@@ -564,7 +564,7 @@ local function buildIronRock(spot, def)
 			-- Rocks vanish outright when consumed — no stump, no leftover
 			-- collision (trees keep their stump remnant instead).
 			boulder.Transparency = 1
-			boulder.CanCollide = false
+		boulder.CanCollide = false
 			boulder.CanQuery = false
 			for _, chunk in ipairs(chunks) do
 				chunk.Transparency = 1
@@ -585,9 +585,103 @@ local function buildIronRock(spot, def)
 	}
 end
 
+local function buildHerbBush(spot, def, flowerColorName)
+	local y = groundY(spot.X, spot.Z)
+	local origin = CFrame.new(spot.X, y, spot.Z)
+
+	local model = ArtKit.build("HerbBush", origin, {
+		{ name = "BaseBush", size = Vector3.new(2.8, 2.2, 2.8), offset = Vector3.new(0, 1.1, 0), rot = Vector3.new(0, 20, 0), color = "leafDark", primary = true },
+		{ name = "CanopyTop", size = Vector3.new(2.2, 1.6, 2.2), offset = Vector3.new(0, 2.1, 0), rot = Vector3.new(0, 45, 0), color = "leaf", canCollide = false },
+		{ name = "Flower1", size = Vector3.new(0.6, 0.6, 0.6), offset = Vector3.new(0.8, 2.4, 0.6), rot = Vector3.new(15, 30, 0), color = flowerColorName, canCollide = false },
+		{ name = "Flower2", size = Vector3.new(0.6, 0.6, 0.6), offset = Vector3.new(-0.7, 2.3, -0.5), rot = Vector3.new(-10, 60, 0), color = flowerColorName, canCollide = false },
+		{ name = "Flower3", size = Vector3.new(0.6, 0.6, 0.6), offset = Vector3.new(0.3, 2.5, -0.7), rot = Vector3.new(5, 120, 0), color = flowerColorName, canCollide = false },
+	})
+
+	local bush = model.PrimaryPart
+	local flowers = { model.Flower1, model.Flower2, model.Flower3 }
+
+	bush:SetAttribute("Depleted", false)
+	model.Parent = resourceFolder
+
+	return {
+		def = def,
+		amount = def.capacity,
+		anchor = bush,
+		deplete = function()
+			for _, f in ipairs(flowers) do
+				f.Transparency = 1
+			end
+			bush.Color = ArtKit.Palette.stoneDark or Color3.fromRGB(80, 70, 60)
+			bush:SetAttribute("Depleted", true)
+		end,
+		restore = function()
+			for _, f in ipairs(flowers) do
+				f.Transparency = 0
+			end
+			bush.Color = ArtKit.Palette.leafDark
+			bush:SetAttribute("Depleted", false)
+		end,
+	}
+end
+
+local function buildHerbBushRed(spot, def)
+	return buildHerbBush(spot, def, "ruby")
+end
+local function buildHerbBushBlue(spot, def)
+	return buildHerbBush(spot, def, "sapphire")
+end
+local function buildHerbBushAgile(spot, def)
+	return buildHerbBush(spot, def, "emerald")
+end
+
 -- ---- Node type definitions ----------------------------------------------
 
 local NODE_DEFS = {
+	herb_bush_red = {
+		toolType = "sickle",
+		yield = "hierba_roja",
+		targetName = "Arbusto de Hierba Roja",
+		capacity = 3,
+		respawn = 45,
+		build = buildHerbBushRed,
+		particleColors = { "leaf", "ruby" },
+		spots = {
+			Vector3.new(14, 0, 15),
+			Vector3.new(32, 0, 22),
+			Vector3.new(-18, 0, 10),
+			Vector3.new(25, 0, -12),
+		},
+	},
+	herb_bush_blue = {
+		toolType = "sickle",
+		yield = "hierba_azul",
+		targetName = "Arbusto de Hierba Azul",
+		capacity = 3,
+		respawn = 45,
+		build = buildHerbBushBlue,
+		particleColors = { "leaf", "sapphire" },
+		spots = {
+			Vector3.new(8, 0, 28),
+			Vector3.new(-12, 0, 25),
+			Vector3.new(45, 0, 10),
+			Vector3.new(18, 0, -25),
+		},
+	},
+	herb_bush_agile = {
+		toolType = "sickle",
+		yield = "hierba_agil",
+		targetName = "Arbusto de Hierba Ágil",
+		capacity = 3,
+		respawn = 45,
+		build = buildHerbBushAgile,
+		particleColors = { "leaf", "emerald" },
+		spots = {
+			Vector3.new(28, 0, 35),
+			Vector3.new(-22, 0, 18),
+			Vector3.new(38, 0, -18),
+			Vector3.new(12, 0, -35),
+		},
+	},
 	tree = {
 		toolType = "axe",
 		yield = "wood",
@@ -747,6 +841,9 @@ end
 -- toolType, and the tool's toolTier (nil = 1, i.e. a basic tool) must meet
 -- the node's minToolTier (nil = 1, i.e. any tool of that type works).
 local function toolMatches(nodeDef, toolDef)
+	if nodeDef.toolType == "sickle" then
+		return true -- Any tool or sickle swing harvests herbs!
+	end
 	return nodeDef.toolType == toolDef.toolType and (toolDef.toolTier or 1) >= (nodeDef.minToolTier or 1)
 end
 

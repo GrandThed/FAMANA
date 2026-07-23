@@ -315,6 +315,18 @@
         2
       ]
     },
+    "cofre_gremio": {
+      "id": "cofre_gremio",
+      "name": "Cofre de Gremio",
+      "flavor": "Un cofre de madera y hierro para acceder al banco compartido de tu gremio en la acampada.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [
+        2,
+        2
+      ]
+    },
     "alfombra_campamento": {
       "id": "alfombra_campamento",
       "name": "Alfombra de Campamento",
@@ -700,6 +712,332 @@
       "traits": {
         "oracle": 5
       }
+    },
+    "puesto_mercado": {
+      "id": "puesto_mercado",
+      "name": "Puesto de Mercado",
+      "flavor": "Un puesto de comercio para vender y comprar bienes.",
+      "type": "placeable",
+      "stackable": true,
+      "maxStack": 5,
+      "size": [2, 2]
+    },
+    "cana_pescar": {
+      "id": "cana_pescar",
+      "name": "Caña de Pescar",
+      "flavor": "Caña artesanal para pescar en ríos y lagos.",
+      "type": "tool",
+      "toolType": "fishing_rod",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 3]
+    },
+    "carne_jabali": {
+      "id": "carne_jabali",
+      "name": "Carne de Jabalí",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "trigo": {
+      "id": "trigo",
+      "name": "Trigo",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "hierba_roja": {
+      "id": "hierba_roja",
+      "name": "Hierba Roja",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "hierba_azul": {
+      "id": "hierba_azul",
+      "name": "Hierba Azul",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "hierba_agil": {
+      "id": "hierba_agil",
+      "name": "Hierba Ágil",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "estofado_jabali": {
+      "id": "estofado_jabali",
+      "name": "Estofado de Jabalí",
+      "flavor": "Comida sustanciosa que restaura HP y otorga un gran buff de salud.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 50,
+      "buff": "food_max_hp",
+      "size": [1, 1]
+    },
+    "pan_viaje": {
+      "id": "pan_viaje",
+      "name": "Pan de Viaje",
+      "flavor": "Nutritivo y duradero.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 30,
+      "size": [1, 1]
+    },
+    "pocion_salud_mayor": {
+      "id": "pocion_salud_mayor",
+      "name": "Poción de Salud Mayor",
+      "flavor": "Cura 80 puntos de salud instantáneamente.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 80,
+      "size": [1, 1]
+    },
+    "pocion_mana": {
+      "id": "pocion_mana",
+      "name": "Poción de Maná",
+      "flavor": "Restaura 60 puntos de maná.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "restoreMana": 60,
+      "size": [1, 1]
+    },
+    "elixir_velocidad": {
+      "id": "elixir_velocidad",
+      "name": "Elixir de Velocidad",
+      "flavor": "Aumenta la velocidad de movimiento por 5 minutos.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "buff": "speed_elixir",
+      "size": [1, 1]
+    },
+    "pez_dorado": {
+      "id": "pez_dorado",
+      "name": "Pez Dorado",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "trucha_plateada": {
+      "id": "trucha_plateada",
+      "name": "Trucha Plateada",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "pez_sombra": {
+      "id": "pez_sombra",
+      "name": "Pez Sombra",
+      "type": "material",
+      "stackable": true,
+      "maxStack": 20,
+      "size": [1, 1]
+    },
+    "cofre_hundido": {
+      "id": "cofre_hundido",
+      "name": "Cofre Hundido",
+      "flavor": "Tesoro rescatado de las profundidades. ¡Ábrelo para ver su contenido!",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 5,
+      "size": [1, 1]
+    },
+    "pescado_asado": {
+      "id": "pescado_asado",
+      "name": "Pescado Asado",
+      "flavor": "Pescado fresco asado al fuego. Restaura 45 HP.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 45,
+      "size": [1, 1]
+    },
+    "sopa_pescado": {
+      "id": "sopa_pescado",
+      "name": "Sopa de Pescado Real",
+      "flavor": "Deliciosa sopa con trucha plateada y hierbas. Restaura 65 HP y 30 Maná.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 65,
+      "restoreMana": 30,
+      "buff": "food_max_hp",
+      "size": [1, 1]
+    },
+    "elixir_sombras": {
+      "id": "elixir_sombras",
+      "name": "Elixir de Sombras",
+      "flavor": "Destilado de pez sombra. Restaura 80 de Maná y otorga velocidad.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "restoreMana": 80,
+      "buff": "speed_elixir",
+      "size": [1, 1]
+    },
+    "elixir_fortaleza": {
+      "id": "elixir_fortaleza",
+      "name": "Elixir de Fortaleza Marina",
+      "flavor": "Infusión de trucha plateada y hierbas ágiles. Cura 50 HP y otorga velocidad.",
+      "type": "consumable",
+      "stackable": true,
+      "maxStack": 10,
+      "healHp": 50,
+      "buff": "speed_elixir",
+      "size": [1, 1]
+    },
+    "hoz_recoleccion": {
+      "id": "hoz_recoleccion",
+      "name": "Hoz de Recolección",
+      "flavor": "Herramienta ideal para cortar arbustos y cosechar hierbas medicinales.",
+      "type": "tool",
+      "toolType": "sickle",
+      "toolTier": 1,
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 2]
+    },
+    "bolsa_dormir": {
+      "id": "bolsa_dormir",
+      "name": "Bolsa de Dormir",
+      "flavor": "Permite acostarse a descansar en el campamento para rolear y acumular el bufo Descansado al doble de velocidad.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 1]
+    },
+    "cama_campamento": {
+      "id": "cama_campamento",
+      "name": "Cama de Campamento",
+      "flavor": "Cama rústica de madera y tela. Ofrece mayor confort para descansar y regenerar salud.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
+    },
+    "mesa_investigacion_gremio": {
+      "id": "mesa_investigacion_gremio",
+      "name": "Mesa de Investigación del Gremio",
+      "flavor": "Mesa de proyectos para la Sede del Gremio. Permite investigar recetas de rasgos avanzados y mejoras colectivas.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
+    },
+    "silla_campamento": {
+      "id": "silla_campamento",
+      "name": "Silla de Madera",
+      "flavor": "Silla de madera rústica para sentarse a descansar y rolear en el campamento.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "banco_campamento": {
+      "id": "banco_campamento",
+      "name": "Banco de Madera",
+      "flavor": "Banco largo para sentarse varios aliados juntos alrededor del fuego.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 1]
+    },
+    "plano_construccion": {
+      "id": "plano_construccion",
+      "name": "Plano de Construcción",
+      "flavor": "Herramienta de arquitectura estilo Rust. Permite edificar pisos, paredes, puertas y techos modulares en la Sede del Gremio.",
+      "type": "tool",
+      "toolType": "building_plan",
+      "toolTier": 1,
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 2]
+    },
+    "antorcha_campamento": {
+      "id": "antorcha_campamento",
+      "name": "Antorcha de Madera",
+      "flavor": "Antorcha de pie que emite luz cálida y fuego para iluminar la Sede del Gremio.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "hoguera_gremio": {
+      "id": "hoguera_gremio",
+      "name": "Hoguera de Campamento",
+      "flavor": "Gran fogata de piedra que ilumina el área, emite humo y sirve como estación para cocinar pescado.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
+    },
+    "lampara_gremio": {
+      "id": "lampara_gremio",
+      "name": "Farol de Piedra y Hierro",
+      "flavor": "Lámpara de hierro elegante que proporciona iluminación dorada para interiores.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "mesa_arquitectura_gremio": {
+      "id": "mesa_arquitectura_gremio",
+      "name": "Mesa de Arquitectura del Gremio",
+      "flavor": "Mesa de diseño y carpintería para la Sede del Gremio. Desbloquea la fabricación de planos de construcción, muebles, camas y faroles.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
+    },
+    "semilla_hierbas": {
+      "id": "semilla_hierbas",
+      "name": "Semillas de Hierbas",
+      "flavor": "Semillas recolectadas de arbustos silvestres. Se pueden plantar en la Maceta de Cultivo del Gremio.",
+      "type": "resource",
+      "stackable": true,
+      "maxStack": 50,
+      "size": [1, 1]
+    },
+    "maceta_hierbas": {
+      "id": "maceta_hierbas",
+      "name": "Maceta de Cultivo del Gremio",
+      "flavor": "Maceta de piedra para cultivar hierbas medicinales de forma pasiva en la Sede del Gremio.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "letrero_bienvenida": {
+      "id": "letrero_bienvenida",
+      "name": "Letrero de Anuncios del Gremio",
+      "flavor": "Cartel interactivo de madera donde el Líder del Gremio puede escribir anuncios y mensajes de bienvenida.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [1, 1]
+    },
+    "portal_gremio": {
+      "id": "portal_gremio",
+      "name": "Portal del Gremio",
+      "flavor": "Portal místico de piedra y magia que conecta tu campamento con el Valle de los Gremios.",
+      "type": "placeable",
+      "stackable": false,
+      "maxStack": 1,
+      "size": [2, 2]
     }
   },
   "starterItems": [

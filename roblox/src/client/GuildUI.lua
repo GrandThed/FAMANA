@@ -21,6 +21,7 @@ local Theme = require(script.Parent.Theme)
 local TopRightMenu = require(script.Parent.TopRightMenu)
 local UIKit = require(script.Parent.UIKit)
 local Sfx = require(script.Parent.Sfx)
+local GuildBankUI = require(script.Parent.GuildBankUI)
 
 local player = Players.LocalPlayer
 
@@ -31,13 +32,14 @@ local COLORS = {
 	line = Theme.Semantic.BorderHair,
 	tile = Theme.Color.Ink900,
 	accent = Theme.Color.Ember300,
+	officer = Theme.Semantic.TextSecondary,
 	good = Theme.Semantic.Good,
 	text = Theme.Semantic.TextBody,
 	textDim = Theme.Semantic.TextMuted,
 }
 
 local PANEL_W = 440
-local PANEL_H = 560
+local PANEL_H = 582
 local MAX_CHAT_LINES = 60
 
 local function makeLabel(parent, text, size, color, font)
@@ -125,6 +127,7 @@ function GuildUI.start()
 	local guildInviteReceived = Remotes.get("GuildInviteReceived")
 	local guildRespond = Remotes.get("GuildRespond")
 	local guildKick = Remotes.get("GuildKick")
+	local guildSetRole = Remotes.get("GuildSetRole")
 	local guildLeave = Remotes.get("GuildLeave")
 	local guildChat = Remotes.get("GuildChat")
 	local guildChatReceived = Remotes.get("GuildChatReceived")
@@ -190,31 +193,38 @@ function GuildUI.start()
 	guildHeader.Size = UDim2.new(1, -24, 0, 22)
 	guildHeader.Position = UDim2.new(0, 12, 0, 44)
 
+	local territoryLabel = makeLabel(panel, "", 12, COLORS.textDim)
+	territoryLabel.Size = UDim2.new(1, -24, 0, 18)
+	territoryLabel.Position = UDim2.new(0, 12, 0, 68)
+
 	local rosterLabel = makeLabel(panel, "Members", 12, COLORS.textDim)
 	rosterLabel.Size = UDim2.new(1, -24, 0, 16)
-	rosterLabel.Position = UDim2.new(0, 12, 0, 70)
+	rosterLabel.Position = UDim2.new(0, 12, 0, 92)
 
-	local rosterList = makeScrollList(panel, UDim2.new(1, -24, 0, 130), UDim2.new(0, 12, 0, 88))
+	local rosterList = makeScrollList(panel, UDim2.new(1, -24, 0, 130), UDim2.new(0, 12, 0, 110))
 
 	local inviteLabel = makeLabel(panel, "Invite (leader only)", 12, COLORS.textDim)
 	inviteLabel.Size = UDim2.new(1, -24, 0, 16)
-	inviteLabel.Position = UDim2.new(0, 12, 0, 226)
+	inviteLabel.Position = UDim2.new(0, 12, 0, 248)
 
-	local inviteScroll = makeScrollList(panel, UDim2.new(1, -24, 0, 80), UDim2.new(0, 12, 0, 244))
+	local inviteScroll = makeScrollList(panel, UDim2.new(1, -24, 0, 80), UDim2.new(0, 12, 0, 266))
+
+	local bankHintLabel = makeLabel(panel, "📦 Banco: usá un Cofre de Gremio en tu acampada", 11, COLORS.textDim)
+	bankHintLabel.Size = UDim2.new(1, -124, 0, 28)
+	bankHintLabel.Position = UDim2.new(0, 12, 0, 352)
 
 	local leaveBtn = UIKit.ghostButton(panel, "Leave Guild")
-	leaveBtn.Size = UDim2.new(1, -24, 0, 28)
-	leaveBtn.Position = UDim2.new(0, 12, 0, 330)
+	leaveBtn.Size = UDim2.new(0, 100, 0, 28)
+	leaveBtn.Position = UDim2.new(1, -112, 0, 352)
 	leaveBtn.Activated:Connect(function()
 		guildLeave:FireServer()
 	end)
 
 	local chatLabel = makeLabel(panel, "Guild Chat", 12, COLORS.textDim)
 	chatLabel.Size = UDim2.new(1, -24, 0, 16)
-	chatLabel.Position = UDim2.new(0, 12, 0, 366)
+	chatLabel.Position = UDim2.new(0, 12, 0, 388)
 
-	local chatLog = makeScrollList(panel, UDim2.new(1, -24, 0, 130), UDim2.new(0, 12, 0, 384))
-	local chatLogLayout = chatLog:FindFirstChildOfClass("UIListLayout")
+	local chatLog = makeScrollList(panel, UDim2.new(1, -24, 0, 130), UDim2.new(0, 12, 0, 406))
 
 	local chatInputBox = makeTextBox(panel, "Say something to your guild...")
 	chatInputBox.Size = UDim2.new(1, -84, 0, 30)
@@ -341,7 +351,7 @@ function GuildUI.start()
 	end)
 
 	-- ---- roster / invite rows ----------------------------------------------
-	local function buildRosterRow(member, iAmLeader)
+	local function buildRosterRow(member, iAmLeader, iAmOfficer)
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, 0, 0, 30)
 		row.BackgroundColor3 = COLORS.tile
@@ -351,23 +361,43 @@ function GuildUI.start()
 
 		local isSelf = tostring(member.playerId) == tostring(player.UserId)
 		local isLeaderRow = member.isLeader
+		local isOfficerRow = member.role == "officer"
 
-		local label = string.format("%s%s%s", isLeaderRow and "[L] " or "", member.username, isSelf and " (you)" or "")
-		local nameLabel = makeLabel(row, label, 13, isLeaderRow and COLORS.accent or COLORS.text)
-		nameLabel.Size = UDim2.new(0.5, -6, 1, 0)
+		local rankPrefix = isLeaderRow and "[L] " or (isOfficerRow and "[O] " or "")
+		local label = string.format("%s%s%s", rankPrefix, member.username, isSelf and " (you)" or "")
+		local nameColor = isLeaderRow and COLORS.accent or (isOfficerRow and COLORS.officer or COLORS.text)
+		local nameLabel = makeLabel(row, label, 13, nameColor)
+		nameLabel.Size = UDim2.new(0, 190, 1, 0)
 		nameLabel.Position = UDim2.new(0, 8, 0, 0)
 
-		local statusLabel = makeLabel(row, member.online and "online" or "offline", 11, member.online and COLORS.good or COLORS.textDim)
-		statusLabel.Size = UDim2.new(0.3, 0, 1, 0)
-		statusLabel.Position = UDim2.new(0.45, 0, 0, 0)
+		local statusDot = makeLabel(row, member.online and "●" or "○", 12, member.online and COLORS.good or COLORS.textDim)
+		statusDot.Size = UDim2.new(0, 16, 1, 0)
+		statusDot.Position = UDim2.new(0, 202, 0, 0)
 
-		if iAmLeader and not isSelf then
+		local rightEdge = -6
+
+		local canKick = not isSelf and not isLeaderRow and (iAmLeader or (iAmOfficer and not isOfficerRow))
+		if canKick then
 			local kickBtn = UIKit.ghostButton(row, "Kick")
 			kickBtn.Size = UDim2.new(0, 50, 0, 20)
-			kickBtn.Position = UDim2.new(1, -56, 0.5, -10)
+			kickBtn.Position = UDim2.new(1, rightEdge - 50, 0.5, -10)
 			kickBtn.Activated:Connect(function()
 				guildKick:FireServer(tonumber(member.playerId))
 			end)
+			rightEdge -= 54
+		end
+
+		if iAmLeader and not isSelf and not isLeaderRow then
+			local roleBtn = UIKit.ghostButton(row, isOfficerRow and "Demote" or "Promote")
+			roleBtn.Size = UDim2.new(0, 62, 0, 20)
+			roleBtn.Position = UDim2.new(1, rightEdge - 62, 0.5, -10)
+			roleBtn.Activated:Connect(function()
+				guildSetRole:FireServer({
+					targetUserId = tonumber(member.playerId),
+					role = isOfficerRow and "member" or "officer",
+				})
+			end)
+			rightEdge -= 66
 		end
 
 		return row
@@ -404,9 +434,11 @@ function GuildUI.start()
 
 		createSection.Visible = not inGuild
 		guildHeader.Visible = inGuild
+		territoryLabel.Visible = inGuild
 		rosterLabel.Visible = inGuild
 		rosterList.Visible = inGuild
 		leaveBtn.Visible = inGuild
+		bankHintLabel.Visible = inGuild
 		chatLabel.Visible = inGuild
 		chatLog.Visible = inGuild
 		chatInputBox.Visible = inGuild
@@ -422,6 +454,8 @@ function GuildUI.start()
 
 		local iAmLeader = player:GetAttribute("GuildLeader") == true
 		guildHeader.Text = string.format("[%s] %s", tostring(player:GetAttribute("GuildTag")), tostring(player:GetAttribute("GuildName")))
+		territoryLabel.Text = "Territorio: cargando..."
+		territoryLabel.TextColor3 = COLORS.textDim
 
 		inviteLabel.Visible = iAmLeader
 		inviteScroll.Visible = iAmLeader
@@ -433,13 +467,30 @@ function GuildUI.start()
 			if not ok or typeof(guild) ~= "table" or typeof(guild.members) ~= "table" then
 				return
 			end
-			-- Stale response (left/joined a different guild while this was
-			-- in flight): drop it, a fresher render() will follow anyway.
 			if tostring(guild.id) ~= tostring(player:GetAttribute("GuildId")) then
 				return
 			end
 
+			local territories = typeof(guild.territories) == "table" and guild.territories or {}
+			if #territories > 0 then
+				local names = {}
+				for _, t in ipairs(territories) do
+					table.insert(names, string.format("%s (%s)", t.name, t.cell))
+				end
+				territoryLabel.Text = string.format("🏰 Territorio: %s", table.concat(names, ", "))
+				territoryLabel.TextColor3 = COLORS.accent
+				guildHeader.Text = string.format(
+					"[%s] %s 🏰",
+					tostring(player:GetAttribute("GuildTag")),
+					tostring(player:GetAttribute("GuildName"))
+				)
+			else
+				territoryLabel.Text = "Sin territorio — reclamá un asentamiento derrotando a su guardián"
+				territoryLabel.TextColor3 = COLORS.textDim
+			end
+
 			clearChildren(rosterList)
+			local iAmOfficer = player:GetAttribute("GuildOfficer") == true
 			for _, member in ipairs(guild.members) do
 				local onlinePlayer = Players:GetPlayerByUserId(tonumber(member.playerId))
 				buildRosterRow({
@@ -447,7 +498,8 @@ function GuildUI.start()
 					username = member.username,
 					online = onlinePlayer ~= nil,
 					isLeader = tostring(member.playerId) == tostring(guild.leaderId),
-				}, iAmLeader)
+					role = member.role,
+				}, iAmLeader, iAmOfficer)
 			end
 		end)
 
@@ -488,9 +540,6 @@ function GuildUI.start()
 		return Enum.ContextActionResult.Pass
 	end, false, Enum.KeyCode.G)
 
-	-- Rebuild whenever my own guild attributes change (join/leave/leadership
-	-- transfer), and clear the chat log on leaving so a new guild doesn't
-	-- inherit the old one's messages.
 	local wasInGuild = player:GetAttribute("GuildId") ~= nil
 	local function onGuildAttributeChanged()
 		local nowInGuild = player:GetAttribute("GuildId") ~= nil
@@ -505,8 +554,6 @@ function GuildUI.start()
 	player:GetAttributeChangedSignal("GuildId"):Connect(onGuildAttributeChanged)
 	player:GetAttributeChangedSignal("GuildLeader"):Connect(onGuildAttributeChanged)
 
-	-- Someone else's roster changing (joined/left/got kicked) while the
-	-- panel is open should refresh our view too, not just our own edits.
 	local function watchOther(p)
 		p:GetAttributeChangedSignal("GuildId"):Connect(function()
 			if isOpen then

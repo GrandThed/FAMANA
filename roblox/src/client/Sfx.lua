@@ -20,30 +20,63 @@ local SOUNDS = {
 	unequip = { id = "rbxassetid://125373488678088", volume = 1 },
 	panelOpen = { id = "rbxassetid://134352981124286", volume = 0.2 },
 	panelClose = { id = "rbxassetid://134352981124286", volume = 0.2 },
+	npcTalk = { id = "rbxassetid://109856313424761", volume = 0.5 },
 	swing = { id = "rbxassetid://138283030240531", volume = 0.45 }, -- herramientas (hacha/pico, styleName "chop")
 	swingMelee = { id = "rbxassetid://135315310485417", volume = 0.45 }, 
 	swingRanged = { id = "rbxassetid://123925235254965", volume = 0.5 },
 	swingMagic = { id = "rbxassetid://81276928984693", volume = 0.5 }, 
-	-- Cast de habilidad, UNO POR ESCUELA (las 12 de shared/Spells.lua) — la
-	-- clave es "spellCast_<schoolId>", armada dinámicamente en
-	-- SpellFeedbackSfx.lua a partir de def.school, así que una escuela
-	-- nueva solo necesita una entrada acá con su id (nada que tocar en el
-	-- código). spellCastDefault cubre el hueco mientras esa entrada no
-	-- exista todavía.
+	-- Cast de habilidad: busca primero "spellCast_<spellId>", luego "spellCast_<schoolId>"
+	-- y finalmente spellCastDefault.
 	spellCast_pyromancer = { id = "rbxassetid://9125817786", volume = 0.55 },
+	spellCast_fireball = { id = "rbxassetid://134455519890791", volume = 0.6 },
+	spellCast_supernova = { id = "rbxassetid://129504465599355", volume = 0.7 },
+	spellCast_meteor = { id = "rbxassetid://112891149928058", volume = 0.75 },
+
 	spellCast_arcanist = { id = "rbxassetid://9114234512", volume = 0.5 },
+	spellCast_arcane_missile = { id = "rbxassetid://9114234512", volume = 0.55 },
+	spellCast_singularity = { id = "rbxassetid://9114234890", volume = 0.7 },
+
 	spellCast_invoker = { id = "rbxassetid://9114234890", volume = 0.5 },
+	spellCast_summon_familiar = { id = "rbxassetid://9114234890", volume = 0.55 },
+	spellCast_legion = { id = "rbxassetid://9114234890", volume = 0.7 },
+
 	spellCast_berserker = { id = "rbxassetid://9114233671", volume = 0.55 },
+	spellCast_battle_cry = { id = "rbxassetid://9114233671", volume = 0.65 },
+	spellCast_frenzy = { id = "rbxassetid://9114233671", volume = 0.7 },
+
 	spellCast_sentinel = { id = "rbxassetid://9114235102", volume = 0.5 },
+	spellCast_bulwark = { id = "rbxassetid://9114235102", volume = 0.6 },
+	spellCast_aegis = { id = "rbxassetid://9114235102", volume = 0.65 },
+
 	spellCast_justicar = { id = "rbxassetid://9114235344", volume = 0.55 },
+	spellCast_judgment = { id = "rbxassetid://9114235344", volume = 0.65 },
+
 	spellCast_sniper = { id = "rbxassetid://9114233417", volume = 0.5 },
 	spellCast_trapper = { id = "rbxassetid://9114235587", volume = 0.5 },
+	spellCast_snare_trap = { id = "rbxassetid://9114235587", volume = 0.55 },
+
 	spellCast_scout = { id = "rbxassetid://9114235801", volume = 0.45 },
+	spellCast_swift_step = { id = "rbxassetid://9114235801", volume = 0.5 },
+
 	spellCast_light_priest = { id = "rbxassetid://9114233983", volume = 0.55 },
+	spellCast_heal = { id = "rbxassetid://9114233983", volume = 0.6 },
+	spellCast_sacred_circle = { id = "rbxassetid://9114233983", volume = 0.65 },
+
 	spellCast_holy_avenger = { id = "rbxassetid://9114236044", volume = 0.55 },
 	spellCast_oracle = { id = "rbxassetid://9114236277", volume = 0.5 },
+	spellCast_sanctuary = { id = "rbxassetid://9114236277", volume = 0.65 },
+
 	spellCastDefault = { id = "rbxassetid://9125817786", volume = 0.55 }, -- fallback: escuela sin sonido propio todavía
 	spellDenied = { id = "rbxassetid://9125881137", volume = 0.4 }, -- "no" seco: sin maná/en cooldown/sin objetivo
+
+	-- Impactos 3D y explosiones mágicas en el mundo (SpellVfxClient / SpellService)
+	spellHit_fire = { id = "rbxassetid://9125817786", volume = 0.6 },
+	spellHit_arcane = { id = "rbxassetid://9114234512", volume = 0.55 },
+	spellHit_heal = { id = "rbxassetid://9114233983", volume = 0.6 },
+	spellHit_heavyImpact = { id = "rbxassetid://9114233671", volume = 0.75 },
+	spellHit_trap = { id = "rbxassetid://9114235587", volume = 0.55 },
+	spellHit_slash = { id = "rbxassetid://135315310485417", volume = 0.5 },
+
 	hurt = { id = "rbxassetid://1471213022", volume = 0.55 },
 	hit = { id = "rbxassetid://139520673393967", volume = 0.5 },
 	critHit = { id = "rbxassetid://137392628136734", volume = 0.65 },
@@ -79,11 +112,15 @@ end
 
 -- Reproduce un sonido registrado en SOUNDS. Si ya está sonando, lo reinicia
 -- (PlaybackLoudness aparte, esto evita que un ding tape al siguiente).
-function Sfx.play(name)
+-- `pitch` es opcional (PlaybackSpeed, default 1) — lo usa CombatSfx para que
+-- el golpe de remate del combo (combo3) suene un poco más grave/pesado sin
+-- necesitar un asset de sonido nuevo.
+function Sfx.play(name, pitch)
 	local sound = ensure(name)
 	if not sound then
 		return
 	end
+	sound.PlaybackSpeed = pitch or 1
 	sound.TimePosition = 0
 	sound:Play()
 end

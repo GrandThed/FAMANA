@@ -34,6 +34,21 @@ local HealthService = {}
 -- [userId] = os.clock() of last damage, for gating regen.
 local lastDamage = {}
 
+-- [userId] = os.clock() expiry. Set by EnemyService whenever a settlement
+-- (territory-war) PvP hit lands on this player. Died() reads this to decide
+-- whether a death was part of that fight — dying mid-siege costs extra
+-- respawn time (Config.SettlementWar.pvpRespawnDelay) on top of the normal
+-- respawn delay, giving the other side breathing room to actually take the
+-- guardian rather than the fight resetting instantly.
+local settlementCombatUntil = {}
+function HealthService.markSettlementCombat(player)
+	settlementCombatUntil[player.UserId] = os.clock() + Config.SettlementWar.pvpFlagWindow
+end
+
+local function diedInSettlementCombat(player)
+	return (settlementCombatUntil[player.UserId] or 0) > os.clock()
+end
+
 -- [userId] = { bleedRemaining, beingRevived, prompt, billboard, saved
 -- WalkSpeed/JumpPower/JumpHeight, and the connections tied to that prompt }.
 local downed = {}
@@ -487,7 +502,11 @@ local function onCharacterAdded(player, character)
 		if profile then
 			profile.health = humanoid.MaxHealth -- respawn at full (current max)
 		end
-		task.wait(Config.HP.respawnDelay)
+		local delay = Config.HP.respawnDelay
+		if diedInSettlementCombat(player) then
+			delay += Config.SettlementWar.pvpRespawnDelay
+		end
+		task.wait(delay)
 		if player.Parent then
 			player:LoadCharacter()
 		end
@@ -517,6 +536,7 @@ function HealthService.start()
 		lastDamage[player.UserId] = nil
 		shields[player.UserId] = nil
 		undying[player.UserId] = nil
+		settlementCombatUntil[player.UserId] = nil
 		local state = downed[player.UserId]
 		if state then
 			downed[player.UserId] = nil

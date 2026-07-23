@@ -17,6 +17,7 @@ local ToolService = require(script:WaitForChild("ToolService"))
 local TargetService = require(script:WaitForChild("TargetService"))
 local GatheringService = require(script:WaitForChild("GatheringService"))
 local EnemyService = require(script:WaitForChild("EnemyService"))
+local SettlementService = require(script:WaitForChild("SettlementService"))
 local EffectService = require(script:WaitForChild("EffectService"))
 local SpellService = require(script:WaitForChild("SpellService"))
 local SynergyService = require(script:WaitForChild("SynergyService"))
@@ -30,10 +31,22 @@ local CampFurnitureService = require(script:WaitForChild("CampFurnitureService")
 local RestedService = require(script:WaitForChild("RestedService"))
 local CampArchitectService = require(script:WaitForChild("CampArchitectService"))
 local QuestService = require(script:WaitForChild("QuestService"))
+local BestiaryService = require(script:WaitForChild("BestiaryService"))
+local AchievementsService = require(script:WaitForChild("AchievementsService"))
+local LeaderboardService = require(script:WaitForChild("LeaderboardService"))
 local MarkerService = require(script:WaitForChild("MarkerService"))
 local BorderService = require(script:WaitForChild("BorderService"))
 local WorldService = require(script:WaitForChild("WorldService"))
 local AdminSyncService = require(script:WaitForChild("AdminSyncService"))
+local MarketService = require(script:WaitForChild("MarketService"))
+local CookingService = require(script:WaitForChild("CookingService"))
+local FishingService = require(script:WaitForChild("FishingService"))
+local WeatherService = require(script:WaitForChild("WeatherService"))
+local GuildPlotService = require(script:WaitForChild("GuildPlotService"))
+local GuildResearchService = require(script:WaitForChild("GuildResearchService"))
+local SleepingService = require(script:WaitForChild("SleepingService"))
+local SittingService = require(script:WaitForChild("SittingService"))
+local BuildingService = require(script:WaitForChild("BuildingService"))
 
 -- Cell-only services (border teleports, cell theming) don't start in
 -- instance places (dungeons, housing — see GridConfig.places).
@@ -61,6 +74,7 @@ ToolService.start()
 TargetService.start()
 GatheringService.start()
 EnemyService.start()
+SettlementService.start() -- after EnemyService (hooks onKilled), GatheringService (registers yield bonus) and GuildService (guild lookups/notify)
 EffectService.start() -- after EnemyService: hooks onPlayerHit
 SpellService.start() -- after EnemyService/EffectService: registers damage hooks
 SynergyService.start() -- equipment trait synergies: registers stat hooks everywhere
@@ -74,7 +88,19 @@ CampFurnitureService.start() -- después de CampService: mobiliario solo se plan
 RestedService.start() -- banca el buff "Descansado" mientras estás en un camp seguro de noche (reemplaza el viejo bonus de regen por coziness)
 CampArchitectService.start() -- independiente de los otros dos: solo lee/escribe PlayerService.campTier
 QuestService.start() -- after EnemyService/GatheringService: hooks their onKilled/onGathered
+BestiaryService.start() -- after EnemyService: hooks onKilled, bumps lifetime kill counts
+AchievementsService.start() -- after EnemyService/GatheringService/CraftingService/QuestService: hooks all of their completion events
+LeaderboardService.start() -- serves the GetLeaderboard remote (proxies to the backend)
 MarkerService.start() -- after PartyService (lee membresía) y EnemyService/DropService (valida anchors)
+MarketService.start()
+CookingService.start()
+FishingService.start()
+WeatherService.start()
+GuildPlotService.start()
+GuildResearchService.start()
+SleepingService.start()
+SittingService.start()
+BuildingService.start()
 if role == "cell" then
 	BorderService.start()
 end

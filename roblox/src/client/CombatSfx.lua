@@ -17,14 +17,25 @@ local Sfx = require(script.Parent.Sfx)
 
 local CombatSfx = {}
 
--- styleName llega de ToolService.swingStyleFor: "slash" (espadas melee),
--- "draw" (arcos), "cast" (varitas/staffs mágicos) o "chop" (herramientas,
--- hacha/pico). Cada uno con su propio SFX registrado en Sfx.lua.
+-- styleName llega de ToolService.swingStyleFor: "slash" (espadas melee sin
+-- combo resuelto), "combo1"/"combo2"/"combo3" (los 3 golpes del combo melee,
+-- ver EnemyService's resolveWeaponVariant), "draw" (arcos), "cast"
+-- (varitas/staffs mágicos) o "chop" (herramientas, hacha/pico). Los combos
+-- reusan el mismo sonido de espada (swingMelee) — el remate (combo3) solo
+-- suena un toque más grave via PITCH_BY_STYLE, para que se sienta más
+-- pesado sin necesitar un asset de sonido nuevo.
 local SOUND_BY_STYLE = {
 	slash = "swingMelee",
+	combo1 = "swingMelee",
+	combo2 = "swingMelee",
+	combo3 = "swingMelee",
 	draw = "swingRanged",
 	cast = "swingMagic",
 	chop = "swing",
+}
+
+local PITCH_BY_STYLE = {
+	combo3 = 0.88, -- remate: mismo sonido, un poco más grave/pesado
 }
 
 -- lootSource llega de EnemyService (enemy.def.lootSource) — el mismo id que
@@ -39,7 +50,7 @@ local DEATH_SOUND_BY_LOOT_SOURCE = {
 
 function CombatSfx.start()
 	Remotes.get("SwingRemote").OnClientEvent:Connect(function(styleName)
-		Sfx.play(SOUND_BY_STYLE[styleName] or "swing")
+		Sfx.play(SOUND_BY_STYLE[styleName] or "swing", PITCH_BY_STYLE[styleName])
 	end)
 
 	Remotes.get("EnemyDied").OnClientEvent:Connect(function(lootSource)

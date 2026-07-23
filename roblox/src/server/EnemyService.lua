@@ -26,6 +26,8 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Classes = require(Shared:WaitForChild("Classes"))
 local Items = require(Shared:WaitForChild("Items"))
+local GridConfig = require(Shared:WaitForChild("GridConfig"))
+local Settlements = require(Shared:WaitForChild("Settlements"))
 
 local V = Vector3.new
 
@@ -224,9 +226,11 @@ local ENEMY_DEFS = {
 }
 
 local spawns = {} -- { def, pos, enemy = { part, fill, hp, lastAttack, dead, def } | nil }
+local settlementEntries = {} -- [settlementId] = entry (subset of `spawns`, for direct respawn lookups)
 local enemyFolder
 
--- [n] = function(lootSource, position, killer)  registered by the drop system.
+-- [n] = function(lootSource, position, killer, level, settlementId, damageBy)
+-- registered by the drop system, quests, SettlementService, etc.
 EnemyService.killedHandlers = {}
 function EnemyService.onKilled(fn)
 	table.insert(EnemyService.killedHandlers, fn)
@@ -362,6 +366,57 @@ function EnemyService.grantIframes(player, duration)
 	if (iframes[player.UserId] or 0) < expires then
 		iframes[player.UserId] = expires
 	end
+end
+
+-- Settlement wars ---------------------------------------------------------
+--
+-- Two gate hooks SettlementService registers into, so EnemyService stays
+-- ignorant of guilds/ownership — same "ask a hook, don't know the caller"
+-- shape as the damage-mult hooks above.
+--
+-- registerSettlementGuardianGate: fn(attacker, settlementId) -> false blocks
+-- a hit on that settlement's guardian entirely (e.g. it's the owning
+-- guild's own recruit, or the settlement is still in its post-capture grace
+-- window). No gate registered, or every gate returning non-false, allows
+-- the hit — so a settlement with no SettlementService running (or a
+-- never-captured neutral guardian) behaves exactly as before.
+local settlementGuardianGates = {}
+function EnemyService.registerSettlementGuardianGate(fn)
+	table.insert(settlementGuardianGates, fn)
+end
+
+local function guardianDamageAllowed(enemy, attacker)
+	local settlementId = enemy.def.settlementId
+	if not settlementId or not attacker then
+		return true
+	end
+	for _, fn in ipairs(settlementGuardianGates) do
+		local ok, allowed = pcall(fn, attacker, settlementId)
+		if ok and allowed == false then
+			return false
+		end
+	end
+	return true
+end
+
+-- registerPvpGate: fn(attacker, target) -> true opens player-vs-player
+-- damage between exactly those two players right now. Unlike the other
+-- hooks this defaults CLOSED (no registered gate saying true == no PvP
+-- anywhere) — the game stays PvE-safe everywhere except wherever
+-- SettlementService's contested-territory check opts a pair of players in.
+local pvpGates = {}
+function EnemyService.registerPvpGate(fn)
+	table.insert(pvpGates, fn)
+end
+
+local function pvpAllowed(attacker, target)
+	for _, fn in ipairs(pvpGates) do
+		local ok, allowed = pcall(fn, attacker, target)
+		if ok and allowed then
+			return true
+		end
+	end
+	return false
 end
 
 -- Floating "Dodge!" popup over a player who just evaded a hit.
@@ -504,7 +559,14 @@ local function updateHealthBar(enemy)
 	end)
 end
 
-local function buildEnemy(pos, def)
+-- statMult (default 1) scales hp/ad only — used for a settlement guardian's
+-- "recruited" respawn: once a guild has captured a settlement at least
+-- once, every guardian after that is stronger than the original wild one,
+-- reflecting that it's now defending a held territory, not just standing
+-- around. armor/magicResist/level are untouched so it doesn't also get
+-- harder to hit.
+local function buildEnemy(pos, def, statMult)
+	statMult = statMult or 1
 	local y = groundY(pos.X, pos.Z)
 
 	local level = math.random(def.minLevel or 1, def.maxLevel or 1)
@@ -515,8 +577,8 @@ local function buildEnemy(pos, def)
 		-- the min/max roll where it'd be invisible.
 		level += def.nightLevelBonus or 0
 	end
-	local maxHp = math.floor(def.hp * (1 + (level - 1) * HP_PER_LEVEL) + 0.5)
-	local ad = math.floor((def.ad or def.damage or 0) * (1 + (level - 1) * AD_PER_LEVEL) + 0.5)
+	local maxHp = math.floor(def.hp * (1 + (level - 1) * HP_PER_LEVEL) * statMult + 0.5)
+	local ad = math.floor((def.ad or def.damage or 0) * (1 + (level - 1) * AD_PER_LEVEL) * statMult + 0.5)
 	local ap = math.floor((def.ap or 0) * (1 + (level - 1) * AP_PER_LEVEL) + 0.5)
 	local armor = math.floor((def.armor or 0) * (1 + (level - 1) * ARMOR_PER_LEVEL) + 0.5)
 	local magicResist = math.floor((def.magicResist or 0) * (1 + (level - 1) * MR_PER_LEVEL) + 0.5)
@@ -683,11 +745,36 @@ local function buildEnemy(pos, def)
 	}
 end
 
-local function spawnAt(entry)
-	entry.enemy = buildEnemy(entry.pos, entry.def)
+local function spawnAt(entry, statMult)
+	entry.enemy = buildEnemy(entry.pos, entry.def, statMult)
 end
 
-local function nearestPlayer(position, range)
+-- Spawns the guardian/challenger for `settlementId` if it's currently dead
+-- (a no-op if it's already up, e.g. a stray double-call). SettlementService
+-- calls this after its own grace/challenger-timer logic decides it's time —
+-- EnemyService only owns "how a guardian is built and dies", not when one
+-- should reappear. No-ops silently if this server doesn't run that
+-- settlement's cell (settlementEntries is only populated for the local
+-- cell in start()).
+--
+-- statMult is passed straight through to buildEnemy — SettlementService
+-- decides whether this spawn is the original neutral guardian (nil/1) or a
+-- recruited defender for the guild that currently owns the settlement
+-- (Config.SettlementWar.recruitedGuardianMult).
+function EnemyService.respawnSettlementGuardian(settlementId, statMult)
+	local entry = settlementEntries[settlementId]
+	if entry and not entry.enemy then
+		spawnAt(entry, statMult)
+	end
+end
+
+-- `enemy` is optional — when passed and it's a settlement guardian, players
+-- guardianDamageAllowed() would block (the owning guild's own members, or
+-- anyone during grace) are skipped entirely rather than just being the
+-- closest-but-untargetable pick, so a recruited guardian actually looks
+-- past its own defenders for an invader instead of just going idle next to
+-- one.
+local function nearestPlayer(position, range, enemy)
 	local closest, closestDist
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
@@ -696,9 +783,11 @@ local function nearestPlayer(position, range)
 		-- Downed players sit at 1 HP waiting for a revive; they're out of the
 		-- fight, so enemies drop them and look for someone else.
 		if root and humanoid and humanoid.Health > 0 and not HealthService.isDowned(player) then
-			local dist = (root.Position - position).Magnitude
-			if dist <= range and (not closestDist or dist < closestDist) then
-				closest, closestDist = player, dist
+			if not enemy or guardianDamageAllowed(enemy, player) then
+				local dist = (root.Position - position).Magnitude
+				if dist <= range and (not closestDist or dist < closestDist) then
+					closest, closestDist = player, dist
+				end
 			end
 		end
 	end
@@ -944,7 +1033,15 @@ local function updateEnemy(entry, dt)
 			enemy.aggroBy, enemy.aggroUntil = nil, nil
 		end
 	end
-	target = target or nearestPlayer(enemy.part.Position, def.aggroRange)
+	target = target or nearestPlayer(enemy.part.Position, def.aggroRange, enemy)
+
+	-- A taunt or a leftover damage-aggro lock could still be pointing at a
+	-- player a settlement guardian isn't allowed to fight (e.g. the taunter
+	-- is one of the guardian's own guild's defenders) — drop it rather than
+	-- attack them.
+	if target and def.settlementId and not guardianDamageAllowed(enemy, target) then
+		target = nil
+	end
 
 	local root
 	if target then
@@ -1144,6 +1241,8 @@ local function killEnemy(entry, enemy, killer)
 	local lootSource = enemy.def.lootSource
 	local respawn = enemy.def.respawn
 	local level = enemy.level
+	local settlementId = enemy.def.settlementId
+	local damageBy = enemy.damageBy
 	enemy.part:Destroy()
 	entry.enemy = nil
 
@@ -1166,15 +1265,22 @@ local function killEnemy(entry, enemy, killer)
 	end
 
 	-- lootSource/position/killer stay first for backward compatibility;
-	-- level is appended for handlers that want to scale on it (e.g. future
-	-- quest tracking) — existing handlers can simply ignore the extra arg.
+	-- level/settlementId/damageBy are appended for handlers that want them
+	-- (e.g. quest tracking, SettlementService's capture logic) — existing
+	-- handlers can simply ignore the extra args.
 	for _, fn in ipairs(EnemyService.killedHandlers) do
-		task.spawn(fn, lootSource, position, killer, level)
+		task.spawn(fn, lootSource, position, killer, level, settlementId, damageBy)
 	end
 
-	task.delay(respawn, function()
-		spawnAt(entry)
-	end)
+	-- Settlement guardians/challengers don't respawn on the ordinary mob
+	-- timer — SettlementService decides when a challenger should reappear
+	-- (grace period + challengerRespawn from shared/Settlements.lua) and
+	-- calls EnemyService.respawnSettlementGuardian for it explicitly.
+	if not settlementId then
+		task.delay(respawn, function()
+			spawnAt(entry)
+		end)
+	end
 end
 
 -- Finds the enemy entry backed by a given part (the client's focused target).
@@ -1217,6 +1323,17 @@ dealDamage = function(entry, enemy, damage, killer, isCrit, damageKind)
 	if not enemy or enemy.dead then
 		return
 	end
+	-- Wet target bonus: Lightning / Electric magic deals +25% bonus damage to Wet targets
+	if enemy.part and enemy.part:GetAttribute("Wet") and damageKind == "magic" then
+		damage = math.floor(damage * 1.25 + 0.5)
+	end
+	-- Settlement guardians can refuse a hit outright (own guild's recruit,
+	-- or still in grace) — before any of the mitigation/aggro bookkeeping
+	-- below, so a blocked hit has zero side effects, same as swinging at
+	-- nothing.
+	if not guardianDamageAllowed(enemy, killer) then
+		return
+	end
 	-- Every hit (re)locks the enemy onto the attacker — see updateEnemy.
 	if killer then
 		enemy.aggroBy = killer
@@ -1237,6 +1354,17 @@ dealDamage = function(entry, enemy, damage, killer, isCrit, damageKind)
 		end
 	end
 	enemy.hp -= damage
+	-- Cumulative damage per player, keyed by userId, using the final
+	-- (post-mitigation/amp) number actually removed from HP. Only
+	-- settlement guardians consume this (see killEnemy) — for ordinary mobs
+	-- it's dead weight destroyed with the rest of `enemy` on death, so it's
+	-- cheap to track unconditionally rather than special-casing every call
+	-- site of dealDamage.
+	if killer then
+		enemy.damageBy = enemy.damageBy or {}
+		local uid = killer.UserId
+		enemy.damageBy[uid] = (enemy.damageBy[uid] or 0) + damage
+	end
 	updateHealthBar(enemy)
 	if killer and damageIndicatorRemote then
 		damageIndicatorRemote:FireClient(killer, damage, isCrit, enemy.part.Position)
@@ -1424,7 +1552,42 @@ local PROJECTILE_VISUALS = {
 	physical = { name = "Arrow", shape = Enum.PartType.Cylinder, size = Vector3.new(0.15, 0.15, 3), color = Color3.fromRGB(120, 85, 45), material = Enum.Material.Wood, glow = false },
 }
 
-local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverride)
+-- Attaches a real Trail (two Attachments straddling the part so it reads as
+-- width, not just a line) that follows the missile as it flies. Used instead
+-- of a PointLight for arrows where "fast motion" reads better than "light
+-- source" — see useTrail in fireMissile below.
+local function attachTrail(part, color)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, 0.05, 0)
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, -0.05, 0)
+	a1.Parent = part
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Color = ColorSequence.new(color)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0.2),
+	})
+	trail.Lifetime = 0.2
+	trail.MinLength = 0
+	trail.Parent = part
+	return trail
+end
+
+-- colorOverride tints the missile itself (see arrow colors in
+-- ARROW_EFFECT_COLORS); useTrail picks WHICH cosmetic reads the tint —
+-- true attaches a motion Trail (dynamic, no light source), false/nil falls
+-- back to the PointLight glow. Only one arrow (fire) still glows; the others
+-- (plain, poison) trail instead so they don't all look like the same lit orb.
+local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverride, useTrail)
 	local visual = PROJECTILE_VISUALS[damageKind] or PROJECTILE_VISUALS.magic
 
 	local missile = Instance.new("Part")
@@ -1438,7 +1601,9 @@ local function fireMissile(fromPos, targetPart, onArrive, damageKind, colorOverr
 	missile.CanQuery = false
 	missile.Position = fromPos
 
-	if visual.glow or colorOverride then
+	if colorOverride and useTrail then
+		attachTrail(missile, colorOverride)
+	elseif visual.glow or colorOverride then
 		local light = Instance.new("PointLight")
 		light.Color = missile.Color
 		light.Range = 8
@@ -1518,6 +1683,11 @@ local function cycleArrow(player)
 		local itemId = ARROW_ORDER[index]
 		if ownsArrow(player, itemId) then
 			selectedArrow[player.UserId] = itemId
+			-- Replicated so ArrowSelectUI can show the current pick without a
+			-- remote round trip — same pattern as PlayerService's Gold/Class
+			-- attributes. The toast (below) still confirms it once, this is
+			-- what lets the HUD chip stay correct across respawns/rejoins too.
+			player:SetAttribute("SelectedArrow", itemId)
 			if notifyRemote then
 				local itemDef = Items.get(itemId)
 				notifyRemote:FireClient(player, "Flecha: " .. (itemDef and itemDef.name or itemId))
@@ -1531,11 +1701,24 @@ local function cycleArrow(player)
 	end
 end
 
--- Tinted missile trail per arrow effect, purely cosmetic (the enemy still
--- gets the normal wooden-arrow model from PROJECTILE_VISUALS otherwise).
+-- Tinted missile per arrow, purely cosmetic (the enemy still takes the same
+-- damage/effect regardless of color). Keyed by arrowEffect.kind for the
+-- special arrows; "plain" is the fallback used by the basic arrow, which has
+-- no arrowEffect of its own (see arrowColor resolution in onWeaponSwing).
 local ARROW_EFFECT_COLORS = {
+	plain = Color3.fromRGB(245, 245, 245),
 	burn = Color3.fromRGB(255, 110, 40),
 	poison = Color3.fromRGB(110, 220, 90),
+}
+
+-- Which cosmetic each arrow's tint drives (see fireMissile's useTrail): only
+-- the fire arrow still reads as a light source, so it feels like it's
+-- actually burning; the others get a motion Trail instead so the three don't
+-- all look like the same glowing orb.
+local ARROW_USES_TRAIL = {
+	plain = true,
+	burn = false,
+	poison = true,
 }
 
 -- Applies (or refreshes/stacks) a bow ammo's damage-over-time onto the hit
@@ -1566,11 +1749,187 @@ local function applyArrowEffect(enemy, effect, player)
 	}
 end
 
+-- Ranged weapons (bow/staff) only fire at an explicitly focused target, and
+-- only while it's within reach — shared by canSwingWeapon (the "don't even
+-- swing" gate below) and onWeaponSwing's own hit resolution, so both agree
+-- on the exact same "no target, no shot" rule. Needs `root` already
+-- resolved by the caller (nil character/root just means no target).
+local function resolveRangedHit(player, def, root)
+	local reach = def.reach or DEFAULT_REACH
+	local focused = entryForPart(TargetService.get(player))
+	if focused and (focused.enemy.part.Position - root.Position).Magnitude <= reach then
+		return focused, focused.enemy
+	end
+	return nil, nil
+end
+
+-- Registered with ToolService.registerCanSwing("weapon", ...): whether the
+-- Tool should swing at all. A ranged weapon with nothing locked in range
+-- doesn't animate or make a sound — no "attacking the air" with the bow/
+-- staff. Melee always passes through: it auto-targets whatever's in range on
+-- hit, so there's no separate lock to require.
+local function canSwingWeapon(player, def)
+	if def.weaponType ~= "ranged" then
+		return true
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	local _, hitEnemy = resolveRangedHit(player, def, root)
+	return hitEnemy ~= nil
+end
+
+-- Registered with ToolService.registerCanPlaySound("weapon", ...): whether
+-- the cast/draw swing sound should actually play. A ranged weapon that can't
+-- afford its mana cost, or a bow with no matching arrow left, still swings
+-- (cooldown/animation as usual — onWeaponSwing below shows the "no mana"/"no
+-- arrows" toast) but stays silent, since nothing is actually being fired.
+-- Melee weapons and tools always pass through (return true).
+local function canAffordWeaponSound(player, def)
+	if def.weaponType ~= "ranged" then
+		return true
+	end
+	local cost = def.manaCost or 0
+	if cost > 0 and ManaService.get(player) < cost then
+		return false
+	end
+	if def.usesArrows and not resolveArrow(player) then
+		return false
+	end
+	return true
+end
+
+-- ---- Weapon combos (3 hits, sword/staff/bow) ------------------------------
+-- Spamming a weapon cycles through 3 swing variants (combo1/2/3 for melee,
+-- castCombo1/2/3 for the staff, drawCombo1/2/3 for the bow — see
+-- ToolService's SWING_STYLES) instead of the exact same swing/cast/draw
+-- every time, and the 3rd hit (the "remate"/finisher) deals extra damage.
+-- Resets to step 1 if the player pauses for longer than COMBO_WINDOW between
+-- swings — same spirit as Genshin's light-attack chain, just simpler (no
+-- branching, no charged attack). Melee and ranged track their progress in
+-- SEPARATE tables (comboStep/comboExpiry vs rangedComboStep/rangedComboExpiry)
+-- so switching weapon types mid-fight doesn't bleed combo progress from one
+-- into the other.
+local COMBO_LENGTH = 3
+local COMBO_WINDOW = 0.8 -- seconds; longer than SWING_COOLDOWN so back-to-back clicks chain
+local COMBO_DAMAGE_MULT = {
+	combo1 = 1, combo2 = 1.1, combo3 = 1.35,
+	-- Mismos multiplicadores que la espada, sólo que bajo las claves de
+	-- variant que devuelve resolveWeaponVariant para báculo/arco (ver abajo).
+	castCombo1 = 1, castCombo2 = 1.1, castCombo3 = 1.35,
+	drawCombo1 = 1, drawCombo2 = 1.1, drawCombo3 = 1.35,
+}
+
+local comboStep = {} -- [userId] = 1..COMBO_LENGTH, the step of the LAST swing played
+local comboExpiry = {} -- [userId] = os.clock() deadline; past this, the next swing restarts at combo1
+
+-- Ranged (báculo/arco) tiene su PROPIO ciclo de combo, separado del melee de
+-- arriba: si el jugador alterna espada -> báculo, no queremos que el combo de
+-- uno se pise con el del otro (ej. equipar el báculo justo después de un
+-- combo3 de espada no debería heredar ese progreso ni reiniciar el de la
+-- espada). Misma ventana/longitud que el melee, solo que en tablas aparte.
+local rangedComboStep = {} -- [userId] = 1..COMBO_LENGTH, último paso ranged jugado
+local rangedComboExpiry = {} -- [userId] = os.clock() deadline; pasado esto, el próximo tiro reinicia en el paso 1
+
+-- Registered with ToolService.registerSwingVariant("weapon", ...). Only
+-- called once a swing has already passed the cooldown gate (see
+-- ToolService.playSwing), so a click that gets debounced away never eats a
+-- combo step. Ranged weapons (staff/bow) get their own combo (cast1-3 /
+-- draw1-3, ver SWING_STYLES en ToolService) usando damageKind para separar
+-- báculo (magic) de arco (physical) — mismo bonus de daño en el remate que
+-- el melee, solo con gestos distintos.
+local function resolveWeaponVariant(player, def)
+	if def.weaponType == "ranged" then
+		local now = os.clock()
+		local step = rangedComboStep[player.UserId]
+		if not step or now > (rangedComboExpiry[player.UserId] or 0) then
+			step = 1
+		else
+			step = step % COMBO_LENGTH + 1
+		end
+		rangedComboStep[player.UserId] = step
+		rangedComboExpiry[player.UserId] = now + COMBO_WINDOW
+		local prefix = def.damageKind == "magic" and "castCombo" or "drawCombo"
+		return prefix .. step
+	end
+	local now = os.clock()
+	local step = comboStep[player.UserId]
+	if not step or now > (comboExpiry[player.UserId] or 0) then
+		step = 1
+	else
+		step = step % COMBO_LENGTH + 1
+	end
+	comboStep[player.UserId] = step
+	comboExpiry[player.UserId] = now + COMBO_WINDOW
+	return "combo" .. step
+end
+
 -- Called by ToolService when a "weapon" item is activated. Melee weapons hit
 -- instantly and can auto-swing at the nearest enemy; ranged weapons (staff)
 -- only fire at an explicitly focused target and launch a magic missile that
 -- damages on impact.
-local function onWeaponSwing(player, tool, def)
+-- Nearest live, non-downed enemy PLAYER within `reach` that pvpAllowed()
+-- currently opens up for `player` to hit. Melee only for now — ranged/spell
+-- PvP touches a lot more surface (arrow effects, missile travel, mana
+-- costs) and is a reasonable follow-up rather than part of this first pass.
+local function pvpTargetFor(player, root, reach)
+	local best, bestDist
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player and pvpAllowed(player, other) then
+			local character = other.Character
+			local otherRoot = character and character:FindFirstChild("HumanoidRootPart")
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if otherRoot and humanoid and humanoid.Health > 0 and not HealthService.isDowned(other) then
+				local dist = (otherRoot.Position - root.Position).Magnitude
+				if dist <= reach and (not bestDist or dist < bestDist) then
+					best, bestDist = other, dist
+				end
+			end
+		end
+	end
+	return best
+end
+
+-- Player-vs-player melee hit: the same outgoing roll as a normal swing
+-- (computePlayerDamage), mitigated by the TARGET's own armor/MR
+-- (ClassService, same mitigation curve as an enemy's), then delivered
+-- through HealthService.damagePlayer — so a settlement fight goes through
+-- the exact same shield/undying/downed pipeline as any other damage to a
+-- player, no separate PvP health model to keep in sync.
+local function applyPvpHit(attacker, target, def, variant)
+	local damageKind = def.damageKind or "melee"
+	local damage, isCrit = EnemyService.computePlayerDamage(attacker, def.damage or 10, damageKind)
+
+	local comboMult = COMBO_DAMAGE_MULT[variant] or 1
+	if comboMult ~= 1 then
+		damage = math.max(1, math.floor(damage * comboMult + 0.5))
+	end
+
+	local resist = damageKind == "magic" and ClassService.getMR(target) or ClassService.getArmor(target)
+	if resist and resist > 0 then
+		damage = math.max(1, math.floor(damage * (1 - Classes.mitigation(resist)) + 0.5))
+	end
+
+	HealthService.damagePlayer(target, damage)
+	HealthService.registerDamage(target)
+	HealthService.markSettlementCombat(target)
+
+	local lifesteal = hookedLifesteal(attacker)
+	if lifesteal > 0 then
+		HealthService.heal(attacker, damage * lifesteal)
+	end
+
+	if damageIndicatorRemote then
+		local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+		if targetRoot then
+			damageIndicatorRemote:FireClient(attacker, damage, isCrit, targetRoot.Position)
+		end
+	end
+end
+
+local function onWeaponSwing(player, tool, def, variant)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root or HealthService.isDowned(player) then
@@ -1582,17 +1941,21 @@ local function onWeaponSwing(player, tool, def)
 
 	local hitEntry, hitEnemy
 	if ranged then
-		-- Ranged weapons require a focus: fire only at the locked target, and
-		-- only while it's within reach. No target, no shot.
-		local focused = entryForPart(TargetService.get(player))
-		if focused and (focused.enemy.part.Position - root.Position).Magnitude <= reach then
-			hitEntry, hitEnemy = focused, focused.enemy
-		end
+		hitEntry, hitEnemy = resolveRangedHit(player, def, root)
 	else
 		hitEntry, hitEnemy = targetFor(player, root, reach)
 	end
 
 	if not hitEnemy then
+		-- No enemy in range — for a melee swing, see if there's an opposing
+		-- player in range instead (settlement invasion PvP). Ranged/spell
+		-- swings just whiff, same as before.
+		if not ranged then
+			local pvpTarget = pvpTargetFor(player, root, reach)
+			if pvpTarget then
+				applyPvpHit(player, pvpTarget, def, variant)
+			end
+		end
 		return
 	end
 
@@ -1638,7 +2001,24 @@ local function onWeaponSwing(player, tool, def)
 		end
 		local arrowDef = arrowId and Items.get(arrowId)
 		local arrowEffect = arrowDef and arrowDef.arrowEffect
-		local arrowColor = arrowEffect and ARROW_EFFECT_COLORS[arrowEffect.kind]
+		-- Toda flecha real (arrowDef presente) se tiñe: la especial usa el
+		-- color de su efecto, la común cae en "plain" (blanco). El báculo no
+		-- pasa por acá (usesArrows == false => arrowDef == nil), así que su
+		-- misil mágico conserva su propio color violeta de siempre.
+		local arrowKind = arrowDef and (arrowEffect and arrowEffect.kind or "plain")
+		local arrowColor = arrowKind and ARROW_EFFECT_COLORS[arrowKind]
+		local arrowUsesTrail = arrowKind and ARROW_USES_TRAIL[arrowKind]
+
+		-- Combo finisher: el 3er casteo/tiro (castCombo3/drawCombo3) pega más
+		-- fuerte, mismo bonus y misma tabla que el combo de espada (ver
+		-- COMBO_DAMAGE_MULT arriba). Se aplica ANTES del damageMult de la
+		-- flecha para que ambos multiplicadores se compongan, y antes de
+		-- applyLifesteal (que cierra sobre `damage`) para que el lifesteal
+		-- también sane con el daño ya boosteado.
+		local comboMult = COMBO_DAMAGE_MULT[variant] or 1
+		if comboMult ~= 1 then
+			damage = math.max(1, math.floor(damage * comboMult + 0.5))
+		end
 
 		-- Special arrows hit softer on impact than a plain arrow — the
 		-- damageMult (shared/Items.lua, e.g. 0.75 = 25% less) is what they
@@ -1654,7 +2034,7 @@ local function onWeaponSwing(player, tool, def)
 			if arrowEffect then
 				applyArrowEffect(hitEnemy, arrowEffect, player)
 			end
-		end, damageKind, arrowColor)
+		end, damageKind, arrowColor, arrowUsesTrail)
 		-- Double Nock: a primed charge echoes the shot — a second arrow at the
 		-- same target with its own damage/crit roll, no extra mana or ammo.
 		for _, fn in ipairs(extraShotHooks) do
@@ -1665,6 +2045,11 @@ local function onWeaponSwing(player, tool, def)
 						return
 					end
 					local echoDamage, echoCrit = EnemyService.computePlayerDamage(player, def.damage or 10, damageKind)
+					-- Mismo combo mult que el tiro original: el eco es del MISMO
+					-- disparo cargado, no un paso de combo aparte.
+					if comboMult ~= 1 then
+						echoDamage = math.max(1, math.floor(echoDamage * comboMult + 0.5))
+					end
 					if arrowDef and arrowDef.damageMult then
 						echoDamage = math.max(1, math.floor(echoDamage * arrowDef.damageMult + 0.5))
 					end
@@ -1677,11 +2062,19 @@ local function onWeaponSwing(player, tool, def)
 						if arrowEffect then
 							applyArrowEffect(hitEnemy, arrowEffect, player)
 						end
-					end, damageKind, arrowColor)
+					end, damageKind, arrowColor, arrowUsesTrail)
 				end)
 			end
 		end
 	else
+		-- Combo finisher: combo3 hits harder (see COMBO_DAMAGE_MULT above).
+		-- Reassigning `damage` here (rather than a new local) means
+		-- applyLifesteal — which closes over `damage` and runs after this —
+		-- heals off the boosted amount too, same as the arrow damageMult path.
+		local comboMult = COMBO_DAMAGE_MULT[variant] or 1
+		if comboMult ~= 1 then
+			damage = math.max(1, math.floor(damage * comboMult + 0.5))
+		end
 		dealDamage(hitEntry, hitEnemy, damage, player, isCrit, damageKind)
 		applyLifesteal()
 	end
@@ -1698,11 +2091,27 @@ function EnemyService.start()
 		cycleArrow(player)
 	end)
 
+	-- Default the replicated pick to the plain arrow so ArrowSelectUI's HUD
+	-- chip has something correct to show before the player ever cycles (the
+	-- in-memory selectedArrow table only gets a real entry on first cycle —
+	-- see resolveArrow's `or ARROW_ORDER[1]` fallback, mirrored here).
+	local function initSelectedArrowAttribute(player)
+		player:SetAttribute("SelectedArrow", ARROW_ORDER[1])
+	end
+	Players.PlayerAdded:Connect(initSelectedArrowAttribute)
+	for _, player in ipairs(Players:GetPlayers()) do
+		initSelectedArrowAttribute(player)
+	end
+
 	Players.PlayerRemoving:Connect(function(player)
 		lastManaWarn[player.UserId] = nil
 		lastArrowWarn[player.UserId] = nil
 		lastArrowCycle[player.UserId] = nil
 		selectedArrow[player.UserId] = nil
+		comboStep[player.UserId] = nil
+		comboExpiry[player.UserId] = nil
+		rangedComboStep[player.UserId] = nil
+		rangedComboExpiry[player.UserId] = nil
 	end)
 
 	enemyFolder = Instance.new("Folder")
@@ -1735,7 +2144,26 @@ function EnemyService.start()
 		end
 	end
 
+	-- Settlement guardians: one entry per settlement whose `cell` matches
+	-- this running server. Reuses the same buildEnemy/spawns machinery as
+	-- ordinary mobs; killEnemy special-cases anything with settlementId set
+	-- (no auto-respawn — SettlementService drives that, see there).
+	local currentCell = GridConfig.currentCell()
+	for settlementId, settlement in pairs(Settlements.defs) do
+		if settlement.cell == currentCell then
+			local def = table.clone(settlement.guardian)
+			def.settlementId = settlementId
+			local entry = { def = def, pos = settlement.position, enemy = nil }
+			settlementEntries[settlementId] = entry
+			table.insert(spawns, entry)
+			spawnAt(entry)
+		end
+	end
+
 	ToolService.registerActivated("weapon", onWeaponSwing)
+	ToolService.registerCanSwing("weapon", canSwingWeapon)
+	ToolService.registerCanPlaySound("weapon", canAffordWeaponSound)
+	ToolService.registerSwingVariant("weapon", resolveWeaponVariant)
 
 	RunService.Heartbeat:Connect(function(dt)
 		for _, entry in ipairs(spawns) do

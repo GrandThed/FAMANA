@@ -57,7 +57,10 @@ end
 --   size (Vector3), color (palette key or Color3), material?, canCollide?,
 --   anchored? }
 function ArtKit.part(spec)
-	local shape = spec.shape or "Block"
+	if typeof(spec) == "string" then
+		spec = { color = spec }
+	end
+	local shape = (spec and spec.shape) or "Block"
 	local part
 	if shape == "Wedge" then
 		part = Instance.new("WedgePart")
@@ -65,15 +68,15 @@ function ArtKit.part(spec)
 		part = Instance.new("CornerWedgePart")
 	else
 		part = Instance.new("Part")
-		part.Shape = Enum.PartType[shape]
+		part.Shape = Enum.PartType[shape] or Enum.PartType.Block
 	end
-	part.Name = spec.name or "Part"
-	part.Size = spec.size
-	part.Color = resolveColor(spec.color)
-	part.Material = spec.material or ArtKit.Material
-	part.Transparency = spec.transparency or 0
-	part.Anchored = spec.anchored ~= false
-	part.CanCollide = spec.canCollide ~= false
+	part.Name = (spec and spec.name) or "Part"
+	part.Size = (spec and spec.size) or Vector3.new(1, 1, 1)
+	part.Color = resolveColor(spec and spec.color)
+	part.Material = (spec and spec.material) or ArtKit.Material
+	part.Transparency = (spec and spec.transparency) or 0
+	part.Anchored = not spec or spec.anchored ~= false
+	part.CanCollide = not spec or spec.canCollide ~= false
 	return part
 end
 

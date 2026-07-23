@@ -225,7 +225,7 @@ local function makeEffectsPanel(parent)
 					row = { frame = frame, label = label, fill = fill }
 					rows[effectId] = row
 				end
-				row.label.Text = string.format("%s  %.0fs", def.name, value - now)
+				row.label.Text = string.format("%s  %s", def.name, Effects.formatRemaining(value - now))
 				-- Diminished applications start below 100% (shorter than the
 				-- def duration); that reads correctly — less bar, less CC.
 				local frac = math.clamp((value - now) / math.max(def.duration or 1, 0.1), 0, 1)

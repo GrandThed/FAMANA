@@ -1,7 +1,9 @@
 -- Tarkov-style vendor trade screen (docs/VENDOR_UI.md): three panes — the
 -- vendor's STOCK grid (left), the DEAL zone (center: "you give" / "you get"
 -- grids, net gold, the DEAL button), and YOUR PACK (right, the main grid).
--- Opens on OpenStore (vendor ProximityPrompt); the whole deal settles through
+-- Opens via ClientState.openStorePanel (called by NpcMenuUI's "Ver tienda"
+-- button, after the vendor's ProximityPrompt opens the dialogue menu — see
+-- NpcMenuUI/OpenNpcMenu); the whole deal settles through
 -- the StoreDeal RemoteFunction in ONE atomic backend transaction — on
 -- failure nothing changed and the zone stays put.
 --
@@ -923,7 +925,10 @@ function StoreUI.start()
 	closeBtn.Activated:Connect(close)
 	ClientState.closeStore = close
 
-	Remotes.get("OpenStore").OnClientEvent:Connect(function(info)
+	-- info: { storeId, storeName, vendorName, position }. Called directly by
+	-- NpcMenuUI's "Ver tienda" button (the vendor's ProximityPrompt opens the
+	-- dialogue menu first, not the store panel — see NpcMenuUI/OpenNpcMenu).
+	local function openWith(info)
 		if typeof(info) ~= "table" then
 			return
 		end
@@ -944,7 +949,8 @@ function StoreUI.start()
 		updateGold()
 		refreshStock()
 		refreshDeal()
-	end)
+	end
+	ClientState.openStorePanel = openWith
 
 	-- Walk away → close (the server enforces its own distance on the deal).
 	task.spawn(function()

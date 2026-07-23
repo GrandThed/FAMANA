@@ -26,12 +26,25 @@ local Sfx = require(script.Parent.Sfx)
 local SpellFeedbackSfx = {}
 
 local function castSoundFor(spellId)
+	if not spellId then
+		return "spellCastDefault"
+	end
+
+	-- 1. Intenta "spellCast_<spellId>" (específico por hechizo)
+	local specificName = "spellCast_" .. tostring(spellId)
+	if Sfx.exists(specificName) then
+		return specificName
+	end
+
+	-- 2. Caer a "spellCast_<schoolId>" (por escuela de magia)
 	local def = Spells.get(spellId)
 	local schoolId = def and def.school
-	local soundName = schoolId and ("spellCast_" .. schoolId)
-	if soundName and Sfx.exists(soundName) then
-		return soundName
+	local schoolName = schoolId and ("spellCast_" .. tostring(schoolId))
+	if schoolName and Sfx.exists(schoolName) then
+		return schoolName
 	end
+
+	-- 3. Fallback genérico
 	return "spellCastDefault"
 end
 

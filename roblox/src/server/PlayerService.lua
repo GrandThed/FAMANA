@@ -34,6 +34,21 @@ local function xpToNext(level)
 end
 PlayerService.xpToNext = xpToNext
 
+-- Recomputes + republishes the "MaxClassLevel" attribute (highest level
+-- reached by any class) from profile.classLevels. Called wherever
+-- classLevels can change: initial load, addXp's level-up, and admin
+-- applyStats — feeds shared/Achievements.lua's "level" metric without
+-- needing the full classLevels table replicated to the client.
+local function publishMaxClassLevel(player, profile)
+	local best = 0
+	for _, entry in pairs(profile.classLevels) do
+		if entry.level and entry.level > best then
+			best = entry.level
+		end
+	end
+	player:SetAttribute("MaxClassLevel", best)
+end
+
 -- [userId] = { health, maxHealth, gold, cell, position = {x,y,z}, inventory = {...}, _temporary? }
 local cache = {}
 
@@ -190,6 +205,7 @@ local function loadProfile(player)
 	player:SetAttribute("Level", data.level)
 	player:SetAttribute("Xp", data.xp)
 	player:SetAttribute("XpToNext", xpToNext(data.level))
+	publishMaxClassLevel(player, data)
 
 	-- Hotbar quick binds (keys 3–0) persist with the profile as THREE
 	-- swappable pages ({ active, pages }); the client seeds its HotbarBinds
@@ -244,6 +260,42 @@ local function loadProfile(player)
 	-- come back without it — default to 0 (current behavior, unchanged).
 	data.campTier = data.campTier or 0
 	player:SetAttribute("CampTier", data.campTier)
+
+	-- Bestiary: lifetime kill counts per enemy lootSource ({ [lootSource] =
+	-- count }, docs/BESTIARY.md). Profiles saved before this existed come
+	-- back without it. Published as JSON (same pattern as PlayerSettings/
+	-- HotbarBinds) so the client's Bestiary/EnemyInspect UI can read its own
+	-- reveal tier without a remote round-trip.
+	data.bestiaryKills = typeof(data.bestiaryKills) == "table" and data.bestiaryKills or {}
+	player:SetAttribute("BestiaryKills", HttpService:JSONEncode(data.bestiaryKills))
+
+	-- Achievements (docs/ACHIEVEMENTS.md): a generic counter bag
+	-- (data.stats — gathered/crafted/questsCompleted, kills reuse
+	-- bestiaryKills above) plus the set of unlocked achievement ids. Same
+	-- "publish as JSON attribute, no remote needed" pattern as bestiary.
+	data.stats = typeof(data.stats) == "table" and data.stats or {}
+	data.stats.gathered = typeof(data.stats.gathered) == "table" and data.stats.gathered or {}
+	data.stats.crafted = typeof(data.stats.crafted) == "number" and data.stats.crafted or 0
+	data.stats.questsCompleted = typeof(data.stats.questsCompleted) == "number" and data.stats.questsCompleted or 0
+	player:SetAttribute("PlayerStats", HttpService:JSONEncode(data.stats))
+
+	data.achievementsUnlocked = typeof(data.achievementsUnlocked) == "table" and data.achievementsUnlocked or {}
+	player:SetAttribute("AchievementsUnlocked", HttpService:JSONEncode(data.achievementsUnlocked))
+
+	-- Recetas "secretas" desbloqueadas para este jugador (ver Recipes.<id>.locked
+	-- — hoy solo "acampada", otorgada por Quests.camp_basics). Set table
+	-- { [recipeId] = true }, publicado como attribute comma-joined (mismo
+	-- patrón que NearbyStations) para que CraftUI filtre sin ida y vuelta al
+	-- server. Profiles guardados antes de que esto existiera vuelven vacíos —
+	-- las recetas locked simplemente no aparecen hasta desbloquearlas.
+	data.unlockedRecipes = typeof(data.unlockedRecipes) == "table" and data.unlockedRecipes or {}
+	do
+		local ids = {}
+		for id in pairs(data.unlockedRecipes) do
+			table.insert(ids, id)
+		end
+		player:SetAttribute("UnlockedRecipes", table.concat(ids, ","))
+	end
 
 	-- This Place represents a specific cell; record it so saves reflect reality.
 	data.cell = GridConfig.currentCell()
@@ -328,10 +380,6 @@ function PlayerService.moveItem(player, from, to)
 	return false, errorCode
 end
 
--- Removes the whole stack at `ref` so it can be thrown on the ground.
--- The backend validates the position. Returns (ok, itemId, quantity, meta) —
--- the caller (DropService) is responsible for spawning the ground drop
--- (carrying the meta so rolled items survive the round trip).
 function PlayerService.dropItem(player, ref)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -346,25 +394,6 @@ function PlayerService.dropItem(player, ref)
 	return false
 end
 
--- Splits `quantity` off the stack at `ref` into a new stack in the first
--- free grid spot (the "Dividir" context menu action) — both stacks stay in
--- the inventory, nothing hits the ground. The backend validates the
--- quantity/room and picks the spot. Returns (ok, errorCode).
-function PlayerService.splitStack(player, ref, quantity)
-	local profile = cache[player.UserId]
-	if not profile or profile._temporary then
-		return false, "offline"
-	end
-	local ok, inventory, errorCode = BackendService.splitStack(player.UserId, ref, quantity)
-	if ok then
-		profile.inventory = inventory
-		PlayerService.pushInventory(player)
-		return true
-	end
-	return false, errorCode
-end
-
--- Repack the main grid (the Sort button).
 function PlayerService.sortInventory(player)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -379,8 +408,6 @@ function PlayerService.sortInventory(player)
 	return false
 end
 
--- Re-fetch the inventory from the backend and push it to the client + tools.
--- Used to reflect out-of-band changes (e.g. an admin edit) on an online player.
 function PlayerService.refreshInventory(player)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -407,13 +434,74 @@ function PlayerService.removeItem(player, itemId, quantity)
 	return false
 end
 
--- Settles a vendor deal atomically (docs/VENDOR_UI.md §5): the backend
--- lands the gold delta + item removes + adds in one transaction, or none
--- of it. plan = { goldDelta, removes, adds } — already validated and
--- priced by VendorService. Gold lives in this cache between autosaves, so
--- the cached balance is flushed to the backend first: the transaction's
--- no-negative-gold check must run against the real number, not the last
--- autosave's. Returns (ok, errorCode).
+function PlayerService.consumeItem(player, ref)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(ref) ~= "table" then
+		return { ok = false }
+	end
+
+	local targetEntry = nil
+	for _, entry in ipairs(profile.inventory or {}) do
+		if entry.containerId == ref.containerId and entry.x == ref.x and entry.y == ref.y then
+			targetEntry = entry
+			break
+		end
+	end
+
+	if not targetEntry then
+		return { ok = false, error = "not_found" }
+	end
+
+	local def = Items.get(targetEntry.itemId)
+	if not def or def.type ~= "consumable" then
+		return { ok = false, error = "not_consumable" }
+	end
+
+	local removed = PlayerService.removeItem(player, targetEntry.itemId, 1)
+	if not removed then
+		return { ok = false, error = "remove_failed" }
+	end
+
+	-- Special consumable: Cofre Hundido
+	if targetEntry.itemId == "cofre_hundido" then
+		local goldAwarded = math.random(60, 180)
+		PlayerService.addGold(player, goldAwarded)
+
+		local bonusText = ""
+		local roll = math.random(1, 100)
+		if roll <= 40 then
+			PlayerService.addItem(player, "iron_ingot", 2, true)
+			bonusText = " + 2x Lingotes de Hierro"
+		elseif roll <= 70 then
+			PlayerService.addItem(player, "copper_ingot", 3, true)
+			bonusText = " + 3x Lingotes de Cobre"
+		end
+
+		Remotes.get("Notify"):FireClient(player, string.format("¡Abriste un Cofre Hundido y encontraste %d de Oro%s!", goldAwarded, bonusText))
+		return { ok = true }
+	end
+
+	-- Health restore
+	if def.healHp and def.healHp > 0 then
+		HealthService.heal(player, def.healHp)
+	end
+
+	-- Mana restore
+	if def.restoreMana and def.restoreMana > 0 then
+		ManaService.add(player, def.restoreMana)
+	end
+
+	-- Buffs
+	if def.buff == "speed_elixir" then
+		EffectService.apply(player, "speed_boost", { duration = 300, walkSpeedMult = 1.25 })
+	elseif def.buff == "food_max_hp" then
+		EffectService.apply(player, "cozy", { duration = 600, regenMult = 1.2 })
+	end
+
+	Remotes.get("Notify"):FireClient(player, string.format("Consumiste: %s.", def.name or targetEntry.itemId))
+	return { ok = true }
+end
+
 function PlayerService.executeDeal(player, plan)
 	local profile = cache[player.UserId]
 	if not profile or profile._temporary then
@@ -433,8 +521,6 @@ function PlayerService.executeDeal(player, plan)
 	return true
 end
 
--- Gold is a live server-authoritative stat (like health): mutate it here,
--- mirror it to the Gold attribute for UI, and let autosave/leave persist it.
 function PlayerService.addGold(player, amount)
 	local profile = cache[player.UserId]
 	if not profile or amount <= 0 then
@@ -445,7 +531,6 @@ function PlayerService.addGold(player, amount)
 	return true
 end
 
--- Returns false (and changes nothing) if the player can't afford it.
 function PlayerService.spendGold(player, amount)
 	local profile = cache[player.UserId]
 	if not profile or amount <= 0 or profile.gold < amount then
@@ -461,18 +546,132 @@ function PlayerService.getCampTier(player)
 	return profile and profile.campTier or 0
 end
 
--- Sets the camp tier directly (no cost validation here — that lives in the
--- future purchase flow, docs/CAMP_TIERS.md §5). Mirrors gold/level: mutate
--- the cache + attribute now, autosave/leave persists it. Takes effect for
--- CampService/CampFurnitureService the next time this owner (re)plants a
--- camp — never retroactively resizes an already-standing one.
-function PlayerService.setCampTier(player, tier)
+-- Lifetime kill count for `player` against `lootSource` (0 if never killed
+-- or the profile hasn't loaded). Used by BestiaryService's bump and by
+-- through the client's own JSON attribute (shared/Bestiary.lua).
+function PlayerService.getBestiaryKills(player, lootSource)
 	local profile = cache[player.UserId]
-	if not profile or typeof(tier) ~= "number" then
+	return profile and profile.bestiaryKills[lootSource] or 0
+end
+
+-- +1 to the lifetime kill count for `lootSource`. Mutates the cache +
+-- republishes the BestiaryKills attribute immediately (cheap: small table,
+-- read by the client's own UI); the row itself travels to the backend on
+-- the next autosave/leave, same as quest kill/gather bumps — no immediate
+-- save here. Returns the new count, or nil if the profile isn't ready
+-- (temporary/no-backend session — kills just don't accumulate that visit).
+function PlayerService.bumpBestiaryKill(player, lootSource)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(lootSource) ~= "string" then
+		return nil
+	end
+	local count = (profile.bestiaryKills[lootSource] or 0) + 1
+	profile.bestiaryKills[lootSource] = count
+	player:SetAttribute("BestiaryKills", HttpService:JSONEncode(profile.bestiaryKills))
+	return count
+end
+
+local function publishStats(player, profile)
+	player:SetAttribute("PlayerStats", HttpService:JSONEncode(profile.stats))
+end
+
+-- +`amount` to the lifetime gathered count for `itemId` (AchievementsService,
+-- hooked into GatheringService.onGathered). No-op on a not-ready/temporary
+-- profile, same as bumpBestiaryKill.
+function PlayerService.bumpGathered(player, itemId, amount)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(itemId) ~= "string" then
+		return
+	end
+	profile.stats.gathered[itemId] = (profile.stats.gathered[itemId] or 0) + (amount or 1)
+	publishStats(player, profile)
+end
+
+-- +`amount` to the lifetime crafted-batches count (AchievementsService,
+-- hooked into CraftingService.onCrafted).
+function PlayerService.bumpCrafted(player, amount)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary then
+		return
+	end
+	profile.stats.crafted += (amount or 1)
+	publishStats(player, profile)
+end
+
+-- +1 to the lifetime completed-quests count (AchievementsService, hooked
+-- into QuestService.onCompleted).
+function PlayerService.bumpQuestsCompleted(player)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary then
+		return
+	end
+	profile.stats.questsCompleted += 1
+	publishStats(player, profile)
+end
+
+-- Read-only snapshot of everything shared/Achievements.progress needs:
+-- { bestiaryKills, gathered, crafted, maxClassLevel, questsCompleted }.
+-- Same table shape the client's AchievementsClient mirrors via attributes.
+function PlayerService.getAchievementStats(player)
+	local profile = cache[player.UserId]
+	if not profile then
+		return nil
+	end
+	local maxClassLevel = 0
+	for _, entry in pairs(profile.classLevels) do
+		if entry.level and entry.level > maxClassLevel then
+			maxClassLevel = entry.level
+		end
+	end
+	return {
+		bestiaryKills = profile.bestiaryKills,
+		gathered = profile.stats.gathered,
+		crafted = profile.stats.crafted,
+		maxClassLevel = maxClassLevel,
+		questsCompleted = profile.stats.questsCompleted,
+	}
+end
+
+-- true if `achievementId` was newly unlocked just now (false if the player
+-- already had it — caller should only grant the reward on a true return).
+function PlayerService.unlockAchievement(player, achievementId)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or profile.achievementsUnlocked[achievementId] then
 		return false
 	end
-	profile.campTier = math.clamp(math.floor(tier), 0, 3)
-	player:SetAttribute("CampTier", profile.campTier)
+	profile.achievementsUnlocked[achievementId] = true
+	player:SetAttribute("AchievementsUnlocked", HttpService:JSONEncode(profile.achievementsUnlocked))
+	return true
+end
+
+-- true si `player` ya desbloqueó `recipeId` (ver Recipes.<id>.locked). Solo
+-- tiene sentido preguntarlo para recetas locked — una receta sin ese flag
+-- ya es craftable para cualquiera, sin pasar por acá (ver CraftingService).
+function PlayerService.hasRecipeUnlocked(player, recipeId)
+	local profile = cache[player.UserId]
+	return profile ~= nil and profile.unlockedRecipes[recipeId] == true
+end
+
+-- Desbloquea `recipeId` para siempre (persistente, como el resto del
+-- profile — autosave/leave se encarga, igual que gold/XP). Idempotente: si
+-- ya la tenía, no-op. Usado hoy por QuestService.completeQuest
+-- (rewards.unlockRecipes) — mismo mecanismo que addItem/addGold como
+-- "efecto secundario de una recompensa".
+function PlayerService.unlockRecipe(player, recipeId)
+	local profile = cache[player.UserId]
+	if not profile or profile._temporary or typeof(recipeId) ~= "string" then
+		return false
+	end
+	if profile.unlockedRecipes[recipeId] then
+		return true
+	end
+	profile.unlockedRecipes[recipeId] = true
+
+	local ids = {}
+	for id in pairs(profile.unlockedRecipes) do
+		table.insert(ids, id)
+	end
+	player:SetAttribute("UnlockedRecipes", table.concat(ids, ","))
 	return true
 end
 
@@ -512,6 +711,7 @@ function PlayerService.addXp(player, amount)
 	player:SetAttribute("XpToNext", xpToNext(profile.level))
 
 	if leveledUp then
+		publishMaxClassLevel(player, profile)
 		for _, fn in ipairs(levelUpHandlers) do
 			task.spawn(fn, player)
 		end
@@ -539,6 +739,7 @@ function PlayerService.applyStats(player, stats)
 	end
 	if typeof(stats.classLevels) == "table" then
 		profile.classLevels = stats.classLevels
+		publishMaxClassLevel(player, profile)
 	end
 
 	local classChanged = false
@@ -595,6 +796,10 @@ local function buildSaveFields(player)
 		trackedQuestId = profile.trackedQuestId,
 		campLayout = profile.campLayout,
 		campTier = profile.campTier,
+		bestiaryKills = profile.bestiaryKills,
+		stats = profile.stats,
+		achievementsUnlocked = profile.achievementsUnlocked,
+		unlockedRecipes = profile.unlockedRecipes,
 		cell = profile.cell,
 		position = profile.position,
 	}
@@ -738,6 +943,11 @@ function PlayerService.start()
 		end
 		profile.settings = sanitizeSettings(payload)
 	end)
+
+	local consumeItemRemote = Remotes.getFunction("ConsumeItem")
+	consumeItemRemote.OnServerInvoke = function(player, ref)
+		return PlayerService.consumeItem(player, ref)
+	end
 
 	-- Load data BEFORE the character spawns so HealthService can restore HP/pos.
 	Players.CharacterAutoLoads = false

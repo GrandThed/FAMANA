@@ -186,6 +186,21 @@ when the grid is nearly full, leftovers stay on the ground with no toast;
 weighted rarity from `shared/Rarity` adds bonus points + extra lines),
 the instance meta rides the drop part as a JSON attribute — labels show
 "[Lv N]" in the tier's color — and survives pickups and throws end to end) ·
+`BestiaryService` (hooks `EnemyService.onKilled` to bump a persistent
+per-player, per-`lootSource` lifetime kill count — `PlayerService.
+bumpBestiaryKill`, backend `bestiary_kills` column; gates how much of that
+enemy's `Loot.TABLE`/`Loot.GEAR` the client is shown, in tiers, on both the
+`EnemyInspectUI` scout card and the full `BestiaryUI` panel — see
+[`docs/BESTIARY.md`](docs/BESTIARY.md)) ·
+`AchievementsService` (hooks `EnemyService.onKilled`/`GatheringService.
+onGathered`/`CraftingService.onCrafted`/`QuestService.onCompleted`/
+`PlayerService.registerLevelUpHandler` to check `shared/Achievements.lua`'s
+catalog and grant gold on unlock — backend `stats`/`achievements_unlocked`
+columns, client panel on `AchievementsUI` — see
+[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md)) ·
+`LeaderboardService` (proxies `GET /leaderboards` — level/gold/kills
+rankings, `LeaderboardUI` panel — see
+[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md)) ·
 `ItemStandService` (data-driven pedestals showing a spinning item copy;
 ProximityPrompt takes a copy as a normal ground drop) ·
 `VendorService` (vendor NPCs placed via `VENDOR_DEFS`; the ProximityPrompt

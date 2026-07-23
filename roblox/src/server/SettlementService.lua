@@ -1,0 +1,485 @@
+-- Territory: ties together EnemyService (guardian kills), the backend
+-- (ownership persistence), and GuildService (who to credit/notify).
+--
+-- Flow: EnemyService fires onKilled with a settlementId + per-player damage
+-- map whenever a settlement guardian/challenger dies. This service picks the
+-- top-damage player, resolves their guild (via the backend — works even if
+-- that exact player has since left, unlike reading a live Player attribute),
+-- and reports the capture. On success it updates the local ownership cache
+-- (used for the resource buff and the world banner) and schedules the next
+-- challenger's appearance after `challengerRespawn`.
+--
+-- Ownership itself is NOT re-derived from a live poll on every check — the
+-- backend is authoritative, but this service's local cache is what
+-- GatheringService's yield-bonus hook reads every single harvest, so it has
+-- to be cheap. The cache is seeded from the backend on start() and kept in
+-- sync by every capture this server handles; RECONCILE_INTERVAL below
+-- guards against drift (e.g. a guild disbanding, which changes ownership
+-- without any kill happening on this server).
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local GridConfig = require(Shared:WaitForChild("GridConfig"))
+local Settlements = require(Shared:WaitForChild("Settlements"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+
+local BackendService = require(script.Parent.BackendService)
+local GuildService = require(script.Parent.GuildService)
+local EnemyService = require(script.Parent.EnemyService)
+local GatheringService = require(script.Parent.GatheringService)
+
+local SettlementService = {}
+
+-- How long a neutral guardian waits to reappear when nobody could be
+-- credited for the kill (killer not in a guild, or a backend hiccup) —
+-- short on purpose so a guildless kill doesn't lock the settlement out for
+-- the full challengerRespawn window.
+local NEUTRAL_RETRY = 60
+
+local RECONCILE_INTERVAL = 300 -- 5 min: re-poll the backend to catch drift (e.g. a guild disbanding)
+
+local notifyRemote -- resolved in start()
+
+-- Settlement defs that belong to this server's cell, keyed by id — the only
+-- ones this service (or EnemyService) actually spawns/tracks.
+local localDefs = {}
+
+-- [settlementId] = { guildId (string?), guildTag (string?), guildName (string?) }
+-- guildId == nil means neutral.
+local ownership = {}
+
+-- [settlementId] = os.clock() the post-capture grace window ends. Set on
+-- every successful claim; read by isInGrace() below. A settlement that's
+-- never been claimed (or whose grace already lapsed) has no entry here.
+local graceEndsAt = {}
+
+local function isInGrace(settlementId)
+	local endsAt = graceEndsAt[settlementId]
+	return endsAt ~= nil and os.clock() < endsAt
+end
+
+-- [settlementId] = { anchor = Part, label = TextLabel }
+local banners = {}
+
+local function notify(player, message)
+	if player and notifyRemote then
+		notifyRemote:FireClient(player, message)
+	end
+end
+
+local function distance2D(a, b)
+	return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
+end
+
+-- [settlementId] = { folder = Folder, disc = Part, ring = Part, pillars = table }
+local zoneVisuals = {}
+
+local zonesFolder
+
+local function getZonesFolder()
+	if not zonesFolder then
+		zonesFolder = Workspace:FindFirstChild("SettlementZones")
+		if not zonesFolder then
+			zonesFolder = Instance.new("Folder")
+			zonesFolder.Name = "SettlementZones"
+			zonesFolder.Parent = Workspace
+		end
+	end
+	return zonesFolder
+end
+
+local function findGroundY(pos)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	if zonesFolder then
+		params.FilterDescendantsInstances = { zonesFolder }
+	end
+	local result = Workspace:Raycast(Vector3.new(pos.X, pos.Y + 100, pos.Z), Vector3.new(0, -300, 0), params)
+	return result and result.Position.Y or pos.Y
+end
+
+-- ---- world banner & territory zone visuals --------------------------------
+
+local function buildZoneVisuals(settlementId, def)
+	local folder = Instance.new("Folder")
+	folder.Name = "Zone_" .. settlementId
+	folder.Parent = getZonesFolder()
+
+	-- Perimeter Boundary Posts / Beacons (8 pillars defining exact border)
+	local pillars = {}
+	local NUM_PILLARS = 8
+	for i = 1, NUM_PILLARS do
+		local angle = (i - 1) * (math.pi * 2 / NUM_PILLARS)
+		local px = def.position.X + math.cos(angle) * def.radius
+		local pz = def.position.Z + math.sin(angle) * def.radius
+		local py = findGroundY(Vector3.new(px, def.position.Y, pz))
+
+		local pillar = Instance.new("Part")
+		pillar.Name = "PerimeterPillar_" .. i
+		pillar.Size = Vector3.new(1.0, 3.5, 1.0)
+		pillar.CFrame = CFrame.new(px, py + 1.75, pz)
+		pillar.Material = Enum.Material.SmoothPlastic
+		pillar.Color = Color3.fromRGB(45, 50, 60)
+		pillar.Anchored = true
+		pillar.CanCollide = false
+		pillar.CanQuery = false
+		pillar.Parent = folder
+
+		local cap = Instance.new("Part")
+		cap.Name = "Cap"
+		cap.Shape = Enum.PartType.Ball
+		cap.Size = Vector3.new(1.3, 1.3, 1.3)
+		cap.CFrame = CFrame.new(px, py + 3.6, pz)
+		cap.Material = Enum.Material.Neon
+		cap.Color = Color3.fromRGB(180, 220, 255)
+		cap.Anchored = true
+		cap.CanCollide = false
+		cap.CanQuery = false
+		cap.Parent = folder
+
+		local light = Instance.new("PointLight")
+		light.Range = 12
+		light.Brightness = 1.5
+		light.Color = Color3.fromRGB(180, 220, 255)
+		light.Parent = cap
+
+		table.insert(pillars, { pillar = pillar, cap = cap, light = light })
+	end
+
+	zoneVisuals[settlementId] = {
+		folder = folder,
+		pillars = pillars,
+	}
+end
+
+local function buildBanner(settlementId, def)
+	buildZoneVisuals(settlementId, def)
+
+	local anchor = Instance.new("Part")
+	anchor.Name = "SettlementBanner_" .. settlementId
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.new(1, 1, 1)
+	anchor.Position = def.position + Vector3.new(0, 14, 0)
+	anchor.Parent = Workspace
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 300, 0, 90)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 300
+	billboard.Parent = anchor
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "Name"
+	nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBlack
+	nameLabel.TextScaled = true
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextStrokeTransparency = 0.3
+	nameLabel.Text = def.name
+	nameLabel.Parent = billboard
+
+	local ownerLabel = Instance.new("TextLabel")
+	ownerLabel.Name = "Owner"
+	ownerLabel.Size = UDim2.new(1, 0, 0.35, 0)
+	ownerLabel.Position = UDim2.new(0, 0, 0.38, 0)
+	ownerLabel.BackgroundTransparency = 1
+	ownerLabel.Font = Enum.Font.GothamBold
+	ownerLabel.TextScaled = true
+	ownerLabel.TextStrokeTransparency = 0.4
+	ownerLabel.Text = "Neutral"
+	ownerLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+	ownerLabel.Parent = billboard
+
+	local rangeLabel = Instance.new("TextLabel")
+	rangeLabel.Name = "RangeInfo"
+	rangeLabel.Size = UDim2.new(1, 0, 0.25, 0)
+	rangeLabel.Position = UDim2.new(0, 0, 0.73, 0)
+	rangeLabel.BackgroundTransparency = 1
+	rangeLabel.Font = Enum.Font.GothamMedium
+	rangeLabel.TextScaled = true
+	rangeLabel.TextColor3 = Color3.fromRGB(200, 230, 255)
+	rangeLabel.TextStrokeTransparency = 0.5
+	rangeLabel.Text = string.format("⚔️ Área de Territorio: %dm", def.radius)
+	rangeLabel.Parent = billboard
+
+	banners[settlementId] = { anchor = anchor, ownerLabel = ownerLabel }
+end
+
+local function refreshBanner(settlementId)
+	local banner = banners[settlementId]
+	local visuals = zoneVisuals[settlementId]
+	local owner = ownership[settlementId]
+	local inGrace = isInGrace(settlementId)
+
+	local color, ownerText
+	if owner and owner.guildId then
+		ownerText = string.format("[%s] %s", owner.guildTag or "?", owner.guildName or "")
+		if inGrace then
+			color = Color3.fromRGB(90, 210, 255)
+		else
+			color = Color3.fromRGB(255, 210, 80)
+		end
+	else
+		ownerText = "Neutral"
+		color = Color3.fromRGB(180, 220, 255)
+	end
+
+	if banner then
+		banner.ownerLabel.Text = ownerText
+		banner.ownerLabel.TextColor3 = color
+	end
+
+	if visuals then
+		for _, item in ipairs(visuals.pillars) do
+			item.cap.Color = color
+			item.light.Color = color
+		end
+	end
+end
+
+local function setOwnership(settlementId, guildId, guildTag, guildName)
+	if guildId then
+		ownership[settlementId] = { guildId = tostring(guildId), guildTag = guildTag, guildName = guildName }
+	else
+		ownership[settlementId] = nil
+	end
+	refreshBanner(settlementId)
+end
+
+-- Re-derives guildTag/guildName for a claim we only got a bare guildId for
+-- (e.g. from listSettlementClaims, which doesn't include guild details).
+local function applyClaim(settlementId, claim)
+	if not claim or not claim.guildId then
+		setOwnership(settlementId, nil)
+		return
+	end
+	local guild = BackendService.getGuildById(claim.guildId)
+	setOwnership(settlementId, claim.guildId, guild and guild.tag, guild and guild.name)
+end
+
+-- ---- capture flow ---------------------------------------------------------
+
+local function topDamagePlayer(damageBy)
+	if not damageBy then
+		return nil
+	end
+	local topUserId, topDamage
+	for userId, dmg in pairs(damageBy) do
+		if not topDamage or dmg > topDamage then
+			topUserId, topDamage = userId, dmg
+		end
+	end
+	return topUserId
+end
+
+local function scheduleChallenger(settlementId, delaySeconds)
+	task.delay(delaySeconds, function()
+		-- Still owned when this fires => it's a recruited defender, not the
+		-- original wild guardian, so it spawns buffed (see
+		-- Config.SettlementWar.recruitedGuardianMult and
+		-- EnemyService.respawnSettlementGuardian).
+		local owner = ownership[settlementId]
+		local statMult = owner and Config.SettlementWar.recruitedGuardianMult or nil
+		EnemyService.respawnSettlementGuardian(settlementId, statMult)
+	end)
+end
+
+local function handleGuardianKilled(settlementId, damageBy)
+	local def = localDefs[settlementId]
+	if not def then
+		return
+	end
+
+	local topUserId = topDamagePlayer(damageBy)
+	if not topUserId then
+		scheduleChallenger(settlementId, NEUTRAL_RETRY)
+		return
+	end
+
+	-- Works whether the top-damage player is still around or already left —
+	-- guild membership is a backend read either way, not a live attribute.
+	-- `failed` (transport/decode failure) is distinct from "no guild": don't
+	-- tell someone they need a guild when the real problem is the backend
+	-- being unreachable.
+	local guild, failed = BackendService.getGuildForPlayer(topUserId)
+	if not guild then
+		if not failed then
+			notify(Players:GetPlayerByUserId(topUserId), "Necesitás estar en un gremio para reclamar un asentamiento.")
+		end
+		scheduleChallenger(settlementId, NEUTRAL_RETRY)
+		return
+	end
+
+	local previousOwner = ownership[settlementId]
+	local claim, err = BackendService.claimSettlement(settlementId, guild.id, topUserId, def.graceSeconds)
+	if not claim then
+		warn(string.format("[SettlementService] claim failed for %s: %s", settlementId, tostring(err)))
+		scheduleChallenger(settlementId, NEUTRAL_RETRY)
+		return
+	end
+
+	setOwnership(settlementId, guild.id, guild.tag, guild.name)
+	graceEndsAt[settlementId] = os.clock() + def.graceSeconds
+
+	local topPlayer = Players:GetPlayerByUserId(topUserId)
+	GuildService.notifyGuild(tonumber(guild.id), string.format("¡Tu gremio capturó %s!", def.name))
+	if topPlayer then
+		notify(topPlayer, string.format("Capturaste %s para [%s] %s.", def.name, guild.tag, guild.name))
+	end
+	if previousOwner and previousOwner.guildId ~= tostring(guild.id) then
+		GuildService.notifyGuild(tonumber(previousOwner.guildId), string.format("Perdiste %s.", def.name))
+	end
+
+	scheduleChallenger(settlementId, def.challengerRespawn)
+end
+
+-- ---- territory war gates ----------------------------------------------------
+--
+-- Registered with EnemyService (registerSettlementGuardianGate /
+-- registerPvpGate) so it can gate all guardian/player damage without
+-- knowing anything about guilds — see the hook doc comments over there.
+
+local function playerWithinRadius(player, def)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	return distance2D(root.Position, def.position) <= def.radius
+end
+
+-- A settlement's guardian is open season for anyone while it's neutral
+-- (nobody's claimed it yet). Once owned, it's protected during grace, and
+-- afterward only non-members of the owning guild can hurt it — the owning
+-- guild's own members can't grief their own recruit.
+local function guardianGate(attacker, settlementId)
+	local owner = ownership[settlementId]
+	if not owner then
+		return true
+	end
+	if isInGrace(settlementId) then
+		return false
+	end
+	local attackerGuildId = GuildService.getGuildId(attacker)
+	return not (attackerGuildId and tostring(attackerGuildId) == owner.guildId)
+end
+
+-- Two players can hurt each other only inside a settlement that's currently
+-- owned, out of grace, and only if exactly one of them belongs to the
+-- owning guild (defender) and the other doesn't (invader) — bystanders from
+-- a third guild, or two members of the same guild, never fight each other
+-- here.
+local function pvpGate(attacker, target)
+	for settlementId, def in pairs(localDefs) do
+		local owner = ownership[settlementId]
+		if owner and not isInGrace(settlementId) then
+			if playerWithinRadius(attacker, def) and playerWithinRadius(target, def) then
+				local attackerGuildId = GuildService.getGuildId(attacker)
+				local targetGuildId = GuildService.getGuildId(target)
+				local attackerIsDefender = attackerGuildId ~= nil and tostring(attackerGuildId) == owner.guildId
+				local targetIsDefender = targetGuildId ~= nil and tostring(targetGuildId) == owner.guildId
+				if attackerIsDefender ~= targetIsDefender then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+-- ---- public API -----------------------------------------------------------
+
+-- Fraction of extra gather yield for `player` right now, from any owned
+-- settlement they're standing inside — plugged into
+-- GatheringService.registerYieldBonus. Returns 0 outside any territory or
+-- for a guildless player; sums if (unusually) inside overlapping claims.
+function SettlementService.resourceBonusFor(player)
+	local guildId = GuildService.getGuildId(player)
+	if not guildId then
+		return 0
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return 0
+	end
+
+	local bonus = 0
+	for settlementId, def in pairs(localDefs) do
+		local owner = ownership[settlementId]
+		if owner and owner.guildId == tostring(guildId) then
+			if distance2D(root.Position, def.position) <= def.radius then
+				bonus += (def.buff.resourceMult or 0)
+			end
+		end
+	end
+	return bonus
+end
+
+function SettlementService.start()
+	notifyRemote = Remotes.get("Notify")
+
+	local currentCell = GridConfig.currentCell()
+	for settlementId, def in pairs(Settlements.defs) do
+		if def.cell == currentCell then
+			localDefs[settlementId] = def
+			buildBanner(settlementId, def)
+		end
+	end
+
+	-- Seed ownership from the backend (survives this server restarting).
+	local claims = BackendService.listSettlementClaims()
+	if claims then
+		for _, claim in ipairs(claims) do
+			if localDefs[claim.settlementId] then
+				applyClaim(claim.settlementId, claim)
+			end
+		end
+	end
+
+	EnemyService.onKilled(function(_lootSource, _position, _killer, _level, settlementId, damageBy)
+		if settlementId and localDefs[settlementId] then
+			handleGuardianKilled(settlementId, damageBy)
+		end
+	end)
+
+	EnemyService.registerSettlementGuardianGate(guardianGate)
+	EnemyService.registerPvpGate(pvpGate)
+
+	GatheringService.registerYieldBonus(function(player, _toolType)
+		return SettlementService.resourceBonusFor(player)
+	end)
+
+	-- Periodic reconcile: catches ownership changes this server didn't
+	-- cause itself (a guild disbanding elsewhere sets guild_id to NULL
+	-- backend-side with no kill event to tell us about it).
+	task.spawn(function()
+		while true do
+			task.wait(RECONCILE_INTERVAL)
+			local refreshed = BackendService.listSettlementClaims()
+			if refreshed then
+				local claimed = {}
+				for _, claim in ipairs(refreshed) do
+					if localDefs[claim.settlementId] then
+						claimed[claim.settlementId] = true
+						applyClaim(claim.settlementId, claim)
+					end
+				end
+				for settlementId in pairs(localDefs) do
+					if not claimed[settlementId] and ownership[settlementId] then
+						setOwnership(settlementId, nil)
+					end
+				end
+			end
+		end
+	end)
+end
+
+return SettlementService

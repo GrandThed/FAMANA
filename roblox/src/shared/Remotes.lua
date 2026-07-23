@@ -10,16 +10,6 @@ local Players = game:GetService("Players")
 local Remotes = {}
 
 local folder
-if RunService:IsServer() then
-	folder = ReplicatedStorage:FindFirstChild("Remotes")
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = "Remotes"
-		folder.Parent = ReplicatedStorage
-	end
-else
-	folder = ReplicatedStorage:WaitForChild("Remotes")
-end
 
 local function getInstance(name, className)
 	if RunService:IsServer() then
@@ -32,8 +22,71 @@ local function getInstance(name, className)
 		remote.Parent = folder
 		return remote
 	else
-		return folder:WaitForChild(name)
+		local existing = folder:FindFirstChild(name)
+		if existing then
+			return existing
+		end
+		return folder:WaitForChild(name, 60)
 	end
+end
+
+if RunService:IsServer() then
+	folder = ReplicatedStorage:FindFirstChild("Remotes")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "Remotes"
+		folder.Parent = ReplicatedStorage
+	end
+
+	-- Pre-create common remotes on server load to prevent client replication warnings
+	local PRECREATE_EVENTS = {
+		"Notify",
+		"OpenMarket",
+		"OpenCooking",
+		"OpenGuildBank",
+		"OpenChest",
+		"CastFishingRod",
+		"FishingBiteAlert",
+		"RequestCast",
+		"FishingCastFailed",
+		"RequestHook",
+		"FishingMinigameStart",
+		"FishingMinigameTick",
+		"FishingMinigameEnd",
+		"FishingReelInput",
+		"WeatherChanged",
+		"InventoryUpdated",
+		"SpellsChanged",
+		"SpellFeedback",
+		"SpellVfxEvent",
+		"OpenGuildResearch",
+		"ToggleSleeping",
+		"ToggleSitting",
+	}
+	local PRECREATE_FUNCTIONS = {
+		"GetMarketListings",
+		"CreateMarketListing",
+		"BuyMarketItem",
+		"CookRecipe",
+		"RequestInventory",
+		"RequestGuildBank",
+		"SetWeather",
+		"ConsumeItem",
+		"ClaimGuildPlot",
+		"GetGuildPlots",
+		"GetGuildResearch",
+		"ContributeGuildResearch",
+		"PlaceStructure",
+		"DemolishStructure",
+	}
+	for _, name in ipairs(PRECREATE_EVENTS) do
+		getInstance(name, "RemoteEvent")
+	end
+	for _, name in ipairs(PRECREATE_FUNCTIONS) do
+		getInstance(name, "RemoteFunction")
+	end
+else
+	folder = ReplicatedStorage:WaitForChild("Remotes")
 end
 
 function Remotes.get(name)

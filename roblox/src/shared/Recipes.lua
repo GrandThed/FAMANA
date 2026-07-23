@@ -24,6 +24,82 @@ Recipes.defs = {
 			{ itemId = "wood", quantity = 15 },
 		},
 	},
+	hoz_recoleccion = {
+		id = "hoz_recoleccion",
+		name = "Hoz de Recolección",
+		result = { itemId = "hoz_recoleccion", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 10 },
+			{ itemId = "copper_ingot", quantity = 2 },
+		},
+		station = "crafting_table",
+	},
+	mesa_arquitectura_gremio = {
+		id = "mesa_arquitectura_gremio",
+		name = "Mesa de Arquitectura del Gremio",
+		result = { itemId = "mesa_arquitectura_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 20 },
+			{ itemId = "stone", quantity = 10 },
+		},
+		station = "crafting_table",
+	},
+	bolsa_dormir = {
+		id = "bolsa_dormir",
+		name = "Bolsa de Dormir",
+		result = { itemId = "bolsa_dormir", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 12 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	cama_campamento = {
+		id = "cama_campamento",
+		name = "Cama de Campamento",
+		result = { itemId = "cama_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 25 },
+			{ itemId = "copper_ingot", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	mesa_investigacion_gremio = {
+		id = "mesa_investigacion_gremio",
+		name = "Mesa de Investigación del Gremio",
+		result = { itemId = "mesa_investigacion_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 20 },
+			{ itemId = "iron_ingot", quantity = 4 },
+		},
+		station = "crafting_table",
+	},
+	silla_campamento = {
+		id = "silla_campamento",
+		name = "Silla de Madera",
+		result = { itemId = "silla_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 8 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	banco_campamento = {
+		id = "banco_campamento",
+		name = "Banco de Madera",
+		result = { itemId = "banco_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 14 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	plano_construccion = {
+		id = "plano_construccion",
+		name = "Plano de Construcción",
+		result = { itemId = "plano_construccion", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 5 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
 	torch = {
 		id = "torch",
 		name = "Torch",
@@ -117,6 +193,11 @@ Recipes.defs = {
 			{ itemId = "wood", quantity = 20 },
 		},
 		-- sin station: crafteable desde cualquier lado, como torch/arrow
+		-- locked = true: no aparece en CraftUI ni es crafteable hasta que
+		-- PlayerService.unlockRecipe(player, "acampada") se llame (ver
+		-- Quests.camp_basics.rewards.unlockRecipes) — gateado por
+		-- profile.unlockedRecipes (server/PlayerService.lua).
+		locked = true,
 	},
 	cofre_campamento = {
 		id = "cofre_campamento",
@@ -128,11 +209,31 @@ Recipes.defs = {
 		},
 		station = "crafting_table"
 	},
+	cofre_gremio = {
+		id = "cofre_gremio",
+		name = "Cofre de Gremio",
+		result = { itemId = "cofre_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 30 },
+			{ itemId = "iron_ingot", quantity = 5 },
+		},
+		station = "crafting_table"
+	},
 	carpa_campamento = {
 		id = "carpa_campamento",
 		name = "Carpa de Campamento",
 		result = { itemId = "carpa_campamento", quantity = 1 },
 		ingredients = {
+			{ itemId = "wood", quantity = 15 },
+		},
+		station = "crafting_table"
+	},
+	portal_gremio = {
+		id = "portal_gremio",
+		name = "Portal del Gremio",
+		result = { itemId = "portal_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "stone", quantity = 20 },
 			{ itemId = "wood", quantity = 15 },
 		},
 		station = "crafting_table"
@@ -182,6 +283,75 @@ Recipes.defs = {
 		},
 		station = "crafting_table"
 	},
+	puesto_mercado = {
+		id = "puesto_mercado",
+		name = "Puesto de Mercado",
+		result = { itemId = "puesto_mercado", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 30 },
+			{ itemId = "iron_ingot", quantity = 10 },
+		},
+		station = "crafting_table",
+	},
+	cana_pescar = {
+		id = "cana_pescar",
+		name = "Caña de Pescar",
+		result = { itemId = "cana_pescar", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 15 },
+		},
+		station = "crafting_table",
+	},
+	antorcha_campamento = {
+		id = "antorcha_campamento",
+		name = "Antorcha de Madera",
+		result = { itemId = "antorcha_campamento", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 4 },
+			{ itemId = "stone", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	hoguera_gremio = {
+		id = "hoguera_gremio",
+		name = "Hoguera de Campamento",
+		result = { itemId = "hoguera_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 10 },
+			{ itemId = "stone", quantity = 10 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	lampara_gremio = {
+		id = "lampara_gremio",
+		name = "Farol de Piedra y Hierro",
+		result = { itemId = "lampara_gremio", quantity = 1 },
+		ingredients = {
+			{ itemId = "stone", quantity = 6 },
+			{ itemId = "iron_ingot", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	maceta_hierbas = {
+		id = "maceta_hierbas",
+		name = "Maceta de Cultivo del Gremio",
+		result = { itemId = "maceta_hierbas", quantity = 1 },
+		ingredients = {
+			{ itemId = "stone", quantity = 8 },
+			{ itemId = "wood", quantity = 4 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
+	letrero_bienvenida = {
+		id = "letrero_bienvenida",
+		name = "Letrero de Anuncios del Gremio",
+		result = { itemId = "letrero_bienvenida", quantity = 1 },
+		ingredients = {
+			{ itemId = "wood", quantity = 12 },
+			{ itemId = "copper_ingot", quantity = 2 },
+		},
+		station = "mesa_arquitectura_gremio",
+	},
 }
 
 function Recipes.get(recipeId)
@@ -201,6 +371,9 @@ local order =
 		"iron_ingot",
 		"acampada",
 		"cofre_campamento",
+		"cofre_gremio",
+		"puesto_mercado",
+		"cana_pescar",
 		"carpa_campamento",
 		"olla_campamento",
 		"alfombra_campamento",

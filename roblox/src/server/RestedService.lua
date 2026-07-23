@@ -22,10 +22,12 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Effects = require(Shared:WaitForChild("Effects"))
 
 local CampService = require(script.Parent.CampService)
 local CampFurnitureService = require(script.Parent.CampFurnitureService)
@@ -34,10 +36,17 @@ local DayNightService = require(script.Parent.DayNightService)
 local RestedService = {}
 
 local RESTED = Config.Camp.rested
+local REST_ATTRIBUTE = Effects.attributeFor("rested")
 
--- [userId] = os.clock() timestamp the Rested buff expires at. Absent/past
--- means not resting. In-memory only, same as the rest of camp state — a
--- server restart just means you're not Rested anymore, no big loss.
+-- [userId] = timestamp (Workspace:GetServerTimeNow()) the Rested buff
+-- expires at. Absent/past means not resting. In-memory only, same as the
+-- rest of camp state — a server restart just means you're not Rested
+-- anymore, no big loss.
+--
+-- Usa el reloj SINCRONIZADO server/cliente (GetServerTimeNow, no os.clock())
+-- porque este mismo valor se publica como el attribute Effect_rested
+-- (shared/Effects.lua) para que el HUD/panel de personaje dibujen el ícono
+-- y la barra de progreso sin remotos — mismo mecanismo que EffectService.
 local restedUntil = {}
 
 -- Recomputing this every frame for every player is pointless — resting is a
@@ -46,7 +55,7 @@ local TICK_INTERVAL = 1
 
 function RestedService.isRested(player)
 	local until_ = restedUntil[player.UserId]
-	return until_ ~= nil and os.clock() < until_
+	return until_ ~= nil and Workspace:GetServerTimeNow() < until_
 end
 
 local function tick(dt)
@@ -61,15 +70,21 @@ local function tick(dt)
 				local coziness = CampFurnitureService.cozinessRatio(camp.ownerUserId)
 				local accrualRate = RESTED.baseAccrualPerSecond * (1 + coziness * (RESTED.accrualMultAtMaxCoziness - 1))
 
-				local now = os.clock()
+				local now = Workspace:GetServerTimeNow()
 				local current = math.max(restedUntil[player.UserId] or now, now)
 				local cap = now + RESTED.chargeCapSeconds
-				restedUntil[player.UserId] = math.min(current + dt * accrualRate, cap)
+				local until_ = math.min(current + dt * accrualRate, cap)
+				restedUntil[player.UserId] = until_
+				player:SetAttribute(REST_ATTRIBUTE, until_)
 			end
 		end
 		-- Not resting right now (out of the zone, or it's day): just don't
 		-- extend restedUntil. It keeps counting down toward "not Rested"
-		-- entirely on its own — nothing to do here.
+		-- entirely on its own — nothing to do here. The attribute already
+		-- holds the same expiry, so the HUD's own countdown/fill-bar drains
+		-- it live without another write from us; the effects panel simply
+		-- stops showing it once GetServerTimeNow() passes that value (same
+		-- rule EffectService's own buffs use — see shared/Effects.lua).
 	end
 end
 
@@ -83,6 +98,10 @@ function RestedService.start()
 		local elapsed = accumulator
 		accumulator = 0
 		tick(elapsed)
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		restedUntil[player.UserId] = nil
 	end)
 end
 

@@ -98,6 +98,29 @@ return {
 		inviteTimeout = 30, -- mismo criterio que Party.inviteTimeout
 	},
 
+	-- Guerras de territorio: PvP habilitado únicamente dentro del radio de
+	-- un Settlement en disputa (ver shared/Settlements.lua y
+	-- server/SettlementService.lua) — en cualquier otro lugar el juego
+	-- sigue siendo PvE. Ver también EnemyService.registerPvpGate /
+	-- registerSettlementGuardianGate y HealthService.markSettlementCombat.
+	SettlementWar = {
+		-- Buff de HP/AD del guardián en cada respawn DESPUÉS de la primera
+		-- captura (el guardián "reclutado" por el gremio dueño). El
+		-- guardián salvaje original (nunca capturado) no lleva este mult.
+		recruitedGuardianMult = 1.3,
+
+		-- Cuánto tiempo extra de respawn (sumado a Config.HP.respawnDelay)
+		-- paga un jugador que muere mientras cuenta como parte de una
+		-- pelea de asedio — le da margen a la otra parte para consolidar
+		-- el ataque al guardián en vez de que la pelea se resetee al toque.
+		pvpRespawnDelay = 15,
+
+		-- Ventana (seg) tras un golpe de PvP de asentamiento durante la
+		-- cual una muerte del jugador todavía cuenta como "murió en la
+		-- pelea" para el respawn más lento de arriba.
+		pvpFlagWindow = 8,
+	},
+
 	-- Sfx.lua no tiene sonido posicional (sin rolloff por distancia real),
 	-- así que el radio de "quién lo escucha" se controla acá: cualquier
 	-- jugador con su HumanoidRootPart a esta distancia o menos del origen
@@ -113,9 +136,6 @@ return {
 		cooldown = 30 * 60, -- 30 min de cooldown tras expirar, por dueño
 		zoneSize = 30, -- cuadrado de N x N studs, centrado en la fogata (tier 0 — ver tiers abajo)
 		maxPlacementDistance = 20, -- distancia jugador -> punto de colocación (anti-exploit)
-		-- Bonus de regen (HP/seg) por estar dentro de la zona segura DE NOCHE
-		-- — la fogata siempre está prendida, pero solo importa cuando afuera
-		-- es peligroso. Placeholder, calibrar jugado. (tier 0 — ver tiers abajo)
 		nightRegenBonus = 3,
 
 		-- Camp tiers (docs/CAMP_TIERS.md): mejora persistente por jugador

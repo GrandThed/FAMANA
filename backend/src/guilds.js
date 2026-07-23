@@ -25,7 +25,7 @@ function guildError(code) {
 
 async function fetchMembers(db, guildId) {
   const { rows } = await db.query(
-    `SELECT m.player_id, p.username, m.joined_at
+    `SELECT m.player_id, p.username, m.joined_at, m.role
        FROM guild_members m
        JOIN players p ON p.id = m.player_id
       WHERE m.guild_id = $1
@@ -36,6 +36,7 @@ async function fetchMembers(db, guildId) {
     playerId: String(r.player_id),
     username: r.username,
     joinedAt: r.joined_at,
+    role: r.role,
   }));
 }
 
@@ -118,21 +119,67 @@ export async function joinGuild(guildId, playerId) {
   });
 }
 
-// Removes `targetId` from `guildId`. Only the current leader may kick, and
-// never themselves (that's `leaveGuild`, which also handles succession).
-// Throws { code: "not_found" | "not_leader" | "cannot_kick_self" | "target_not_member" }.
+// Removes `targetId` from `guildId`. The leader can kick anyone but
+// themselves. An officer can kick a plain member but not the leader or
+// another officer — promoting someone is a leader-only trust decision, so
+// letting an officer strip a peer officer would undermine it.
+// Throws { code: "not_found" | "not_authorized" | "cannot_kick_self" | "target_not_member" }.
 export async function kickMember(guildId, requesterId, targetId) {
   return withTransaction(async (client) => {
     const guild = await fetchGuildRow(client, guildId);
     if (!guild) throw guildError("not_found");
-    if (String(guild.leader_id) !== String(requesterId)) throw guildError("not_leader");
     if (String(targetId) === String(requesterId)) throw guildError("cannot_kick_self");
+
+    const isLeader = String(guild.leader_id) === String(requesterId);
+    if (!isLeader) {
+      const { rows: requesterRows } = await client.query(
+        `SELECT role FROM guild_members WHERE guild_id = $1 AND player_id = $2`,
+        [guildId, requesterId]
+      );
+      if (!requesterRows[0] || requesterRows[0].role !== "officer") {
+        throw guildError("not_authorized");
+      }
+      if (String(guild.leader_id) === String(targetId)) {
+        throw guildError("not_authorized");
+      }
+      const { rows: targetRows } = await client.query(
+        `SELECT role FROM guild_members WHERE guild_id = $1 AND player_id = $2`,
+        [guildId, targetId]
+      );
+      if (targetRows.length === 0) throw guildError("target_not_member");
+      if (targetRows[0].role === "officer") throw guildError("not_authorized");
+    }
 
     const del = await client.query(
       `DELETE FROM guild_members WHERE guild_id = $1 AND player_id = $2`,
       [guildId, targetId]
     );
     if (del.rowCount === 0) throw guildError("target_not_member");
+
+    return rowToGuild(guild, await fetchMembers(client, guildId));
+  });
+}
+
+// Leader-only. Sets `targetId`'s rank to 'officer' or 'member'. Can't be
+// used on the leader themselves (there's nothing to promote them to, and
+// demoting "out of" leadership is a different operation — leaving/kicking —
+// not a role change).
+// Throws { code: "not_found" | "not_authorized" | "invalid_role" | "target_not_member" | "cannot_role_leader" }.
+export async function setMemberRole(guildId, requesterId, targetId, role) {
+  if (role !== "officer" && role !== "member") {
+    throw guildError("invalid_role");
+  }
+  return withTransaction(async (client) => {
+    const guild = await fetchGuildRow(client, guildId);
+    if (!guild) throw guildError("not_found");
+    if (String(guild.leader_id) !== String(requesterId)) throw guildError("not_authorized");
+    if (String(guild.leader_id) === String(targetId)) throw guildError("cannot_role_leader");
+
+    const result = await client.query(
+      `UPDATE guild_members SET role = $1 WHERE guild_id = $2 AND player_id = $3`,
+      [role, guildId, targetId]
+    );
+    if (result.rowCount === 0) throw guildError("target_not_member");
 
     return rowToGuild(guild, await fetchMembers(client, guildId));
   });

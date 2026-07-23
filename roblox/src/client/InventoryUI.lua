@@ -1858,7 +1858,7 @@ function InventoryUI.start()
 				icon.BorderSizePixel = 0
 				icon.Parent = row
 
-				local text = makeLabel(row, string.format("%s  %.0fs", def.name, value - now), 12)
+				local text = makeLabel(row, string.format("%s  %s", def.name, Effects.formatRemaining(value - now)), 12)
 				text.Size = UDim2.new(1, -26, 1, 0)
 				text.Position = UDim2.new(0, 26, 0, 0)
 				text.TextXAlignment = Enum.TextXAlignment.Left

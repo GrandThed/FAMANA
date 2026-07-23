@@ -40,6 +40,7 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -47,12 +48,70 @@ local ArtKit = require(Shared:WaitForChild("ArtKit"))
 local Items = require(Shared:WaitForChild("Items"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
+local DayNightService = require(script.Parent.DayNightService)
 local MeshAssetService = require(script.Parent.MeshAssetService)
 local PlayerService = require(script.Parent.PlayerService)
 local CampService = require(script.Parent.CampService)
 local CraftingService = require(script.Parent.CraftingService)
+local SleepingService = require(script.Parent.SleepingService)
+local SittingService = require(script.Parent.SittingService)
+local GuildPlotService = require(script.Parent.GuildPlotService)
 
 local CampFurnitureService = {}
+
+local lightSources = {} -- [model] = { light, particle, defaultBrightness }
+local isCurrentNight = false
+
+local function registerLightSource(model, light, particle, defaultBrightness)
+	lightSources[model] = {
+		light = light,
+		particle = particle,
+		defaultBrightness = defaultBrightness,
+	}
+
+	local isNight = DayNightService.isNight()
+	if isNight then
+		light.Enabled = true
+		light.Brightness = defaultBrightness
+		if particle then
+			particle.Enabled = true
+		end
+	else
+		light.Enabled = false
+		light.Brightness = 0
+		if particle then
+			particle.Enabled = false
+		end
+	end
+end
+
+function CampFurnitureService.setNightLighting(isNight)
+	isCurrentNight = isNight
+	for model, data in pairs(lightSources) do
+		if model and model.Parent then
+			if isNight then
+				data.light.Enabled = true
+				TweenService:Create(data.light, TweenInfo.new(1.5), { Brightness = data.defaultBrightness }):Play()
+				if data.particle then
+					data.particle.Enabled = true
+				end
+			else
+				local tween = TweenService:Create(data.light, TweenInfo.new(1.5), { Brightness = 0 })
+				tween:Play()
+				tween.Completed:Connect(function()
+					if not isCurrentNight and data.light and data.light.Parent then
+						data.light.Enabled = false
+					end
+				end)
+				if data.particle then
+					data.particle.Enabled = false
+				end
+			end
+		else
+			lightSources[model] = nil
+		end
+	end
+end
 
 local CAMP = Config.Camp
 local FURNITURE = Config.CampFurniture
@@ -67,6 +126,8 @@ local AUTOSAVE_INTERVAL = 120 -- seconds; see the loop in start() below
 -- the town's or a camp-planted one.
 local FURNITURE_DEFS = {
 	cofre_campamento = { kind = "chest" },
+	cofre_gremio = { kind = "guild_chest" },
+	puesto_mercado = { kind = "market" },
 	-- Purely decorative, no station — the first "cosmetic" piece, predates
 	-- the tier system so it's not gated (minCampTier absent = tier 0 ok).
 	-- Counts toward coziness (§3) like the newer cosmetics below.
@@ -90,6 +151,18 @@ local FURNITURE_DEFS = {
 	alfombra_campamento = { kind = "rug", cosmetic = true, minCampTier = 1 },
 	farol_campamento = { kind = "lantern", cosmetic = true, minCampTier = 1 },
 	trofeo_campamento = { kind = "trophy", cosmetic = true, minCampTier = 2 },
+	bolsa_dormir = { kind = "bed", cosmetic = true },
+	cama_campamento = { kind = "bed", cosmetic = true },
+	silla_campamento = { kind = "chair", cosmetic = true },
+	banco_campamento = { kind = "chair", cosmetic = true },
+	mesa_investigacion_gremio = { kind = "guild_research" },
+	antorcha_campamento = { kind = "torch", cosmetic = true },
+	hoguera_gremio = { kind = "campfire", cosmetic = true },
+	lampara_gremio = { kind = "lamp", cosmetic = true },
+	mesa_arquitectura_gremio = { kind = "guild_architecture", station = "mesa_arquitectura_gremio" },
+	maceta_hierbas = { kind = "planter", cosmetic = true },
+	letrero_bienvenida = { kind = "welcome_sign", cosmetic = true },
+	portal_gremio = { kind = "guild_portal" },
 }
 
 local CHEST_SPECS = {
@@ -169,6 +242,7 @@ local furnitureFolder
 local notifyRemote
 local chestUpdatedRemote
 local openChestRemote
+local openGuildBankRemote
 local manageRemote
 
 -- [ownerUserId] = { [pieceId] = piece }; piece = { id, itemId, kind, center,
@@ -313,14 +387,16 @@ end
 -- chest's own "Open" prompt so both can coexist on the same part.
 local function attachManagePrompt(piece, model)
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Manage"
+	prompt.ActionText = "Administrar"
 	local itemDef = Items.get(piece.itemId)
-	prompt.ObjectText = itemDef and itemDef.name or "Furniture"
+	prompt.ObjectText = itemDef and itemDef.name or "Mueble"
 	prompt.KeyboardKeyCode = Enum.KeyCode.F
 	prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
 	prompt.HoldDuration = 0.15
 	prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
 	prompt.RequiresLineOfSight = false
+	prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+	prompt.UIOffset = Vector2.new(0, 55)
 	prompt.Parent = model.PrimaryPart
 
 	prompt.Triggered:Connect(function(triggeringPlayer)
@@ -344,18 +420,84 @@ end
 -- Sizes mirror each spec's primary so placement/spacing feel unchanged.
 local MESH_LOOK = {
 	chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
+	guild_chest = { key = "chest", anchor = Vector3.new(2, 1, 1.4), collide = true },
+	market = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
 	tent = { key = "tent", anchor = Vector3.new(0.6, 2.2, 0.6), collide = false },
 	crafting_table = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
 	forge = { key = "simple_forge", anchor = Vector3.new(2.6, 1.8, 2.2), collide = true },
 	cauldron = { key = "cauldron", anchor = Vector3.new(1.2, 2.2, 1.2), collide = true },
 	rug = { key = "rug", anchor = Vector3.new(2.6, 0.15, 1.8), collide = false },
 	lantern = { key = "lantern", anchor = Vector3.new(0.4, 2, 0.4), collide = true },
-	trophy = { key = "trophy", anchor = Vector3.new(1.3, 1.7, 0.3), collide = true },
+	torch = { key = "lantern", anchor = Vector3.new(0.6, 3.5, 0.6), collide = true },
+	campfire = { key = "simple_forge", anchor = Vector3.new(3, 1, 3), collide = true },
+	lamp = { key = "lantern", anchor = Vector3.new(0.6, 2.5, 0.6), collide = true },
+	guild_architecture = { key = "crafting_table", anchor = Vector3.new(3.2, 1.7, 1.8), collide = true },
+	planter = { key = "cauldron", anchor = Vector3.new(1.6, 1.2, 1.6), collide = true },
+	welcome_sign = { key = "trophy", anchor = Vector3.new(2.5, 3.5, 0.4), collide = true },
 }
 
 -- Mesh-first furniture model; falls back to the ArtKit specs when the mesh
 -- template didn't load (same pattern as the world builders elsewhere).
-local function buildFurnitureModel(kind, artName, specs, origin)
+local function buildFurnitureModel(kind, artName, specs, origin, itemId)
+	-- Check for custom models in ReplicatedStorage > Assets > Furniture
+	local assetsFolder = ReplicatedStorage:FindFirstChild("Assets")
+	local furnitureFolderAssets = assetsFolder and assetsFolder:FindFirstChild("Furniture")
+	if furnitureFolderAssets then
+		local customTemplate = (itemId and furnitureFolderAssets:FindFirstChild(itemId))
+			or (artName and furnitureFolderAssets:FindFirstChild(artName))
+
+		if not customTemplate then
+			-- Flexible name aliases per kind
+			if kind == "chair" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("silla")
+					or furnitureFolderAssets:FindFirstChild("Silla")
+					or furnitureFolderAssets:FindFirstChild("wood chair")
+					or furnitureFolderAssets:FindFirstChild("wood_chair")
+			elseif kind == "bed" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("cama")
+					or furnitureFolderAssets:FindFirstChild("Cama")
+					or furnitureFolderAssets:FindFirstChild("bolsa")
+					or furnitureFolderAssets:FindFirstChild("Bolsa")
+			elseif kind == "torch" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("antorcha")
+					or furnitureFolderAssets:FindFirstChild("Antorcha")
+			elseif kind == "campfire" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("hoguera")
+					or furnitureFolderAssets:FindFirstChild("Hoguera")
+			elseif kind == "lamp" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("farol")
+					or furnitureFolderAssets:FindFirstChild("Farol")
+			elseif kind == "planter" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("maceta")
+					or furnitureFolderAssets:FindFirstChild("Maceta")
+			elseif kind == "welcome_sign" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("letrero")
+					or furnitureFolderAssets:FindFirstChild("Letrero")
+			elseif kind == "guild_architecture" or kind == "crafting_table" then
+				customTemplate = furnitureFolderAssets:FindFirstChild("mesa")
+					or furnitureFolderAssets:FindFirstChild("Mesa")
+			end
+		end
+
+		if customTemplate and customTemplate:IsA("Model") then
+			local clone = customTemplate:Clone()
+			clone.Name = artName
+			if not clone.PrimaryPart then
+				local primary = clone:FindFirstChildWhichIsA("BasePart")
+				if primary then
+					clone.PrimaryPart = primary
+				end
+			end
+			clone:PivotTo(origin * CFrame.new(0, 1.2, 0))
+			for _, part in ipairs(clone:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = true
+				end
+			end
+			return clone
+		end
+	end
+
 	local look = MESH_LOOK[kind]
 	local mesh = look and MeshAssetService.place(look.key, origin)
 	if not mesh then
@@ -376,11 +518,11 @@ local function buildFurnitureModel(kind, artName, specs, origin)
 	return model
 end
 
-local function buildPiece(kind, itemId, center, ownerId)
+local function buildPiece(kind, itemId, center, ownerId, rotY)
 	nextPieceId += 1
 	local id = nextPieceId
-	local origin = CFrame.new(center)
-	local piece = { id = id, itemId = itemId, kind = kind, center = center, ownerId = ownerId }
+	local origin = CFrame.new(center) * CFrame.Angles(0, math.rad(rotY or 0), 0)
+	local piece = { id = id, itemId = itemId, kind = kind, center = center, ownerId = ownerId, rotY = rotY or 0 }
 
 	if kind == "chest" then
 		local model = buildFurnitureModel(kind, "Cofre", CHEST_SPECS, origin)
@@ -400,9 +542,15 @@ local function buildPiece(kind, itemId, center, ownerId)
 		prompt.HoldDuration = 0.15
 		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
 		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.UIOffset = Vector2.new(0, 0)
 		prompt.Parent = model.PrimaryPart
 
-		prompt.Triggered:Connect(function(triggeringPlayer)
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local function triggerChest(triggeringPlayer)
 			if not nearOwnChest(triggeringPlayer, piece) then
 				notify(triggeringPlayer, "You need to be in this camp's party to use its chest.")
 				return
@@ -414,7 +562,76 @@ local function buildPiece(kind, itemId, center, ownerId)
 				items = snapshotChest(piece.storage),
 				position = model.PrimaryPart.Position,
 			})
-		end)
+		end
+
+		prompt.Triggered:Connect(triggerChest)
+		clickDetector.MouseClick:Connect(triggerChest)
+		clickDetector.RightMouseClick:Connect(triggerChest)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "guild_chest" then
+		local model = buildFurnitureModel(kind, "Cofre de Gremio", CHEST_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Abrir Banco de Gremio"
+		prompt.ObjectText = "Cofre de Gremio"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.UIOffset = Vector2.new(0, 0)
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local function triggerGuildChest(triggeringPlayer)
+			if not triggeringPlayer:GetAttribute("GuildId") then
+				notify(triggeringPlayer, "Necesitás pertenecer a un gremio para acceder a su banco.")
+				return
+			end
+			if openGuildBankRemote then
+				openGuildBankRemote:FireClient(triggeringPlayer)
+			end
+		end
+
+		prompt.Triggered:Connect(triggerGuildChest)
+		clickDetector.MouseClick:Connect(triggerGuildChest)
+		clickDetector.RightMouseClick:Connect(triggerGuildChest)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "market" then
+		local model = buildFurnitureModel(kind, "Puesto de Mercado", CHEST_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Abrir Mercado"
+		prompt.ObjectText = "Puesto de Mercado"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.UIOffset = Vector2.new(0, 0)
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local openMarketRemote = Remotes.get("OpenMarket")
+		local function triggerMarket(triggeringPlayer)
+			if openMarketRemote then
+				openMarketRemote:FireClient(triggeringPlayer)
+			end
+		end
+
+		prompt.Triggered:Connect(triggerMarket)
+		clickDetector.MouseClick:Connect(triggerMarket)
+		clickDetector.RightMouseClick:Connect(triggerMarket)
 
 		attachManagePrompt(piece, model)
 	elseif kind == "tent" then
@@ -422,8 +639,15 @@ local function buildPiece(kind, itemId, center, ownerId)
 		model.Parent = furnitureFolder
 		piece.model = model
 
+		-- Cozy interior warm light for tents
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 200, 140)
+		light.Range = 12
+		light.Brightness = 1.0
+		light.Parent = model.PrimaryPart
+
 		attachManagePrompt(piece, model)
-	elseif kind == "crafting_table" or kind == "forge" or kind == "cauldron" then
+	elseif kind == "crafting_table" or kind == "forge" or kind == "cauldron" or kind == "guild_architecture" then
 		local specs = CRAFTING_TABLE_SPECS
 		local artName = "MesaCrafteo"
 		if kind == "forge" then
@@ -432,10 +656,68 @@ local function buildPiece(kind, itemId, center, ownerId)
 		elseif kind == "cauldron" then
 			specs = CAULDRON_SPECS
 			artName = "Olla"
+		elseif kind == "guild_architecture" then
+			specs = CRAFTING_TABLE_SPECS
+			artName = "MesaArquitecturaGremio"
 		end
 		local model = buildFurnitureModel(kind, artName, specs, origin)
 		model.Parent = furnitureFolder
 		piece.model = model
+
+		if kind == "forge" then
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(255, 120, 30)
+			light.Range = 12
+			light.Brightness = 1.8
+			light.Parent = model.PrimaryPart
+		elseif kind == "cauldron" then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.ActionText = "Cocinar / Alquimia"
+			prompt.ObjectText = "Olla de Campamento"
+			prompt.HoldDuration = 0.15
+			prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+			prompt.RequiresLineOfSight = false
+			prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+			prompt.UIOffset = Vector2.new(0, 0)
+			prompt.Parent = model.PrimaryPart
+
+			local clickDetector = Instance.new("ClickDetector")
+			clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+			clickDetector.Parent = model.PrimaryPart
+
+			local openCookingRemote = Remotes.get("OpenCooking")
+			local function triggerCooking(triggeringPlayer)
+				if openCookingRemote then
+					openCookingRemote:FireClient(triggeringPlayer)
+				end
+			end
+
+			prompt.Triggered:Connect(triggerCooking)
+			clickDetector.MouseClick:Connect(triggerCooking)
+			clickDetector.RightMouseClick:Connect(triggerCooking)
+
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(255, 180, 80)
+			light.Range = 10
+			light.Brightness = 1.4
+			light.Parent = model.PrimaryPart
+
+			local steam = Instance.new("ParticleEmitter")
+			steam.Name = "Steam"
+			steam.Color = ColorSequence.new(Color3.fromRGB(220, 230, 240))
+			steam.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.4),
+				NumberSequenceKeypoint.new(1, 1.2),
+			})
+			steam.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.5),
+				NumberSequenceKeypoint.new(1, 1.0),
+			})
+			steam.Lifetime = NumberRange.new(1.0, 2.0)
+			steam.Rate = 6
+			steam.Speed = NumberRange.new(1.0, 2.0)
+			steam.Parent = model.PrimaryPart
+		end
 
 		-- The whole point: while this piece stands, it's a real workbench —
 		-- recipes that need FURNITURE_DEFS[itemId].station unlock near it,
@@ -471,14 +753,281 @@ local function buildPiece(kind, itemId, center, ownerId)
 					end
 				end
 			end
-			if glow then
-				local light = Instance.new("PointLight")
-				light.Color = glow.Color
-				light.Range = 12
-				light.Brightness = 1.5
-				light.Parent = glow
+			local targetPart = glow or model.PrimaryPart
+			local light = Instance.new("PointLight")
+			light.Color = glow and glow.Color or Color3.fromRGB(255, 210, 120)
+			light.Range = 16
+			light.Brightness = 2.0
+			light.Parent = targetPart
+		end
+
+		attachManagePrompt(piece, model)
+	elseif kind == "torch" or kind == "campfire" or kind == "lamp" then
+		local specs = LANTERN_SPECS
+		local artName = "Antorcha"
+		if kind == "campfire" then
+			specs = FORGE_SPECS
+			artName = "Hoguera"
+		elseif kind == "lamp" then
+			specs = LANTERN_SPECS
+			artName = "Farol"
+		end
+		local model = buildFurnitureModel(kind, artName, specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local light = Instance.new("PointLight")
+		if kind == "torch" then
+			light.Color = Color3.fromRGB(255, 170, 70)
+			light.Range = 28
+			light.Brightness = 2.8
+		elseif kind == "campfire" then
+			light.Color = Color3.fromRGB(255, 150, 50)
+			light.Range = 42
+			light.Brightness = 3.6
+
+			local openCookingRemote = Remotes.get("OpenCooking")
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.ActionText = "Cocinar Pescado / Comida"
+			prompt.ObjectText = "Hoguera de Campamento"
+			prompt.HoldDuration = 0.15
+			prompt.MaxActivationDistance = 12
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = model.PrimaryPart
+
+			prompt.Triggered:Connect(function(plr)
+				if openCookingRemote then
+					openCookingRemote:FireClient(plr)
+				end
+			end)
+		else
+			light.Color = Color3.fromRGB(255, 225, 140)
+			light.Range = 32
+			light.Brightness = 2.6
+		end
+		light.Parent = model.PrimaryPart
+
+		local targetBrightness = (kind == "campfire" and 3.6) or (kind == "torch" and 2.8) or 2.6
+		registerLightSource(model, light, nil, targetBrightness)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "planter" then
+		local model = buildFurnitureModel(kind, "Maceta", CAULDRON_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Plantar Semillas de Hierbas"
+		prompt.ObjectText = "Maceta del Gremio"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = 10
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = model.PrimaryPart
+
+		local isPlanted = false
+		local isGrown = false
+		local plantMesh = nil
+
+		prompt.Triggered:Connect(function(plr)
+			if not isPlanted then
+				if PlayerService.removeItem(plr, "semilla_hierbas", 1) then
+					isPlanted = true
+					prompt.ActionText = "🌱 Creciendo..."
+					prompt.Enabled = false
+
+					plantMesh = Instance.new("Part")
+					plantMesh.Name = "Sprout"
+					plantMesh.Size = Vector3.new(0.6, 0.6, 0.6)
+					plantMesh.CFrame = model.PrimaryPart.CFrame * CFrame.new(0, 0.8, 0)
+					plantMesh.Color = Color3.fromRGB(80, 180, 60)
+					plantMesh.Material = Enum.Material.Grass
+					plantMesh.Anchored = true
+					plantMesh.CanCollide = false
+					plantMesh.Parent = model
+
+					task.delay(8, function()
+						if plantMesh and plantMesh.Parent then
+							isGrown = true
+							plantMesh.Size = Vector3.new(1.2, 1.4, 1.2)
+							plantMesh.Color = Color3.fromRGB(40, 210, 80)
+							plantMesh.Material = Enum.Material.Neon
+
+							prompt.ActionText = "🌿 Cosechar Hierbas Medicinales"
+							prompt.Enabled = true
+						end
+					end)
+				else
+					notify(plr, "Necesitas Semillas de Hierbas para plantar (recolectalas de arbustos con la Hoz).")
+				end
+			elseif isGrown then
+				isPlanted = false
+				isGrown = false
+				if plantMesh then
+					plantMesh:Destroy()
+					plantMesh = nil
+				end
+				PlayerService.addItem(plr, "herb_green", 2, true)
+				PlayerService.addItem(plr, "semilla_hierbas", 1, true)
+				prompt.ActionText = "Plantar Semillas de Hierbas"
+				notify(plr, "¡Cosechaste 2x Hierbas Medicinales y 1x Semilla!")
+			end
+		end)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "welcome_sign" then
+		local model = buildFurnitureModel(kind, "LetreroBienvenida", TROPHY_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local surfaceGui = Instance.new("SurfaceGui")
+		surfaceGui.Size = Vector2.new(400, 250)
+		surfaceGui.CanvasSize = Vector2.new(400, 250)
+		surfaceGui.AlwaysOnTop = false
+		surfaceGui.Parent = model.PrimaryPart
+
+		local boardText = Instance.new("TextLabel")
+		boardText.Size = UDim2.new(1, 0, 1, 0)
+		boardText.BackgroundColor3 = Color3.fromRGB(30, 20, 10)
+		boardText.TextColor3 = Color3.fromRGB(255, 220, 140)
+		boardText.TextScaled = true
+		boardText.Font = Enum.Font.SourceSansBold
+		boardText.Text = "📜 ANUNCIOS DE LA SEDE\n\n¡Bienvenidos a la Sede del Gremio!"
+		boardText.Parent = surfaceGui
+
+		local promptRead = Instance.new("ProximityPrompt")
+		promptRead.ActionText = "Leer / Editar Anuncio"
+		promptRead.ObjectText = "Letrero del Gremio"
+		promptRead.HoldDuration = 0.1
+		promptRead.MaxActivationDistance = 12
+		promptRead.RequiresLineOfSight = false
+		promptRead.Parent = model.PrimaryPart
+
+		promptRead.Triggered:Connect(function(plr)
+			Remotes.get("OpenWelcomeSign"):FireClient(plr, {
+				guildName = plr:GetAttribute("GuildName") or "Gremio",
+				text = boardText.Text,
+				isLeader = plr:GetAttribute("GuildLeader") == true,
+			})
+		end)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "guild_portal" then
+		local model = buildFurnitureModel(kind, "PortalGremio", CRAFTING_TABLE_SPECS, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local vortex = Instance.new("Part")
+		vortex.Name = "PortalVortex"
+		vortex.Size = Vector3.new(4, 7, 0.4)
+		vortex.CFrame = origin * CFrame.new(0, 4.5, 0)
+		vortex.Material = Enum.Material.Neon
+		vortex.Color = Color3.fromRGB(0, 210, 255)
+		vortex.Transparency = 0.35
+		vortex.Anchored = true
+		vortex.CanCollide = false
+		vortex.Parent = model
+
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(0, 200, 255)
+		light.Range = 20
+		light.Brightness = 1.8
+		light.Parent = vortex
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Entrar al Valle de los Gremios"
+		prompt.ObjectText = "Portal del Gremio"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = 12
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = vortex
+
+		prompt.Triggered:Connect(function(triggeringPlayer)
+			GuildPlotService.teleportToGuildSanctuary(triggeringPlayer)
+		end)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "bed" then
+		local specs = RUG_SPECS
+		local model = buildFurnitureModel(kind, "Cama", specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Acostarse / Descansar"
+		prompt.ObjectText = itemId == "bolsa_dormir" and "Bolsa de Dormir" or "Cama de Campamento"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local function triggerSleep(p)
+			SleepingService.lieDown(p, model.PrimaryPart)
+		end
+		prompt.Triggered:Connect(triggerSleep)
+		clickDetector.MouseClick:Connect(triggerSleep)
+		clickDetector.RightMouseClick:Connect(triggerSleep)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "guild_research" then
+		local specs = CRAFTING_TABLE_SPECS
+		local model = buildFurnitureModel(kind, "MesaInvestigacion", specs, origin)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Investigaciones del Gremio"
+		prompt.ObjectText = "Mesa de Investigación"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local openResearchRemote = Remotes.get("OpenGuildResearch")
+		local function triggerResearch(p)
+			if openResearchRemote then
+				openResearchRemote:FireClient(p)
 			end
 		end
+		prompt.Triggered:Connect(triggerResearch)
+		clickDetector.MouseClick:Connect(triggerResearch)
+		clickDetector.RightMouseClick:Connect(triggerResearch)
+
+		attachManagePrompt(piece, model)
+	elseif kind == "chair" then
+		local specs = RUG_SPECS
+		local model = buildFurnitureModel(kind, "Asiento", specs, origin, itemId)
+		model.Parent = furnitureFolder
+		piece.model = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Sentarse / Descansar"
+		prompt.ObjectText = itemId == "banco_campamento" and "Banco de Madera" or "Silla de Madera"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_CHEST_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+		prompt.Parent = model.PrimaryPart
+
+		local clickDetector = Instance.new("ClickDetector")
+		clickDetector.MaxActivationDistance = MAX_CHEST_DISTANCE
+		clickDetector.Parent = model.PrimaryPart
+
+		local function triggerSit(p)
+			SittingService.sitDown(p, model.PrimaryPart)
+		end
+		prompt.Triggered:Connect(triggerSit)
+		clickDetector.MouseClick:Connect(triggerSit)
+		clickDetector.RightMouseClick:Connect(triggerSit)
 
 		attachManagePrompt(piece, model)
 	end
@@ -550,23 +1099,27 @@ end
 
 -- ---- remotes ------------------------------------------------------------
 
-local function handlePlaceFurniture(player, itemId, x, z)
+local function handlePlaceFurniture(player, itemId, x, z, rotY)
 	if typeof(itemId) ~= "string" or typeof(x) ~= "number" or typeof(z) ~= "number" then
 		return { ok = false, error = "bad_request" }
 	end
+	rotY = tonumber(rotY) or 0
 	local def = FURNITURE_DEFS[itemId]
 	if not def then
 		return { ok = false, error = "bad_request" }
 	end
 
 	local camp = CampService.campFor(player)
-	if not camp then
-		notify(player, "You need an active Acampada to place that.")
+	local guildId = player:GetAttribute("GuildId")
+	local inHQ = guildId and GuildPlotService.isPositionInGuildHQ(Vector3.new(x, 0, z), guildId)
+
+	if not camp and not inHQ then
+		notify(player, "Debes tener una Acampada activa o estar en la Sede de tu Gremio para colocar este mueble.")
 		return { ok = false, error = "no_camp" }
 	end
 
-	if def.minCampTier and (camp.tier or 0) < def.minCampTier then
-		notify(player, "Your camp needs a higher tier to place that.")
+	if def.minCampTier and camp and (camp.tier or 0) < def.minCampTier then
+		notify(player, "Tu acampada necesita un nivel más alto para colocar este objeto.")
 		return { ok = false, error = "tier_too_low" }
 	end
 
@@ -576,44 +1129,49 @@ local function handlePlaceFurniture(player, itemId, x, z)
 		return { ok = false, error = "no_character" }
 	end
 
-	-- Anti-exploit: never trust the client's claimed point (same posture as
-	-- CampService/CraftingService/ToolService).
+	-- Anti-exploit: distance check
 	local flatDistance = (Vector3.new(x, root.Position.Y, z) - root.Position).Magnitude
 	if flatDistance > CAMP.maxPlacementDistance then
-		notify(player, "Too far away to place it there.")
+		notify(player, "Demasiado lejos para colocarlo ahí.")
 		return { ok = false, error = "too_far" }
 	end
 
-	local half = camp.zoneHalf
-	if math.abs(x - camp.center.X) > half or math.abs(z - camp.center.Z) > half then
-		notify(player, "Furniture has to go inside the camp's zone.")
-		return { ok = false, error = "outside_zone" }
+	if camp then
+		local half = camp.zoneHalf
+		if not inHQ and (math.abs(x - camp.center.X) > half or math.abs(z - camp.center.Z) > half) then
+			notify(player, "El mueble debe colocarse dentro del área de tu Acampada o Sede.")
+			return { ok = false, error = "outside_zone" }
+		end
 	end
 
-	-- Reserved fire-pit radius (docs/CAMP_TIERS.md §6.1): sized to the
-	-- BIGGEST tier's campfire footprint and enforced from tier 0 onward, so
-	-- upgrading tiers later never clips/pushes a piece already sitting near
-	-- the fire — nothing could ever be planted there in the first place.
-	do
+	if itemId == "mesa_investigacion_gremio" then
+		local guildId = player:GetAttribute("GuildId")
+		if not guildId or not GuildPlotService.isPositionInGuildHQ(Vector3.new(x, 0, z), guildId) then
+			notify(player, "La Mesa de Investigación solo puede colocarse dentro de la Sede Oficial de tu Gremio.")
+			return { ok = false, error = "not_guild_hq" }
+		end
+	end
+
+	-- Camp specific radius and capacity checks (bypassed in Guild HQ)
+	if not inHQ and camp then
 		local dx, dz = x - camp.center.X, z - camp.center.Z
 		if math.sqrt(dx * dx + dz * dz) < CAMP.firePitRadius then
-			notify(player, "Too close to the campfire.")
+			notify(player, "Demasiado cerca de la hoguera del campamento.")
 			return { ok = false, error = "too_close_to_fire" }
 		end
-	end
 
-	local pieces = piecesByCamp[camp.ownerUserId]
-
-	local maxFurniture = (CAMP.tiers[camp.tier] or CAMP.tiers[0]).maxFurniture
-	local currentCount = 0
-	if pieces then
-		for _ in pairs(pieces) do
-			currentCount += 1
+		local pieces = piecesByCamp[camp.ownerUserId]
+		local maxFurniture = (CAMP.tiers[camp.tier] or CAMP.tiers[0]).maxFurniture
+		local currentCount = 0
+		if pieces then
+			for _ in pairs(pieces) do
+				currentCount += 1
+			end
 		end
-	end
-	if currentCount >= maxFurniture then
-		notify(player, "This camp can't hold any more furniture — upgrade its tier for more room.")
-		return { ok = false, error = "camp_full" }
+		if currentCount >= maxFurniture then
+			notify(player, "No entran más muebles en este campamento personal. ¡Usa la Sede del Gremio para amueblar sin límite!")
+			return { ok = false, error = "camp_full" }
+		end
 	end
 
 	if pieces then
@@ -636,7 +1194,7 @@ local function handlePlaceFurniture(player, itemId, x, z)
 	end
 
 	local center = Vector3.new(x, findGroundY(x, z), z)
-	local piece = buildPiece(def.kind, itemId, center, camp.ownerUserId)
+	local piece = buildPiece(def.kind, itemId, center, camp.ownerUserId, rotY)
 
 	piecesByCamp[camp.ownerUserId] = piecesByCamp[camp.ownerUserId] or {}
 	piecesByCamp[camp.ownerUserId][piece.id] = piece
@@ -954,6 +1512,12 @@ function CampFurnitureService.start()
 		end
 	end)
 
+	notifyRemote = Remotes.get("Notify")
+	chestUpdatedRemote = Remotes.get("ChestUpdated")
+	openChestRemote = Remotes.get("OpenChest")
+	openGuildBankRemote = Remotes.get("OpenGuildBank")
+	manageRemote = Remotes.get("ManageFurniture")
+
 	local placeFurniture = Remotes.getFunction("PlaceFurniture")
 	placeFurniture.OnServerInvoke = handlePlaceFurniture
 
@@ -968,6 +1532,10 @@ function CampFurnitureService.start()
 
 	local chestWithdraw = Remotes.getFunction("ChestWithdraw")
 	chestWithdraw.OnServerInvoke = handleChestWithdraw
+
+	DayNightService.onChanged(function(isNight)
+		CampFurnitureService.setNightLighting(isNight)
+	end)
 end
 
 return CampFurnitureService

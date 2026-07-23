@@ -180,6 +180,22 @@ Effects.defs = {
 		duration = 3, -- HUD mirror of HealthService's undying window
 		color = Color3.fromRGB(140, 210, 220),
 	},
+
+	-- ---- camp (server/RestedService.lua) --------------------------------------
+	-- No aplica por EffectService.apply: RestedService escribe el attribute
+	-- directo, porque su expiry NO es un timer fijo — crece mientras el
+	-- jugador descansa en zona segura de noche (hasta Config.Camp.rested.
+	-- chargeCapSeconds) y después cuenta regresiva sola al alejarse/salir el
+	-- sol. `duration` acá es ese tope, así el panel de efectos puede armar
+	-- la barra de progreso (remaining / duration) igual que con cualquier
+	-- otro buff, sin necesitar un caso especial.
+	rested = {
+		id = "rested",
+		name = "Descansado",
+		kind = "buff",
+		duration = 20 * 60, -- debe matchear Config.Camp.rested.chargeCapSeconds
+		color = Color3.fromRGB(255, 195, 120), -- luz de fogata
+	},
 }
 
 function Effects.get(effectId)
@@ -197,6 +213,19 @@ function Effects.idFromAttribute(attributeName)
 		return attributeName:sub(#Effects.attributePrefix + 1)
 	end
 	return nil
+end
+
+-- "12m 34s" sobre el minuto, "8s" por debajo — todos los buffs de combate
+-- son cortos (≤10s) así que esto no cambia nada para ellos, pero Rested
+-- puede llegar a 20 minutos y "1200s" no se lee. Un solo lugar para el
+-- formato así HudUI e InventoryUI (los dos paneles de efectos) no
+-- divergen.
+function Effects.formatRemaining(seconds)
+	seconds = math.max(0, seconds)
+	if seconds >= 60 then
+		return string.format("%dm %02ds", math.floor(seconds / 60), math.floor(seconds % 60))
+	end
+	return string.format("%.0fs", seconds)
 end
 
 return Effects

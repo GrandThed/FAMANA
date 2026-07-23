@@ -63,6 +63,23 @@ Quests.defs = {
 		rewards = { xp = 30, gold = 15 },
 	},
 
+	camp_basics = {
+		id = "camp_basics",
+		name = "Sentando las Bases",
+		description = "El Arquitecto de Campamentos te explica cómo armar un buen campamento: craftea una Acampada y plantala para abrir tu zona de descanso, después volvé con materiales para mejorarla. Juntá madera y cobre para arrancar.",
+		giver = "camp_architect",
+		objectives = {
+			{ id = "gather_wood", type = "gather", target = "wood", amount = 8, label = "Recolectar Madera" },
+			{ id = "gather_copper", type = "gather", target = "copper_ore", amount = 5, label = "Recolectar Cobre" },
+		},
+		rewards = {
+			xp = 25,
+			gold = 10,
+			items = { { itemId = "acampada", quantity = 1 } },
+			unlockRecipes = { "acampada" },
+		},
+	},
+
 	goblin_menace = {
 		id = "goblin_menace",
 		name = "La Amenaza Goblin",
@@ -86,7 +103,7 @@ function Quests.get(questId)
 end
 
 -- Orden en el que se muestran en la UI (lista de quests del NPC / quest log).
-local order = { "pest_control", "raw_materials", "goblin_menace" }
+local order = { "camp_basics", "pest_control", "raw_materials", "goblin_menace" }
 
 function Quests.list()
 	local list = {}
