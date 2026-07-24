@@ -157,7 +157,12 @@ too, so click spam can't out-DPS attack speed) ·
 hardwood tree→hardwood, stone/copper/iron rocks→their yields; every node's
 model carries `NodeTool`/`NodeName` attributes for the client's RMB focus;
 harvests burst node-themed particles and fire the `onGathered` hook — the
-drop system flies the resource from the node to the player as pure show) ·
+drop system flies the resource from the node to the player as pure show;
+mesh trees get the full dressing via `buildMeshNode`'s `look` extras:
+per-tree size/lean rolls on top of the variant pool, ambient falling-leaf
+emitters (autumn copper on hardwood, snow motes on conifer), a chop wobble
+per hit, a hinge-fall felling animation — leaf shower, ground-impact dust,
+fade to stump — on deplete, and a sapling grow-back on respawn) ·
 `EnemyService` (data-driven enemies: slimes, goblins + `onKilled` +
 `onPlayerHit` hooks; enemies face their movement, optional `movement = "hop"`
 locomotion with squash & stretch, and per-def `details` welded via

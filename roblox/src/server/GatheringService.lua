@@ -26,8 +26,10 @@ local GatheringService = {}
 
 local GATHER_COOLDOWN = 1 -- global per-player gather cooldown (any node)
 local PARTICLE_BURST = 0.2 -- seconds the node's emitter stays on per harvest
+local TREE_FALL_TIME = 1.35 -- seconds a felled tree takes to hit the ground
+local TREE_GROW_TIME = 0.6 -- seconds a respawned tree takes to swell back up
 
-local nodes = {} -- { def, amount, anchor (Part), deplete(), restore(), emitter? }
+local nodes = {} -- { def, amount, anchor (Part), deplete(), restore(), emitter?, onHarvest? }
 local lastGather = {} -- [userId] = os.clock()
 local resourceFolder
 
@@ -86,6 +88,72 @@ end
 
 -- ---- Node builders -------------------------------------------------------
 
+-- Flat leaf-confetti emitter: untextured particles tumbling in palette colors
+-- read as low-poly leaves. Used both as the trees' ambient drift and as the
+-- heavy shower toggled while a tree falls / regrows.
+local function makeLeafEmitter(parent, colors, rate, enabled)
+	colors = colors or { "leaf" }
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Enabled = enabled
+	emitter.Rate = rate
+	emitter.Lifetime = NumberRange.new(2.2, 3.8)
+	emitter.Speed = NumberRange.new(0.5, 1.4)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Acceleration = Vector3.new(1.4, -3.2, 0.9) -- lazy sideways drift down
+	emitter.Drag = 0.6
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-140, 140)
+	emitter.EmissionDirection = Enum.NormalId.Bottom
+	emitter.LightEmission = 0
+	emitter.LightInfluence = 1
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.34),
+		NumberSequenceKeypoint.new(0.85, 0.3),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	emitter.Color = ColorSequence.new(
+		ArtKit.Palette[colors[1]] or ArtKit.Palette.leaf,
+		ArtKit.Palette[colors[2] or colors[1]] or ArtKit.Palette.leaf
+	)
+	emitter.Parent = parent
+	return emitter
+end
+
+-- One-shot ground-impact dust puff where a felled canopy lands.
+local function burstImpactDust(parent, position)
+	local dust = Instance.new("Part")
+	dust.Name = "ImpactDust"
+	dust.Size = Vector3.new(1, 1, 1)
+	dust.CFrame = CFrame.new(position)
+	dust.Transparency = 1
+	dust.Anchored = true
+	dust.CanCollide = false
+	dust.CanQuery = false
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Rate = 140
+	emitter.Lifetime = NumberRange.new(0.45, 0.9)
+	emitter.Speed = NumberRange.new(4, 9)
+	emitter.SpreadAngle = Vector2.new(85, 85)
+	emitter.Acceleration = Vector3.new(0, -12, 0)
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-90, 90)
+	emitter.EmissionDirection = Enum.NormalId.Top
+	emitter.LightEmission = 0
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.7),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	emitter.Color = ColorSequence.new(ArtKit.Palette.dirt, ArtKit.Palette.stoneDark)
+	emitter.Parent = dust
+	dust.Parent = parent
+	task.delay(0.2, function()
+		emitter.Enabled = false
+	end)
+	task.delay(1.4, function()
+		dust:Destroy()
+	end)
+end
+
 -- Mesh-first node builder: when the node's Style-A mesh template loaded
 -- (shared/MeshAssets via MeshAssetService), the mesh is the visual and
 -- gameplay keeps an invisible anchor part sized like the old ArtKit primary
@@ -93,6 +161,20 @@ end
 -- and shows the anchor as the shrunken remnant — mirroring what the ArtKit
 -- builders below do to their primary part. Returns nil without a template,
 -- so each builder falls through to its ArtKit look.
+--
+-- Tree dressing (all optional `look` fields, ignored by rocks/bushes):
+--   variance    = { scale = {min, max} multiplier on the pool's authored
+--                   scale, lean = max degrees of random tilt } — per-tree
+--                   size + lean rolls so a stand reads like a forest, not
+--                   an array of clones
+--   leafColors  = { paletteKey, paletteKey? } — leaf-confetti colors
+--   ambientRate = leaves/second drifting from the canopy while alive
+--   sink        = studs to bury the visual below ground level (~30cm at the
+--                   pool's world scale) so trunk bases don't float on slopes
+--   fell        = true — deplete plays a hinge-fall (creak, leaf shower,
+--                   ground-impact dust, fade) instead of an instant pop-out;
+--                   restore grows the tree back from a sapling; harvest hits
+--                   wobble the tree (node.onHarvest)
 local function buildMeshNode(spot, def, key, look)
 	if not MeshAssetService.get(key) then
 		return nil
@@ -103,16 +185,53 @@ local function buildMeshNode(spot, def, key, look)
 	local model = Instance.new("Model")
 	model.Name = key
 	-- Random yaw per node (on top of the random variant the pool picks) so
-	-- identical trees never stand in the same orientation twice.
-	local visual = MeshAssetService.place(key, origin * CFrame.Angles(0, math.rad(math.random(0, 359)), 0))
+	-- identical trees never stand in the same orientation twice; trees also
+	-- roll a size and a slight lean, and sink a touch into the ground.
+	local placeCf = (origin - Vector3.new(0, look.sink or 0, 0))
+		* CFrame.Angles(0, math.rad(math.random(0, 359)), 0)
+	local scale
+	if look.variance then
+		local range = look.variance.scale
+		if range then
+			scale = MeshAssetService.baseScale(key) * (range[1] + math.random() * (range[2] - range[1]))
+		end
+		local lean = look.variance.lean
+		if lean and lean > 0 then
+			placeCf = placeCf
+				* CFrame.Angles(math.rad((math.random() * 2 - 1) * lean), 0, math.rad((math.random() * 2 - 1) * lean))
+		end
+	end
+	local visual = MeshAssetService.place(key, placeCf, scale)
 	visual.Parent = model
 
 	local visualParts = {}
+	local woodParts, leafParts = {}, {}
 	for _, p in ipairs(visual:GetDescendants()) do
 		if p:IsA("BasePart") then
 			table.insert(visualParts, p)
+			local lower = p.Name:lower()
+			if lower:find("bark", 1, true) or lower:find("wood", 1, true) or lower:find("trunk", 1, true) then
+				table.insert(woodParts, p)
+			else
+				table.insert(leafParts, p)
+			end
 		end
 	end
+	local _, visualSize = visual:GetBoundingBox()
+
+	-- The canopy hosts the leaf emitters: biggest non-wood part, falling back
+	-- to the biggest part outright (dead trees have no leaves).
+	local function biggestOf(parts)
+		local best, bestVolume
+		for _, p in ipairs(parts) do
+			local volume = p.Size.X * p.Size.Y * p.Size.Z
+			if not best or volume > bestVolume then
+				best, bestVolume = p, volume
+			end
+		end
+		return best
+	end
+	local canopy = biggestOf(leafParts) or biggestOf(visualParts)
 
 	-- The authored anchorSize was tuned for one variant, but each pool draws
 	-- from several differently-sized meshes — fit the collision box to what
@@ -129,16 +248,7 @@ local function buildMeshNode(spot, def, key, look)
 		aliveSize = Vector3.new(boundsSize.X * 0.9, boundsSize.Y, boundsSize.Z * 0.9)
 		aliveCFrame = bounds
 	elseif look.fit == "trunk" then
-		local trunk, trunkVolume
-		for _, p in ipairs(visualParts) do
-			local lower = p.Name:lower()
-			if lower:find("bark", 1, true) or lower:find("wood", 1, true) or lower:find("trunk", 1, true) then
-				local volume = p.Size.X * p.Size.Y * p.Size.Z
-				if not trunk or volume > trunkVolume then
-					trunk, trunkVolume = p, volume
-				end
-			end
-		end
+		local trunk = biggestOf(woodParts)
 		if trunk then
 			-- Branches share the wood part, so its box can be much wider than
 			-- the visible trunk — and an anchor wider than the trunk is an
@@ -164,47 +274,218 @@ local function buildMeshNode(spot, def, key, look)
 	model.PrimaryPart = anchor
 	model.Parent = resourceFolder
 
-	return {
+	local function setVisualTransparency(t)
+		for _, p in ipairs(visualParts) do
+			p.Transparency = t
+		end
+	end
+
+	local function showRemnant()
+		if look.noRemnant then
+			-- Rocks vanish outright: no stump, no leftover collision.
+			anchor.CanCollide = false
+			anchor.CanQuery = false
+		else
+			anchor.Transparency = 0
+			anchor.Size = look.remnantSize
+			anchor.CFrame = origin * CFrame.new(0, look.remnantSize.Y / 2, 0)
+			anchor.Color = ArtKit.Palette[look.remnantColor]
+		end
+		anchor:SetAttribute("Depleted", true)
+	end
+
+	local function showAlive()
+		anchor.Transparency = 1
+		anchor.CanCollide = true
+		anchor.CanQuery = true
+		anchor.Size = aliveSize
+		anchor.CFrame = aliveCFrame
+		anchor:SetAttribute("Depleted", false)
+	end
+
+	local node = {
 		def = def,
 		amount = def.capacity,
 		anchor = anchor,
 		deplete = function()
-			for _, p in ipairs(visualParts) do
-				p.Transparency = 1
-			end
-			if look.noRemnant then
-				-- Rocks vanish outright: no stump, no leftover collision.
-				anchor.CanCollide = false
-				anchor.CanQuery = false
-			else
-				anchor.Transparency = 0
-				anchor.Size = look.remnantSize
-				anchor.CFrame = origin * CFrame.new(0, look.remnantSize.Y / 2, 0)
-				anchor.Color = ArtKit.Palette[look.remnantColor]
-			end
-			anchor:SetAttribute("Depleted", true)
+			setVisualTransparency(1)
+			showRemnant()
 		end,
 		restore = function()
-			for _, p in ipairs(visualParts) do
-				p.Transparency = 0
-			end
-			anchor.Transparency = 1
-			anchor.CanCollide = true
-			anchor.CanQuery = true
-			anchor.Size = aliveSize
-			anchor.CFrame = aliveCFrame
-			anchor:SetAttribute("Depleted", false)
+			setVisualTransparency(0)
+			showAlive()
 		end,
 	}
+	if not look.fell then
+		return node
+	end
+
+	-- ---- Tree dressing ----
+	local ambient
+	if canopy and (look.ambientRate or 0) > 0 then
+		ambient = makeLeafEmitter(canopy, look.leafColors, look.ambientRate, true)
+	end
+	-- Heavy shower toggled while the tree falls or regrows.
+	local shower = canopy and makeLeafEmitter(canopy, look.leafColors, 45, false) or nil
+
+	local basePivot = visual:GetPivot()
+	local baseScaleAbs = visual:GetScale()
+	local pivotUp = basePivot.Position.Y - origin.Position.Y -- pivot height above the trunk base
+	local token = 0 -- bumping cancels any in-flight fall/grow/wobble loop
+	local structural = false -- a fall/grow is animating; wobbles stay out
+
+	-- The chop landed: the tree creaks over a hinge at the trunk's base edge
+	-- like a real felled log — leaf shower on the way down, dust where the
+	-- canopy hits, a beat on the ground, then it fades out onto the stump.
+	node.deplete = function()
+		token += 1
+		local myToken = token
+		structural = true
+		showRemnant()
+		if ambient then
+			ambient.Enabled = false
+		end
+		if shower then
+			shower.Enabled = true
+		end
+		visual:ScaleTo(baseScaleAbs) -- normalize if a regrow was interrupted
+		visual:PivotTo(basePivot)
+		task.spawn(function()
+			local dirYaw = math.random() * 2 * math.pi
+			local hinge = CFrame.new(origin.Position)
+				* CFrame.Angles(0, dirYaw, 0)
+				* CFrame.new(0, 0, -aliveSize.X / 2)
+			local rel = hinge:Inverse() * basePivot
+			local start = os.clock()
+			while true do
+				if token ~= myToken then
+					return
+				end
+				local t = math.min((os.clock() - start) / TREE_FALL_TIME, 1)
+				-- t² ramp: a slow creak that accelerates like gravity.
+				visual:PivotTo(hinge * CFrame.Angles(-math.rad(85) * t * t, 0, 0) * rel)
+				if t >= 1 then
+					break
+				end
+				task.wait()
+			end
+			if shower then
+				shower.Enabled = false
+			end
+			burstImpactDust(
+				model,
+				origin.Position + hinge.LookVector * (visualSize.Y * 0.7) + Vector3.new(0, 0.5, 0)
+			)
+			task.wait(0.45) -- let the log lie there a beat
+			local fadeStart = os.clock()
+			while true do
+				if token ~= myToken then
+					return
+				end
+				local t = math.min((os.clock() - fadeStart) / 0.5, 1)
+				setVisualTransparency(t)
+				if t >= 1 then
+					break
+				end
+				task.wait()
+			end
+			visual:PivotTo(basePivot)
+			structural = false
+		end)
+	end
+
+	-- Respawn: the tree swells back up from a sapling with a little overshoot
+	-- and a puff of leaves.
+	node.restore = function()
+		token += 1
+		local myToken = token
+		structural = true
+		showAlive()
+		visual:PivotTo(basePivot)
+		setVisualTransparency(0)
+		if ambient then
+			ambient.Enabled = true
+		end
+		if shower then
+			shower.Enabled = true
+			task.delay(0.35, function()
+				shower.Enabled = false
+			end)
+		end
+		task.spawn(function()
+			local start = os.clock()
+			while true do
+				if token ~= myToken then
+					return
+				end
+				local t = math.min((os.clock() - start) / TREE_GROW_TIME, 1)
+				local u = t - 1
+				local eased = 1 + 2.70158 * u * u * u + 1.70158 * u * u -- back ease-out
+				local f = 0.2 + 0.8 * eased
+				visual:ScaleTo(baseScaleAbs * f)
+				visual:PivotTo(basePivot - Vector3.new(0, (1 - f) * pivotUp, 0))
+				if t >= 1 then
+					break
+				end
+				task.wait()
+			end
+			visual:ScaleTo(baseScaleAbs)
+			visual:PivotTo(basePivot)
+			structural = false
+		end)
+	end
+
+	-- Every axe hit rocks the tree around its base and shakes a few leaves
+	-- loose (harvest path calls this next to the wood-chip burst).
+	node.onHarvest = function()
+		if structural then
+			return
+		end
+		token += 1
+		local myToken = token
+		if shower then
+			shower.Enabled = true
+			task.delay(0.15, function()
+				shower.Enabled = false
+			end)
+		end
+		task.spawn(function()
+			local dirYaw = math.random() * 2 * math.pi
+			local swing = CFrame.new(origin.Position) * CFrame.Angles(0, dirYaw, 0)
+			local rel = swing:Inverse() * basePivot
+			local start = os.clock()
+			local DURATION = 0.3
+			while true do
+				if token ~= myToken then
+					return
+				end
+				local t = math.min((os.clock() - start) / DURATION, 1)
+				local a = math.rad(2.6) * math.sin(t * math.pi * 3) * (1 - t)
+				visual:PivotTo(swing * CFrame.Angles(-a, 0, 0) * rel)
+				if t >= 1 then
+					break
+				end
+				task.wait()
+			end
+			visual:PivotTo(basePivot)
+		end)
+	end
+
+	return node
 end
 
 local function buildTree(spot, def)
-	-- Anchor sized for the 2.25x mesh scale (MeshAssets.world.tree.scale).
+	-- Anchor sized for the B-series oaks at MeshAssets scale 1.4.
 	local meshNode = buildMeshNode(spot, def, "tree", {
-		anchorSize = Vector3.new(4, 18, 4),
+		anchorSize = Vector3.new(5, 18, 5),
 		fit = "trunk",
-		remnantSize = Vector3.new(4, 3.6, 4),
+		remnantSize = Vector3.new(5, 3.6, 5),
 		remnantColor = "trunkDark",
+		variance = { scale = { 0.85, 1.25 }, lean = 2.5 },
+		leafColors = { "leaf", "leafLight" },
+		ambientRate = 0.5,
+		sink = 1.4,
+		fell = true,
 	})
 	if meshNode then
 		return meshNode
@@ -256,12 +537,18 @@ end
 -- the regular Tree, so it visually reads as "needs a better axe" up front —
 -- same idea as IronRock vs. Rock.
 local function buildHardwoodTree(spot, def)
-	-- Anchor sized for the 2.25x mesh scale (MeshAssets.world.hardwood_tree.scale).
+	-- Anchor sized for the B-series autumn oaks at MeshAssets scale 1.4.
 	local meshNode = buildMeshNode(spot, def, "hardwood_tree", {
-		anchorSize = Vector3.new(5.9, 20, 5.9),
+		anchorSize = Vector3.new(5, 20, 5),
 		fit = "trunk",
-		remnantSize = Vector3.new(5.9, 4, 5.9),
+		remnantSize = Vector3.new(5, 4, 5),
 		remnantColor = "stoneDark",
+		-- Old-growth: bigger rolls, and the autumn canopy sheds copper leaves.
+		variance = { scale = { 0.9, 1.3 }, lean = 2 },
+		leafColors = { "copper", "rust" },
+		ambientRate = 1.1,
+		sink = 1.4,
+		fell = true,
 	})
 	if meshNode then
 		return meshNode
@@ -318,6 +605,12 @@ local function buildConiferTree(spot, def)
 		fit = "trunk",
 		remnantSize = Vector3.new(3.6, 3.6, 3.6),
 		remnantColor = "stoneLight",
+		-- Winter flavor: pale motes drift off the boughs like loose snow.
+		variance = { scale = { 0.85, 1.2 }, lean = 1.5 },
+		leafColors = { "stoneLight" },
+		ambientRate = 0.35,
+		sink = 1.3,
+		fell = true,
 	})
 	if meshNode then
 		return meshNode
@@ -371,6 +664,11 @@ local function buildDeadTree(spot, def)
 		fit = "trunk",
 		remnantSize = Vector3.new(3.3, 3, 3.3),
 		remnantColor = "stoneDark",
+		-- Leafless: no ambient drift, the fall/wobble shed bark flakes instead.
+		variance = { scale = { 0.8, 1.15 }, lean = 4 },
+		leafColors = { "stoneDark", "trunkDark" },
+		sink = 0.9,
+		fell = true,
 	})
 	if meshNode then
 		return meshNode
@@ -946,6 +1244,9 @@ local function onToolSwing(player, tool, def)
 	-- eto hace que suene cuando le pegas a la piedra o al rbol
 	Remotes.get("GatherFeedback"):FireClient(player, node.def.yield, amount, node.anchor.Position)
 	burstParticles(node)
+	if node.onHarvest then
+		node.onHarvest() -- trees rock on the hit and shake a few leaves loose
+	end
 
 	local ok = PlayerService.addItem(player, node.def.yield, amount)
 	if not ok then

@@ -33,9 +33,15 @@ local function distanceXZ(position, floor)
 end
 
 -- Nearest fracture segment (the decor folder holds one VoidFloor per
--- polyline segment).
+-- polyline segment). Lives under Workspace.Map when authored by the Studio
+-- Rift Tool (so the map pull carries it), or loose in Workspace when built
+-- at runtime by TerrainGen.
 local function nearestFloorDistance(position)
 	local decor = workspace:FindFirstChild("TerrainRiftDecor")
+	if not decor then
+		local map = workspace:FindFirstChild("Map")
+		decor = map and map:FindFirstChild("TerrainRiftDecor")
+	end
 	if not decor then
 		return nil
 	end

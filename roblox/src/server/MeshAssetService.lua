@@ -105,6 +105,12 @@ function MeshAssetService.get(key)
 	return pool and pool[1]
 end
 
+-- The authored default placement scale for a world key (MeshAssets def.scale),
+-- so callers can jitter around it (per-tree size variety) without hardcoding.
+function MeshAssetService.baseScale(key)
+	return worldScale[key] or 1
+end
+
 -- The mesh pipeline lands our baked -Z fronts on +Z, so both placement
 -- helpers spin the visual 180° — game-side, a mesh model's front is -Z of
 -- the origin/part it's placed on, same as the enemy convention.

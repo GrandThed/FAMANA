@@ -78,16 +78,24 @@ MeshAssets.items = {
 -- unwired.)
 MeshAssets.world = {
 	goblin = { assetId = 98715900781376 },
-	-- Gathering trees are VARIANT POOLS (new_art_style/variants — 5 authored
-	-- structural variants per species: branch layout, height, tier/limb
-	-- counts, palette bias); every placed node draws a random one so forests
-	-- read less regular.
-	-- `scale` multiplies the mesh at placement (MeshAssetService.place).
-	tree = { scale = 2.25, assetIds = { 72344195310639, 107593124794028, 117032412913468, 79125791269192, 105236673635744 } }, -- green oak 01-05
-	hardwood_tree = { scale = 2.25, assetIds = { 138632698344179, 127398703088981, 74528344057829, 71595350168403, 104059734104173 } }, -- autumn oak 01-05
+	-- Gathering trees are VARIANT POOLS (5 authored structural variants per
+	-- species: branch layout, height, tier/limb counts, palette bias); every
+	-- placed node draws a random one so forests read less regular.
+	-- B-series ("imposing" rebuild, procedurally generated in Blender via
+	-- MCP): mightier silhouettes — buttressed oak trunks with heavy limbs
+	-- under broad domed canopies, taller snow-tiered conifer spires, wider
+	-- clawing dead trees. Sources: roblox/src/assets/StyleA/Tree*B*/ FBXs.
+	-- Authored ~2x the old heights, so world `scale`s dropped accordingly
+	-- (`scale` multiplies the mesh at placement, MeshAssetService.place).
+	-- D-series (current): every species carries ~4m of clear trunk before
+	-- the foliage/limbs start, so players can walk under the canopy. Oaks
+	-- keep the B-series mighty crowns (hoisted), conifer is the C-series
+	-- solid pine on a tall bare trunk, dead tree claws start above the line.
+	tree = { scale = 1.3, assetIds = { 126867078024332, 71001457306135, 108474602266609, 89463145136752, 132095148958109 } }, -- green oak D1-D5
+	hardwood_tree = { scale = 1.3, assetIds = { 90245763276154, 96414539007949, 76167550375497, 114926549407982, 74923855887827 } }, -- autumn oak D1-D5
 	-- Wood-variety nodes: both drop plain wood, different biome flavor.
-	conifer_tree = { scale = 1.5, assetIds = { 104417345453937, 80497554894490, 112725607111965, 70891102488617, 128070011856338 } },
-	dead_tree = { scale = 1.5, assetIds = { 97161715709820, 82951960226063, 76183893695357, 119450274004031, 94378359347271 } },
+	conifer_tree = { scale = 1.2, assetIds = { 94088918613955, 115096958342110, 130031024069539, 106839101037652, 121870316551087 } }, -- winter conifer D1-D5
+	dead_tree = { scale = 0.85, assetIds = { 134614227965568, 92837009516156, 78527158716196, 108802295780064, 127104575487114 } }, -- gnarled dead D1-D5
 	-- Rock nodes are variant pools too (new_art_style/rocks — 3 structural
 	-- variants each: squat dome / tilted monolith / leaning twin slabs, ore
 	-- nuggets scattered over the host rock's side faces).
